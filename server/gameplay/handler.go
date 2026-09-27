@@ -2030,8 +2030,10 @@ func (r gameplayJoinRuntime) handle(
 		zoneMembership: zoneMembership{
 			generation: r.registry.lifecycle.nextGeneration(),
 		},
+		controlledHeroState: controlledHeroState{
+			overdriveEnergy: campaignInitialOverdriveEnergy(binding),
+		},
 		binding: binding, transportGeneration: transportGeneration,
-		overdriveEnergy: campaignInitialOverdriveEnergy(binding),
 		schedulePackets: packet.Autonomous().Schedule,
 		schedulePacket:  gameplaySchedulePacket(packet),
 	}

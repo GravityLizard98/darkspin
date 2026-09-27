@@ -1843,9 +1843,9 @@ func (r campaignResultRuntime) continueChain(
 			controlledHeroState: controlledHeroState{
 				maximumHitPoints:  continueSession.maximumHitPoints,
 				maximumManaPoints: continueSession.maximumManaPoints,
+				overdriveEnergy:   campaignInitialOverdriveEnergy(nextBinding),
 			},
 			binding:                     nextBinding,
-			overdriveEnergy:             campaignInitialOverdriveEnergy(nextBinding),
 			transportGeneration:         continueSession.transportGeneration,
 			schedulePackets:             continueSession.schedulePackets,
 			schedulePacket:              continueSession.schedulePacket,

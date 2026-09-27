@@ -3038,8 +3038,8 @@ func restartTutorialSession(
 	binding.AvatarLevel = experience.Level
 	return gameplayPeerSession{
 		zoneMembership:      zoneMembership{generation: generation},
+		controlledHeroState: controlledHeroState{overdriveEnergy: campaignInitialOverdriveEnergy(binding)},
 		binding:             binding,
-		overdriveEnergy:     campaignInitialOverdriveEnergy(binding),
 		transportGeneration: previous.transportGeneration,
 		schedulePackets:     previous.schedulePackets,
 		schedulePacket:      previous.schedulePacket,
