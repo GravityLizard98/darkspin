@@ -316,6 +316,7 @@ type controlledHeroState struct {
 	lightspeedEffectTier          uint8
 	isOverdrivePersistencePending bool
 	isOverdriveSpent              bool
+	overdriveEnergy               float32
 	overdriveExpiresAt            time.Time
 }
 
@@ -596,6 +597,7 @@ func (s *gameplayPeerSession) setCrystalInventory(inventory sim.CrystalInventory
 		creature.PetHealthIncrease += next[64] - previous[64]
 		creature.RangeIncrease += next[67] - previous[67]
 		creature.AreaDurationIncrease += next[95] - previous[95]
+		creature.OverdriveBuildupIncrease += next[69] - previous[69]
 		creature.OverdriveDurationIncrease += next[70] - previous[70]
 		creature.LifeSteal += next[35] - previous[35]
 		creature.CriticalDamageIncrease += next[22] - previous[22]
@@ -3037,6 +3039,7 @@ func restartTutorialSession(
 	return gameplayPeerSession{
 		zoneMembership:      zoneMembership{generation: generation},
 		binding:             binding,
+		overdriveEnergy:     campaignInitialOverdriveEnergy(binding),
 		transportGeneration: previous.transportGeneration,
 		schedulePackets:     previous.schedulePackets,
 		schedulePacket:      previous.schedulePacket,

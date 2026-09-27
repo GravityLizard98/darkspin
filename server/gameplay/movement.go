@@ -2415,6 +2415,7 @@ func (s *gameplayPeerSession) admitCampaignGenericBossPlan(
 			)
 		}
 		s.binding.IsOverdriveUnlocked = true
+		s.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
 		s.isOverdrivePersistencePending = true
 	}
 	return livePlans, packets, true, nil

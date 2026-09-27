@@ -1637,12 +1637,14 @@ func marshalCampaignDungeonSetup(
 	return response, nil
 }
 
-func marshalCampaignInitialPlayer(binding game.GameplayBinding, status raknet.PlayerStatus) ([]byte, error) {
-	return marshalCampaignPlayer(binding, status, true, false)
+func marshalCampaignInitialPlayer(
+	binding game.GameplayBinding, status raknet.PlayerStatus, overdriveEnergy float32,
+) ([]byte, error) {
+	return marshalCampaignPlayer(binding, status, overdriveEnergy, true, false)
 }
 
 func marshalCampaignPlayer(
-	binding game.GameplayBinding, status raknet.PlayerStatus,
+	binding game.GameplayBinding, status raknet.PlayerStatus, overdriveEnergy float32,
 	isResourceFallbackAllowed, isStatusPreserved bool,
 ) ([]byte, error) {
 	creatures := binding.Creatures
@@ -1669,7 +1671,7 @@ func marshalCampaignPlayer(
 		ThirdHeroVersion: int32(max(uint32(1), creatures[2].AppearanceVersion)), ThirdHeroType: 2,
 		AbilityCount:        zoneunlock.InitialAbilityCount(binding),
 		LockedDeckMinimum:   zonehero.CreatureCount(binding),
-		EnergyPoint:         campaignInitialOverdriveEnergy(binding),
+		EnergyPoint:         overdriveEnergy,
 		IsOverdriveUnlocked: binding.IsOverdriveUnlocked,
 		IsCatalystUnlocked:  binding.IsCatalystUnlocked,
 		CharacterResources: campaignCharacterResources(
@@ -1703,7 +1705,7 @@ func marshalZoneHeroRoster(
 		DNA:                 roster.Roster.DNA, Creatures: roster.Roster.Creatures,
 	}
 	statusPacket, err := marshalCampaignPlayer(
-		binding, raknet.PlayerStatus{}, false, true,
+		binding, raknet.PlayerStatus{}, campaignInitialOverdriveEnergy(binding), false, true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("rosterStatus: %w", err)
@@ -2029,6 +2031,7 @@ func (r gameplayJoinRuntime) handle(
 			generation: r.registry.lifecycle.nextGeneration(),
 		},
 		binding: binding, transportGeneration: transportGeneration,
+		overdriveEnergy: campaignInitialOverdriveEnergy(binding),
 		schedulePackets: packet.Autonomous().Schedule,
 		schedulePacket:  gameplaySchedulePacket(packet),
 	}
@@ -2200,7 +2203,8 @@ func (r gameplayJoinRuntime) synchronizeRoster(sessionKey string) ([][]byte, err
 		for _, peerSessionKey := range peerSessionKeys {
 			peerSession := r.registry.sessions[peerSessionKey]
 			playerPacket, marshalErr := marshalCampaignPlayer(
-				peerSession.binding, raknet.PlayerStatus{}, true, isCampaignParty,
+				peerSession.binding, raknet.PlayerStatus{},
+				peerSession.presentedOverdriveEnergy(time.Now()), true, isCampaignParty,
 			)
 			if marshalErr != nil {
 				return nil, fmt.Errorf(
@@ -2618,6 +2622,9 @@ func (r gameplayPendingRuntime) persistOverdriveUnlock(
 	currentSession, isCurrent := r.registry.sessions[sessionKey]
 	if isCurrent && currentSession.generation == peerSession.generation {
 		currentSession.binding.IsOverdriveUnlocked = true
+		if !currentSession.isOverdriveSpent && currentSession.overdriveEnergy == 0 {
+			currentSession.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
+		}
 		currentSession.isOverdrivePersistencePending = false
 		r.registry.sessions[sessionKey] = currentSession
 	}
@@ -2925,6 +2932,7 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 			return nil, false, fmt.Errorf("eventVictoryOverdrive: %w", unlockErr)
 		}
 		queuedSession.binding.IsOverdriveUnlocked = true
+		queuedSession.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
 	}
 	r.registry.mutex.Lock()
 	currentSession, isCurrentFound := r.registry.sessions[packet.Address.String()]
@@ -2935,6 +2943,9 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 	}
 	if queuedSession.binding.IsOverdriveUnlocked {
 		currentSession.binding.IsOverdriveUnlocked = true
+		if !currentSession.isOverdriveSpent && currentSession.overdriveEnergy == 0 {
+			currentSession.overdriveEnergy = queuedSession.overdriveEnergy
+		}
 		currentSession.isOverdrivePersistencePending = false
 	}
 	if command.Name == "victory" {

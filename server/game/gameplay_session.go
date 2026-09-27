@@ -136,6 +136,7 @@ type GameplayCreature struct {
 	PetHealthIncrease          float32
 	RangeIncrease              float32
 	AreaDurationIncrease       float32
+	OverdriveBuildupIncrease   float32
 	OverdriveDurationIncrease  float32
 	LifeSteal                  float32
 	AutoCrit                   float32
@@ -613,6 +614,7 @@ func gameplayCreature(
 	selected.PetHealthIncrease += partAttribute[64]
 	selected.RangeIncrease += partAttribute[67]
 	selected.AreaDurationIncrease += partAttribute[95]
+	selected.OverdriveBuildupIncrease += partAttribute[69]
 	selected.OverdriveDurationIncrease += partAttribute[70]
 	selected.LifeSteal += partAttribute[35]
 	selected.AutoCrit += partAttribute[19]

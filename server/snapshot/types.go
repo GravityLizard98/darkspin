@@ -150,6 +150,7 @@ type PlayerControlState struct {
 	EnemyFearRemainingMS          int64              `json:"enemy_fear_remaining_ms,omitempty"`
 	EnemyFearTargetObjectID       uint32             `json:"enemy_fear_target_object_id,omitempty"`
 	OverdriveRemainingMS          int64              `json:"overdrive_remaining_ms,omitempty"`
+	OverdriveEnergy               float32            `json:"overdrive_energy,omitempty"`
 	FollowTargetUserID            uint64             `json:"follow_target_user_id,omitempty"`
 	NextProjectileObjectID        uint32             `json:"next_projectile_object_id,omitempty"`
 	BasicSequence                 BasicSequenceState `json:"basic_sequence"`

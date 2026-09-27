@@ -32,6 +32,7 @@ const campaignProjectileCursorRadius = float32(3)
 
 const campaignIdleTargetCursorRadius = float32(6)
 const campaignIdleTargetRecoveryRadius = float32(20)
+const campaignDirectAggroNeighborGap = float32(3)
 const campaignPursuitCheckInterval = 100 * time.Millisecond
 const campaignPlayerPursuitRedirectDistance = float32(0.75)
 
@@ -704,7 +705,7 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 		maximumRange += campaignPlayerPursuitRedirectDistance
 	}
 	targetFootprint := float32(0)
-	directAggroPlans := make([]zonenpc.SpawnPlan, 0, 1)
+	directAggroPlans := make([]zonenpc.SpawnPlan, 0, 4)
 	directAggroPackets := make([][]byte, 0, 1)
 	if targetObjectID != 0 {
 		actorFootprint, err = r.program.FootprintRadiusByNoun(creature.Noun)
@@ -742,22 +743,52 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 					targetEnemy.Plan.Position.Z,
 				)
 			}
-			if targetEnemy.TargetObjectID == 0 && !targetEnemy.Plan.IsFixture {
-				acquiredEnemy, isAcquired, acquireErr :=
-					peerSession.zone.NPCs().AcquireTarget(
-						targetObjectID, command.Common.ObjectID,
-					)
-				if acquireErr != nil {
-					r.registry.mutex.Unlock()
-					return request.reject(acquireErr.Error())
+			if !targetEnemy.Plan.IsFixture {
+				aggroCandidates := []zonenpc.Snapshot{targetEnemy}
+				if definition.Kind == sim.AbilityKindProjectile {
+					for _, candidate := range peerSession.zone.NPCs().LiveSnapshots() {
+						if candidate.Plan.ObjectID == targetObjectID ||
+							candidate.Plan.IsFixture || candidate.TargetObjectID != 0 {
+							continue
+						}
+						maximumNeighborDistance := campaignDirectAggroNeighborGap +
+							max(float32(0), targetEnemy.Plan.NPCProfile.FootprintRadius) +
+							max(float32(0), candidate.Plan.NPCProfile.FootprintRadius)
+						if zonegeometry.Distance(
+							targetEnemy.Plan.Position, candidate.Plan.Position,
+						) > maximumNeighborDistance {
+							continue
+						}
+						aggroCandidates = append(aggroCandidates, candidate)
+					}
 				}
-				if isAcquired {
-					directAggroPlans = append(directAggroPlans, acquiredEnemy.Plan)
-					directAggroPackets, acquireErr =
-						npcraknet.TargetUpdates([]zonenpc.Snapshot{acquiredEnemy})
+				acquiredEnemies := make([]zonenpc.Snapshot, 0, len(aggroCandidates))
+				for _, candidate := range aggroCandidates {
+					acquiredEnemy, isAcquired, acquireErr :=
+						peerSession.zone.NPCs().AcquireTarget(
+							candidate.Plan.ObjectID, command.Common.ObjectID,
+						)
 					if acquireErr != nil {
 						r.registry.mutex.Unlock()
-						return nil, fmt.Errorf("campaignBasicAcquireMarshal: %w", acquireErr)
+						return request.reject(acquireErr.Error())
+					}
+					if !isAcquired {
+						if acquiredEnemy.TargetObjectID == command.Common.ObjectID &&
+							!acquiredEnemy.IsActionStarted {
+							directAggroPlans = append(
+								directAggroPlans, acquiredEnemy.Plan,
+							)
+						}
+						continue
+					}
+					acquiredEnemies = append(acquiredEnemies, acquiredEnemy)
+					directAggroPlans = append(directAggroPlans, acquiredEnemy.Plan)
+				}
+				if len(acquiredEnemies) != 0 {
+					directAggroPackets, err = npcraknet.TargetUpdates(acquiredEnemies)
+					if err != nil {
+						r.registry.mutex.Unlock()
+						return nil, fmt.Errorf("campaignBasicAcquireMarshal: %w", err)
 					}
 				}
 			}

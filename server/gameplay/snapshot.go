@@ -380,6 +380,7 @@ func snapshotPlayerControl(
 		EnemyFearRemainingMS:          snapshotDurationMS(peerSession.enemyFearExpiresAt.Sub(capturedAt)),
 		EnemyFearTargetObjectID:       peerSession.enemyFearTargetObjectID,
 		OverdriveRemainingMS:          snapshotDurationMS(peerSession.overdriveExpiresAt.Sub(capturedAt)),
+		OverdriveEnergy:               peerSession.presentedOverdriveEnergy(capturedAt),
 		FollowTargetUserID:            peerSession.followTargetUserID,
 		NextProjectileObjectID:        peerSession.nextProjectileObjectID,
 		IsAttackPoseActive:            peerSession.attackPose.isActiveAt(capturedAt),

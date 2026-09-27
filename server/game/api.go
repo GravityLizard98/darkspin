@@ -379,8 +379,22 @@ func (a *API) game(writer http.ResponseWriter, request *http.Request, uri *recap
 		}
 		err := a.userManager.UpdateDecks(request.Context(), user, command)
 		if err != nil {
+			if a.logger != nil {
+				a.logger.Printf(
+					"deck_update account=%q pve_slot=%d pve_creatures=%v pvp_slot=%d pvp_creatures=%v result=%q error=%v",
+					userLoginName(user), command.PVEActiveSlot, command.PVECreatures,
+					command.PVPActiveSlot, command.PVPCreatures, "rejected", err,
+				)
+			}
 			writeXML(writer, http.StatusOK, xmlResponse(false))
 			return
+		}
+		if a.logger != nil {
+			a.logger.Printf(
+				"deck_update account=%q pve_slot=%d pve_creatures=%v pvp_slot=%d pvp_creatures=%v result=%q",
+				userLoginName(user), command.PVEActiveSlot, command.PVECreatures,
+				command.PVPActiveSlot, command.PVPCreatures, "accepted",
+			)
 		}
 		writeXML(writer, http.StatusOK, xmlResponse(true))
 	// These methods acknowledge the request but intentionally do not write

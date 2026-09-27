@@ -35,6 +35,7 @@ func (r campaignOverdriveRuntime) handle(
 		command.Common.ObjectID == peerSession.deployedObjectID &&
 		peerSession.deployedHitPoint() > 0 &&
 		!peerSession.isOverdriveSpent &&
+		peerSession.overdriveEnergy >= float32(campaignOverdriveMaximumEnergy) &&
 		!peerSession.isOverdriveActiveAt(now)
 	if !isAccepted {
 		r.registry.mutex.Unlock()
@@ -54,6 +55,7 @@ func (r campaignOverdriveRuntime) handle(
 		return nil, fmt.Errorf("overdriveAcknowledge: %w", err)
 	}
 	peerSession.isOverdriveSpent = true
+	peerSession.overdriveEnergy = 0
 	peerSession.overdriveExpiresAt = now.Add(duration)
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
@@ -64,6 +66,56 @@ func (r campaignOverdriveRuntime) handle(
 		)
 	}
 	return [][]byte{ackPacket}, nil
+}
+
+func (e *gameplayPeerSession) rechargeOverdrive(
+	baseEnergy uint32, now time.Time,
+) (float32, bool) {
+	if e == nil || baseEnergy == 0 || !e.binding.IsOverdriveUnlocked {
+		return 0, false
+	}
+	creatureIndex := e.deployedCreatureIndex
+	if creatureIndex >= uint32(len(e.binding.Creatures)) {
+		return 0, false
+	}
+	bonus := max(float32(-1), e.binding.Creatures[creatureIndex].OverdriveBuildupIncrease)
+	recharge := float32(baseEnergy) * (1 + bonus)
+	if recharge <= 0 {
+		return 0, false
+	}
+	if e.isOverdriveActiveAt(now) {
+		duration := campaignOverdriveDuration(*e)
+		remaining := float32(e.overdriveExpiresAt.Sub(now)) /
+			float32(duration) * float32(campaignOverdriveMaximumEnergy)
+		energy := min(float32(campaignOverdriveMaximumEnergy), remaining+recharge)
+		e.overdriveExpiresAt = now.Add(time.Duration(
+			float64(duration) * float64(energy) / campaignOverdriveMaximumEnergy,
+		))
+		return energy, true
+	}
+	if !e.isOverdriveSpent {
+		return 0, false
+	}
+	e.overdriveEnergy = min(
+		float32(campaignOverdriveMaximumEnergy), e.overdriveEnergy+recharge,
+	)
+	if e.overdriveEnergy >= float32(campaignOverdriveMaximumEnergy) {
+		e.isOverdriveSpent = false
+	}
+	return e.overdriveEnergy, true
+}
+
+func (e gameplayPeerSession) presentedOverdriveEnergy(now time.Time) float32 {
+	if !e.binding.IsOverdriveUnlocked {
+		return 0
+	}
+	if !e.isOverdriveActiveAt(now) {
+		return e.overdriveEnergy
+	}
+	duration := campaignOverdriveDuration(e)
+	remaining := float32(e.overdriveExpiresAt.Sub(now)) /
+		float32(duration) * float32(campaignOverdriveMaximumEnergy)
+	return min(float32(campaignOverdriveMaximumEnergy), max(float32(0), remaining))
 }
 
 func campaignOverdriveDuration(peerSession gameplayPeerSession) time.Duration {

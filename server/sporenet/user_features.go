@@ -35,6 +35,8 @@ var (
 	ErrPartNotFound = errors.New("part not found")
 	// ErrPartLoadoutLimit protects the six functional equipment slots.
 	ErrPartLoadoutLimit = errors.New("part loadout exceeds six functional items")
+	// ErrPartFlairLoadoutLimit protects the profile's unlocked Detail slots.
+	ErrPartFlairLoadoutLimit = errors.New("part loadout exceeds unlocked detail items")
 	// ErrCreatureNotFound indicates that a creature mutation references an unowned instance.
 	ErrCreatureNotFound = errors.New("creature not found")
 	// ErrOnboardingTransition protects the recovered first-session milestone graph.
@@ -249,9 +251,22 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 		}
 	}
 	functionalItemCount := 0
+	flairItemCount := uint32(0)
+	maximumFlairItemCount := max(
+		defaultEditorFlairSlotCount, user.Account.UnlockEditorFlairSlots,
+	)
 	for index := range user.Parts {
 		part := &user.Parts[index]
-		if _, isSelected := selected[part.ID]; !isSelected || part.IsFlair {
+		_, isSelected := selected[part.ID]
+		if !isSelected {
+			continue
+		}
+		if part.IsFlair {
+			flairItemCount++
+			if flairItemCount > maximumFlairItemCount {
+				user.mu.Unlock()
+				return nil, ErrPartFlairLoadoutLimit
+			}
 			continue
 		}
 		functionalItemCount++
@@ -385,9 +400,16 @@ func (u *User) updateDecks(command DeckUpdate) (Account, []Squad, bool, error) {
 			ownedIDs[creature.ID] = struct{}{}
 		}
 	}
-	// An explicitly empty deck (0,0,0) is an update, not an omitted field.
+	// An explicitly empty deck (0,0,0) is an update when its destination
+	// exists. Build 103 also submits an all-zero Arena placeholder before the
+	// player has created an Arena squad; that field must not reject a campaign
+	// edit because its placeholder slot is not an Arena destination.
 	isPVERequested := len(command.PVECreatures) != 0
 	isPVPRequested := len(command.PVPCreatures) != 0
+	if isPVPRequested && !hasCreatureID(command.PVPCreatures) &&
+		!hasSquadCategory(u.Squads, "pvp") {
+		isPVPRequested = false
+	}
 	if isPVERequested && command.PVEActiveSlot > max(uint32(1), u.Account.UnlockPVEDecks) {
 		return previousAccount, previousSquads, false, ErrSquadLocked
 	}
@@ -433,6 +455,15 @@ func (u *User) updateDecks(command DeckUpdate) (Account, []Squad, bool, error) {
 func hasCreatureID(creatureIDs []uint32) bool {
 	for _, creatureID := range creatureIDs {
 		if creatureID != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSquadCategory(squads []Squad, category string) bool {
+	for _, squad := range squads {
+		if squad.Category == category {
 			return true
 		}
 	}

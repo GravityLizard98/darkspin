@@ -1399,7 +1399,9 @@ func (e gameplayArenaRuntime) lobbyPlayerPackets(gameID uint32) ([][]byte, error
 	})
 	packets := make([][]byte, 0, len(bindings))
 	for _, binding := range bindings {
-		packet, err := marshalCampaignInitialPlayer(binding, raknet.PlayerStatus{})
+		packet, err := marshalCampaignInitialPlayer(
+			binding, raknet.PlayerStatus{}, campaignInitialOverdriveEnergy(binding),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("arenaPlayer[%d]: %w", binding.Slot, err)
 		}

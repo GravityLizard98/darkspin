@@ -3252,6 +3252,8 @@ func (r campaignDamageRuntime) publishExperience(
 	if !isAccepted {
 		return nil, nil
 	}
+	var overdriveEnergy float32
+	var isOverdriveRecharged bool
 	r.registry.mutex.Lock()
 	for userID, total := range totals {
 		member, isFound := members[userID]
@@ -3268,8 +3270,29 @@ func (r campaignDamageRuntime) publishExperience(
 		candidate.binding.AvatarLevel = sporenet.AccountLevelForExperience(cumulativeXP)
 		r.registry.sessions[member.sessionKey] = candidate
 	}
+	killerSession, isKillerFound := r.registry.sessions[sessionKey]
+	if isKillerFound && killerSession.generation == generation &&
+		killerSession.zone == source.zone {
+		overdriveEnergy, isOverdriveRecharged = killerSession.rechargeOverdrive(
+			baseExperience, time.Now(),
+		)
+		if isOverdriveRecharged {
+			r.registry.sessions[sessionKey] = killerSession
+		}
+	}
 	r.registry.mutex.Unlock()
-	packets := make([][]byte, 0, 1)
+	packets := make([][]byte, 0, 2)
+	if isOverdriveRecharged {
+		overdrivePacket, marshalErr := raknet.MarshalApplication(
+			raknet.LabsPlayerOverdriveEnergyMessage{
+				Slot: uint8(source.binding.Slot), Energy: overdriveEnergy,
+			},
+		)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("experienceOverdrive: %w", marshalErr)
+		}
+		packets = append(packets, overdrivePacket)
+	}
 	for userID, total := range totals {
 		member, isFound := members[userID]
 		if !isFound || total > math.MaxUint32-member.startingXP {
@@ -5662,38 +5685,12 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 		Delay: timeline.NextDelay, Produce: schedule.next,
 	}
 	producers := []raknet.ScheduledPacketProducer{hitProducer, nextProducer}
-	var voltroidEffectPacket []byte
-	voltroidEffectSlot := uint8(0)
-	isVoltroidEffectAllocated := false
+	var voltroidBeamPacket []byte
 	if attackPlan.Profile.AbilityName == "CitadelDischarge" &&
 		attackPlan.Profile.TrailEffectName != "" {
-		voltroidEffectSlot, isVoltroidEffectAllocated =
-			r.effectPool.Allocate(objectID)
-		if isVoltroidEffectAllocated {
-			voltroidEffectPacket, err = npcraknet.VoltroidEffect(
-				objectID, attackPlan.TargetObjectID, voltroidEffectSlot,
-				attackPlan.Profile.TrailEffectName, false,
-			)
-			if err != nil {
-				isEffectReleased := r.effectPool.Release(
-					objectID, voltroidEffectSlot,
-				)
-				if !isEffectReleased {
-					r.logger.Printf(
-						"RakNet Voltroid discharge slot already released object=%d slot=%d",
-						objectID, voltroidEffectSlot,
-					)
-				}
-				return nil, fmt.Errorf("enemyPunchVoltroidEffect: %w", err)
-			}
-			cleanup := campaignVoltroidVisualCleanupStep{
-				runtime: r, objectID: objectID,
-				effectSlot: voltroidEffectSlot,
-			}
-			producers = append(producers, raknet.ScheduledPacketProducer{
-				Delay:   attackPlan.Profile.ReleaseDelay,
-				Produce: cleanup.produce,
-			})
+		voltroidBeamPacket, err = npcraknet.BeamEffect(attackPlan)
+		if err != nil {
+			return nil, fmt.Errorf("enemyPunchVoltroidBeam: %w", err)
 		}
 	}
 	producers = r.registry.producerGuard.scheduledProducers(sessionKey, producers)
@@ -5702,24 +5699,13 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 		scheduleErr = errors.New("nil cancellation")
 	}
 	if scheduleErr != nil {
-		if isVoltroidEffectAllocated {
-			isEffectReleased := r.effectPool.Release(
-				objectID, voltroidEffectSlot,
-			)
-			if !isEffectReleased {
-				r.logger.Printf(
-					"RakNet Voltroid discharge cleanup slot already released object=%d slot=%d",
-					objectID, voltroidEffectSlot,
-				)
-			}
-			voltroidEffectPacket = nil
-		}
+		voltroidBeamPacket = nil
 		r.releaseAction(sessionKey, generation, objectID)
 		r.logger.Printf("RakNet campaign enemy punch continuation not scheduled object=%d: %v", objectID, scheduleErr)
 	}
 	packets := append(revealPackets, startPackets...)
-	if voltroidEffectPacket != nil {
-		packets = append(packets, voltroidEffectPacket)
+	if voltroidBeamPacket != nil {
+		packets = append(packets, voltroidBeamPacket)
 	}
 	return packets, nil
 }

@@ -2,6 +2,13 @@
 
 ### 2026-09-27
 
+- Recharge spent Overdrive from enemy kills, apply equipped and catalyst Overdrive Recharge bonuses, extend active Overdrive from kills, and preserve the meter across reconnects.
+- Resume a targeted but idle enemy's action loop when directly attacked so Polaris engages instead of remaining passive.
+- Restore the three starting Detail slots, preserve the four-through-six-slot upgrades, and reject hero saves that exceed the unlocked Detail limit.
+- Alert an enemy and its immediately adjacent group when a ranged basic attack targets it, even when the group has not entered its normal awareness range.
+- Restore Tree of Life's authored lifetime so its healing explosion and disappearance play at expiry and the ability becomes available again.
+- Restore Voltroid discharge visuals by sending their authored zap as a one-shot source-to-target beam instead of a persistent attached effect.
+- Save campaign squad edits when build 103 submits an all-zero placeholder for an Arena squad that does not exist yet, while retaining explicit clearing for an existing Arena squad.
 - Accept build 103's namespaced inventory part identifiers when creating item details so owned equipment resolves to its stored part.
 - Keep Citadel Special Two's close-range melee pursuit active instead of restarting its locomotion on every server poll.
 

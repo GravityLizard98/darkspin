@@ -200,7 +200,9 @@ func (r gameplayStatusRuntime) handleChain(
 		return r.campaignBeamOut(ctx, packet, peerSession)
 	}
 	if status.Status == 2 {
-		playerPacket, err := marshalCampaignInitialPlayer(peerSession.binding, status)
+		playerPacket, err := marshalCampaignInitialPlayer(
+			peerSession.binding, status, peerSession.presentedOverdriveEnergy(time.Now()),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("statusChainInitial: %w", err)
 		}
@@ -1843,6 +1845,7 @@ func (r campaignResultRuntime) continueChain(
 				maximumManaPoints: continueSession.maximumManaPoints,
 			},
 			binding:                     nextBinding,
+			overdriveEnergy:             campaignInitialOverdriveEnergy(nextBinding),
 			transportGeneration:         continueSession.transportGeneration,
 			schedulePackets:             continueSession.schedulePackets,
 			schedulePacket:              continueSession.schedulePacket,

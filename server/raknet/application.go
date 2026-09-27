@@ -2150,6 +2150,20 @@ func (m LabsPlayerOverdriveUnlockMessage) EncodePayload() []byte {
 	return append(payload, 0xff)
 }
 
+// LabsPlayerOverdriveEnergyMessage refreshes only the mutable Overdrive meter
+// without replaying the unlock presentation or changing its entitlement.
+type LabsPlayerOverdriveEnergyMessage struct {
+	Slot   uint8
+	Energy float32
+}
+
+func (LabsPlayerOverdriveEnergyMessage) PacketID() PacketID { return LabsPlayerUpdate }
+func (m LabsPlayerOverdriveEnergyMessage) EncodePayload() []byte {
+	payload := []byte{m.Slot, 0, 0x10, 10}
+	payload = binary.LittleEndian.AppendUint32(payload, math.Float32bits(m.Energy))
+	return append(payload, 0xff)
+}
+
 // LabsPlayerCrystalUnlockMessage applies the exact sparse reflection written
 // by build 103's nPlayer.UnlockCrystals native: clear locked-crystals field 20.
 type LabsPlayerCrystalUnlockMessage struct {

@@ -3,6 +3,7 @@ package sporenet
 const tutorialCompletedProgress uint32 = 3000
 const shipOnboardingCompletedProgress uint32 = 9000
 const defaultInventoryCapacity uint32 = 180
+const defaultEditorFlairSlotCount uint32 = 3
 const unlockedFuelTankCapacity uint32 = 5
 
 // Account contains persistent Game progression and unlock state.
@@ -51,6 +52,7 @@ func defaultAccount() Account {
 		UnlockFuelTanks:         unlockedFuelTankCapacity,
 		UnlockPVPDecks:          1,
 		UnlockInventoryIdentify: defaultInventoryCapacity,
+		UnlockEditorFlairSlots:  defaultEditorFlairSlotCount,
 	}
 }
 
@@ -71,6 +73,9 @@ func normalizeAccount(account Account) Account {
 	}
 	if account.UnlockFuelTanks < unlockedFuelTankCapacity {
 		account.UnlockFuelTanks = unlockedFuelTankCapacity
+	}
+	if account.UnlockEditorFlairSlots < defaultEditorFlairSlotCount {
+		account.UnlockEditorFlairSlots = defaultEditorFlairSlotCount
 	}
 	return account
 }
