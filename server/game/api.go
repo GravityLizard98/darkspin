@@ -307,6 +307,7 @@ func (a *API) game(writer http.ResponseWriter, request *http.Request, uri *recap
 		a.vendorParts(writer, request, user, values.Get("transactions"))
 	case "api.inventory.updatePartStatus":
 		partIDs, partIDErr := parseUint64CSV(values.Get("part_id"))
+		canonicalizePartStatusIDs(partIDs)
 		statusCodes, statusErr := parseUint64CSV(values.Get("status"))
 		isDetailStatus := len(statusCodes) != 0
 		for _, currentStatus := range statusCodes {
@@ -720,6 +721,17 @@ func parseUint64CSV(encoded string) ([]uint64, error) {
 		numbers = append(numbers, currentNumber)
 	}
 	return numbers, nil
+}
+
+func canonicalizePartStatusIDs(partIDs []uint64) {
+	const clientPartStatusNamespace = uint64(1) << 32
+	const clientPartStatusLimit = clientPartStatusNamespace << 1
+	for index, partID := range partIDs {
+		if partID < clientPartStatusNamespace || partID >= clientPartStatusLimit {
+			continue
+		}
+		partIDs[index] = partID - clientPartStatusNamespace
+	}
 }
 
 func requestRemoteIP(remoteAddress string) string {

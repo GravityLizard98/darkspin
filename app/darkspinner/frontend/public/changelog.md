@@ -1,5 +1,10 @@
 # Changelog
 
+### 2026-09-27
+
+- Accept build 103's namespaced inventory part identifiers when creating item details so owned equipment resolves to its stored part.
+- Keep Citadel Special Two's close-range melee pursuit active instead of restarting its locomotion on every server poll.
+
 ### 2026-09-26
 
 - Add a compact credits dialog to the Dark Spin launcher wordmark with a Darkspin website link, the project model note, and callouts
