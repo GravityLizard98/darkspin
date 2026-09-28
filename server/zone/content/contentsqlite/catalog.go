@@ -892,7 +892,7 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 			ManaCost: 12, ManaCoefficient: 0.06,
 			DescriptorMask: 72, DamageType: 2, DamageSource: 0,
 			IsDescriptorFound: true, IsDamageTypeFound: true, IsDamageSourceFound: true,
-			ImpactEffectName:     "Thornado_Spines.ServerEventDef",
+			MuzzleEffectName:     "Thornado_Spines.ServerEventDef",
 			RootModifierID:       0x548abb1c,
 			StatusDuration:       10 * time.Second,
 			TickDuration:         2 * time.Second,

@@ -2,6 +2,7 @@
 
 ### 2026-09-28
 
+- Change Thornado's green tornado from one effect on every struck enemy to one caster-centered effect that also plays when no enemies are nearby.
 - Restore HELIX's authored map introduction on campaign mission entry and the authored return-to-planet narration at the corresponding first-pass campaign transitions.
 - Keep the mission-entry landing animation synchronized with its sound and ground shake even when zone initialization or setup preparation takes longer than usual.
 - Play HELIX's authored obelisk-access line immediately after each successful blue loot-obelisk activation while keeping green health and energy obelisks silent.
