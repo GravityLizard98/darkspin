@@ -102,6 +102,19 @@ func campaignCharacterArrivalMessages(
 // DeployModifier holds Immobilized until WaitUntilTime(1), after the landing.
 const heroArrivalLockDuration = time.Second
 
+func advanceHeroArrivalTimestamp(
+	timestamp uint64, startedAt time.Time, currentTime time.Time,
+) uint64 {
+	if startedAt.IsZero() || !currentTime.After(startedAt) {
+		return timestamp
+	}
+	elapsedMilliseconds := uint64(currentTime.Sub(startedAt) / time.Millisecond)
+	if ^uint64(0)-timestamp < elapsedMilliseconds {
+		return ^uint64(0)
+	}
+	return timestamp + elapsedMilliseconds
+}
+
 func (e *gameplayPeerSession) beginHeroArrival(at time.Time) {
 	e.heroInputLockedObjectID = e.deployedObjectID
 	e.heroInputLockedUntil = at.Add(heroArrivalLockDuration)

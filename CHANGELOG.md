@@ -2,6 +2,10 @@
 
 ### 2026-09-28
 
+- Restore HELIX's authored map introduction on campaign mission entry and the authored return-to-planet narration at the corresponding first-pass campaign transitions.
+- Keep the mission-entry landing animation synchronized with its sound and ground shake even when zone initialization or setup preparation takes longer than usual.
+- Play HELIX's authored obelisk-access line immediately after each successful blue loot-obelisk activation while keeping green health and energy obelisks silent.
+- Keep catalysts locked while entering mission 1-3, then enable their drops, pickups, inventory controls, and bonuses when the scripted catalyst unlock occurs.
 - Keep weapons in campaign loot rotation for heroes without a dedicated packaged weapon family by selecting the closest authored family, preferring matching class and science.
 - Preserve each equipped item's identity and ownership fields in hero profile responses so weapons remain visible, retain their correct equipment slot, and submit valid inventory IDs when the hero is saved.
 
@@ -36,7 +40,7 @@
 - Preserve separate current and maximum health and energy through reconnects, checkpoint restoration, and party snapshots so recovered bars do not exceed 100% and keep flashing.
 - Make sphere teleporters transfer heroes immediately once their collision footprint fits inside, and keep each gate inactive while enemies remain within roughly three Blitz collision lengths.
 - Keep destroyed Gravitic Regulator bases visible and solid for the mission, including after reconnects and checkpoint restoration.
-- Gate catalyst drops, pickups, and use behind campaign unlock progression, reduce obelisk catalyst drops from a 75% base chance to 5% while retaining equipment rewards, and restore HELIX's obelisk-access announcement.
+- Gate catalyst drops, pickups, and use behind campaign unlock progression and reduce obelisk catalyst drops from a 75% base chance to 5% while retaining equipment rewards.
 - Move Ride the Lightning's teleport and arrival animation from immediate movement and late recovery to the authored impact time, and allow cursor-directed teleports to walkable ground without an enemy target or walking path.
 - Restore mission spawning and hero switching from the short teleporter animation to the authored beam-in landing sequence, with matching effects and sound cues, consistent timing, and a brief input lock through landing.
 - Save campaign squad edits when the unused Arena deck field is blank instead of rejecting the complete deck update and restoring Blitz, Sage, and Wraith.

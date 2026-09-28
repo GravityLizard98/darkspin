@@ -3541,6 +3541,7 @@ func campaignObjectiveMessages(
 			PlayerIndex: publication.Update.PlayerIndex,
 			Medal:       publication.Update.Medal,
 			Voiceover:   openingVoiceover,
+			IsShown:     openingVoiceover != 0,
 			Token:       publication.Update.Token,
 		},
 	), nil
@@ -4631,6 +4632,7 @@ type gameplaySetupRuntime struct {
 func (r gameplaySetupRuntime) publishCampaign(
 	packet raknet.Packet, peerSession gameplayPeerSession, setupEpoch uint64,
 ) ([][]byte, bool, error) {
+	publishStartedAt := r.now()
 	peerSession.initializeCampaignResourceMaximums()
 	entryPosition := campaignEntryPosition(
 		peerSession.zone.DirectorDefinition(), peerSession.binding.Slot,
@@ -4802,17 +4804,7 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignMembers: %w", err)
 	}
 	response = append(response, memberPackets...)
-	beamPackets, err := heroraknet.BeamIn(
-		peerSession.deployedObjectID,
-		campaignCharacterEntry(
-			peerSession.binding.Creatures[peerSession.deployedCreatureIndex],
-		),
-		zonePosition(entryPosition), packet.SourceTime,
-	)
-	if err != nil {
-		return nil, false, fmt.Errorf("pingCampaignBeamIn: %w", err)
-	}
-	response = append(response, beamPackets...)
+	arrivalPacketIndex := len(response)
 	response = append(response, fieldMedicPackets...)
 	isCheckpointBaseline := peerSession.zone.IsRestored() ||
 		peerSession.binding.IsCheckpointRestore
@@ -4830,13 +4822,10 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignRemnants: %w", err)
 	}
 	response = append(response, remnantPackets...)
-	// The objective update owns the first-pass HELIX cue. Publish it only after
-	// the hero and level fixtures exist so the client cannot discard the cue
-	// while it is still constructing the campaign scene.
-	openingVoiceover := zonepreview.CampaignEntryPresentation(
-		peerSession.binding.ChainLevelIndex,
-		peerSession.binding.ChainProgression,
-	).CurrentVoice
+	// The objective update owns the mission's authored HELIX introduction.
+	// Publish it only after the hero and level fixtures exist so the client
+	// cannot discard the cue while it is still constructing the campaign scene.
+	openingVoiceover := zonepreview.CampaignMissionVoice(peerSession.binding.Level)
 	objectiveMessages, err := campaignObjectiveMessages(
 		peerSession.zone.Objective().State(), uint8(peerSession.binding.Slot),
 		openingVoiceover,
@@ -4944,6 +4933,20 @@ func (r gameplaySetupRuntime) publishCampaign(
 		"RakNet campaign dungeon state sent to %s level=%q",
 		packet.Address, peerSession.binding.Level,
 	)
+	arrivalTimestamp := advanceHeroArrivalTimestamp(
+		packet.SourceTime, publishStartedAt, r.now(),
+	)
+	beamPackets, err := heroraknet.BeamIn(
+		peerSession.deployedObjectID,
+		campaignCharacterEntry(
+			peerSession.binding.Creatures[peerSession.deployedCreatureIndex],
+		),
+		zonePosition(entryPosition), arrivalTimestamp,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("pingCampaignBeamIn: %w", err)
+	}
+	response = slices.Insert(response, arrivalPacketIndex, beamPackets...)
 	heroActor, isHeroFound := peerSession.zone.Hero().Snapshot(
 		peerSession.binding.UserID, peerSession.generation,
 	)
@@ -5168,6 +5171,7 @@ func (r gameplaySetupRuntime) handle(
 func (r gameplaySetupRuntime) publishDungeon(
 	ctx context.Context, packet raknet.Packet,
 ) ([][]byte, bool, error) {
+	setupStartedAt := r.now()
 	r.registry.mutex.Lock()
 	peerSession, isFound := r.registry.sessions[packet.Address.String()]
 	isDungeonSetupNeeded := isFound && peerSession.stage.IsDungeon() &&
@@ -5212,6 +5216,9 @@ func (r gameplaySetupRuntime) publishDungeon(
 	}
 	r.registry.sessions[packet.Address.String()] = peerSession
 	r.registry.mutex.Unlock()
+	packet.SourceTime = advanceHeroArrivalTimestamp(
+		packet.SourceTime, setupStartedAt, r.now(),
+	)
 	packets, isPublished, publishErr := r.publishCampaign(
 		packet, peerSession, setupEpoch,
 	)

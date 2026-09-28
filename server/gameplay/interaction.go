@@ -33,6 +33,7 @@ import (
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 	objectraknet "github.com/darkspinnet/darkspin/server/zone/object/raknet103"
 	zoneobjective "github.com/darkspinnet/darkspin/server/zone/objective"
+	objectiveraknet "github.com/darkspinnet/darkspin/server/zone/objective/raknet103"
 	zoneunlock "github.com/darkspinnet/darkspin/server/zone/unlock"
 	unlockraknet "github.com/darkspinnet/darkspin/server/zone/unlock/raknet103"
 )
@@ -2735,6 +2736,7 @@ func (s *gameplayPeerSession) materializeCampaignCatalystUnlock(
 		s.zone.Pickups().Remove(objectID)
 		return nil, fmt.Errorf("catalystTrack: %w", err)
 	}
+	s.binding.IsCatalystUnlocked = true
 	packets := append([][]byte(nil), batch.Packets...)
 	return append(packets, worldPackets...), nil
 }
@@ -3362,6 +3364,18 @@ func (r campaignInteractionRuntime) handleScriptUse(
 			}
 		}
 	}
+	var obeliskVoicePackets [][]byte
+	if use.Invocation.CallbackName == "InteractWithObelisk" {
+		obeliskVoicePackets, err = objectiveraknet.ObeliskAccessedPackets(
+			objectiveUpdates, uint8(currentSession.binding.Slot),
+		)
+		if err != nil {
+			interactableCancel()
+			interactableRun.Stop()
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignInteractableObeliskVoice: %w", err)
+		}
+	}
 	err = currentSession.zone.Script().CommitUse(use)
 	if err != nil {
 		currentSession.releaseCampaignInteractableSchedule(
@@ -3382,5 +3396,6 @@ func (r campaignInteractionRuntime) handleScriptUse(
 	response := append([][]byte{acceptPacket}, stopPackets...)
 	response = append(response, startPackets...)
 	response = append(response, scriptPackets...)
+	response = append(response, obeliskVoicePackets...)
 	return response, nil
 }

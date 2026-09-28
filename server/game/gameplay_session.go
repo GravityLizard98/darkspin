@@ -413,7 +413,7 @@ func (o *GameplayJoin) Execute(ctx context.Context, userID int64) (GameplayBindi
 	}
 	binding.RefreshReplay()
 	binding.IsCatalystUnlocked = binding.Mode == ModeChain &&
-		(binding.ChainProgression >= 3 || binding.ChainLevelIndex >= 3)
+		binding.ChainProgression >= 3
 	binding.IsDiagonalCatalystUnlocked = user.Account.UnlockDiagonalCatalysts != 0
 	binding.CatalystSlotCount = min(uint32(9), max(uint32(3), user.Account.UnlockCatalysts))
 	return binding, nil

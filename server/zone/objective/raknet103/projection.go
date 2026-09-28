@@ -74,6 +74,25 @@ func UpdatePackets(update []zoneobjective.Update) ([][]byte, error) {
 	return packet, nil
 }
 
+func ObeliskAccessedPackets(
+	updates []zoneobjective.Update, playerIndex uint8,
+) ([][]byte, error) {
+	for index := len(updates) - 1; index >= 0; index-- {
+		current := updates[index]
+		if current.ObjectiveID != zoneobjective.ObeliskID ||
+			current.PlayerIndex != playerIndex {
+			continue
+		}
+		current.IsObeliskAccessed = true
+		packets, err := UpdatePackets([]zoneobjective.Update{current})
+		if err != nil {
+			return nil, fmt.Errorf("obeliskMarshal: %w", err)
+		}
+		return packets, nil
+	}
+	return nil, nil
+}
+
 func Messages(
 	initialization zoneobjective.Initialization,
 ) []raknet.ApplicationMessage {

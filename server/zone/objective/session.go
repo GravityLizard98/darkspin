@@ -446,12 +446,6 @@ func ApplyState(
 	if err != nil {
 		return nil, fmt.Errorf("objectiveProgram: %w", err)
 	}
-	// One access writes three tokens for each active player. Announce it
-	// once after those updates, rather than once for every token or player.
-	if objectiveID == ObeliskID && event.Kind == sim.LuaObjectiveEventTouchedObelisk &&
-		len(updates) > 0 {
-		updates[len(updates)-1].IsObeliskAccessed = true
-	}
 	return updates, nil
 }
 

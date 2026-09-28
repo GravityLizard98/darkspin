@@ -1788,8 +1788,7 @@ func (r campaignResultRuntime) continueChain(
 	nextBinding.Level = snapshot.NextLevel
 	nextBinding.ChainLevelIndex = snapshot.CompletedIndex + 1
 	nextBinding.Difficulty = nextBinding.ChainLevelIndex
-	nextBinding.IsCatalystUnlocked = nextBinding.ChainLevelIndex >= 3 ||
-		nextBinding.ChainProgression >= 3
+	nextBinding.IsCatalystUnlocked = nextBinding.ChainProgression >= 3
 	for index := range nextBinding.Creatures {
 		maximumManaPoint := peerSession.maximumManaPoints[index]
 		if maximumManaPoint <= 0 {
