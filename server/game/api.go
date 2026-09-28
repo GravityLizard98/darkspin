@@ -1785,12 +1785,17 @@ func profilePartNode(part *sporenet.Part, partImageBaseURL string, partCatalog *
 	}
 	return xmlNode("part",
 		xmlText("type_full", partType), xmlText("is_flair", boolNumber(part.IsFlair)), xmlText("stats", partCatalog.Stats(part)),
-		xmlText("cost", number(part.Cost)), xmlText("level", number(part.Level)), xmlText("class_types_full", classType),
+		xmlText("cost", number(part.Cost)), xmlText("creature_id", number(part.EquippedToCreatureID)),
+		xmlText("id", number(part.ID)), xmlText("reference_id", number(part.ReferenceID)),
+		xmlText("level", number(part.Level)), xmlText("market_status", number(uint16(part.MarketStatus)+1)),
+		xmlText("class_types_full", classType),
 		xmlText("science_types_full", scienceType), xmlText("rarity_full", rarityName[rarity]),
 		xmlText("rigblock_asset_id", number(part.RigblockAssetHash)), xmlText("png_key", profilePartIcon(part, partType, partImageBaseURL, isDefined)),
 		xmlText("suffix_asset_id", number(part.SuffixAssetHash)), xmlText("prefix_asset_id", number(part.PrefixAssetHash)),
 		xmlText("prefix_secondary_asset_id", number(part.PrefixSecondaryAssetHash)),
 		xmlText("rarity", number(uint16(part.Rarity)+1)),
+		xmlText("status", number(part.Status)), xmlText("usage", number(part.Usage)),
+		xmlText("creation_date", number(part.CreationDate)),
 		xmlText("weapon_damage_modifier", profilePartNumber(partCatalog.WeaponDamageModifier(part))),
 	)
 }

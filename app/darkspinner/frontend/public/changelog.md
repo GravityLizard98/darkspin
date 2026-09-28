@@ -1,5 +1,10 @@
 # Changelog
 
+### 2026-09-28
+
+- Keep weapons in campaign loot rotation for heroes without a dedicated packaged weapon family by selecting the closest authored family, preferring matching class and science.
+- Preserve each equipped item's identity and ownership fields in hero profile responses so weapons remain visible, retain their correct equipment slot, and submit valid inventory IDs when the hero is saved.
+
 ### 2026-09-27
 
 - Recharge spent Overdrive from enemy kills, apply equipped and catalyst Overdrive Recharge bonuses, extend active Overdrive from kills, and preserve the meter across reconnects.

@@ -496,10 +496,23 @@ func (c *PartCatalog) generateCampaignPart(
 	eligibleIDs := make([]uint16, 0, len(c.partsByRigblock))
 	nearestIDs := make([]uint16, 0, len(c.partsByRigblock))
 	nearestDistance := ^uint32(0)
+	weaponCompatibility := campaignWeaponIncompatible
+	if slotType == "weapon" {
+		weaponCompatibility = c.campaignWeaponCompatibility(
+			classType, scienceType, creatureName, accountLevel, isUniqueFamily,
+		)
+	}
 	for rigblockID, definition := range c.partsByRigblock {
-		if !isCampaignPartCompatible(definition, classType, scienceType, creatureName) ||
-			definition.IsUniqueFamily != isUniqueFamily || definition.SlotType != slotType ||
+		if definition.IsUniqueFamily != isUniqueFamily || definition.SlotType != slotType ||
 			!c.isPartSlotUnlocked(definition, accountLevel) {
+			continue
+		}
+		if slotType == "weapon" {
+			if campaignWeaponCompatibility(definition, classType, scienceType, creatureName) !=
+				weaponCompatibility {
+				continue
+			}
+		} else if !isCampaignPartCompatible(definition, classType, scienceType, creatureName) {
 			continue
 		}
 		distance := campaignPartLevelDistance(level, definition)
@@ -559,6 +572,12 @@ func (c *PartCatalog) campaignPartSlotTypes(
 ) []string {
 	availableSlotTypes := make([]string, 0, len(campaignPartSlotTypes))
 	for _, slotType := range campaignPartSlotTypes {
+		if slotType == "weapon" && c.campaignWeaponCompatibility(
+			classType, scienceType, creatureName, accountLevel, isUniqueFamily,
+		) != campaignWeaponIncompatible {
+			availableSlotTypes = append(availableSlotTypes, slotType)
+			continue
+		}
 		for _, definition := range c.partsByRigblock {
 			if definition.SlotType != slotType ||
 				!isCampaignPartCompatible(definition, classType, scienceType, creatureName) ||
@@ -571,6 +590,50 @@ func (c *PartCatalog) campaignPartSlotTypes(
 		}
 	}
 	return availableSlotTypes
+}
+
+const campaignWeaponIncompatible = 1 << 30
+
+// campaignWeaponCompatibility finds the best packaged weapon family available
+// to a hero. Build 103 only authored weapon families for some heroes, so an
+// exact-only lookup would remove weapon drops from every other family.
+func (c *PartCatalog) campaignWeaponCompatibility(
+	classType string, scienceType string, creatureName string,
+	accountLevel uint32, isUniqueFamily bool,
+) int {
+	compatibility := campaignWeaponIncompatible
+	for _, definition := range c.partsByRigblock {
+		if definition.SlotType != "weapon" || definition.IsUniqueFamily != isUniqueFamily ||
+			!c.isPartSlotUnlocked(definition, accountLevel) {
+			continue
+		}
+		compatibility = min(
+			compatibility,
+			campaignWeaponCompatibility(definition, classType, scienceType, creatureName),
+		)
+	}
+	return compatibility
+}
+
+func campaignWeaponCompatibility(
+	definition PartDefinition, classType string, scienceType string, creatureName string,
+) int {
+	isClassCompatible := partCategoryContains(definition.ClassType, classType)
+	isScienceCompatible := partCategoryContains(definition.ScienceType, scienceType)
+	isFamilyCompatible := campaignHeroFamilyName(definition.WeaponOwnerName) ==
+		campaignHeroFamilyName(creatureName)
+	switch {
+	case isFamilyCompatible && isClassCompatible && isScienceCompatible:
+		return 0
+	case isClassCompatible && isScienceCompatible:
+		return 1
+	case isClassCompatible:
+		return 2
+	case isScienceCompatible:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func isCampaignPartCompatible(
