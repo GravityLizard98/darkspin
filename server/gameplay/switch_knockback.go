@@ -80,18 +80,27 @@ func (r gameplaySwitchRuntime) heroSwapArrivalKnockback(
 			delta = game.Vec3{X: 1}
 			distance = 1
 		}
-		desired := target.Plan.Position.Add(
-			delta.Scale(heroSwapKnockbackDistance / distance),
-		)
-		destination, isDestinationFound, err :=
-			zoneaction.NPCDirectMovementDestination(
-				peerSession.zone.Navigation(), target.Plan.Position, desired,
-				max(target.Plan.NPCProfile.FootprintRadius, float32(0.25)),
+		var destination game.Vec3
+		isDestinationFound := false
+		knockbackDistances := [...]float32{heroSwapKnockbackDistance, 3, 2, 1}
+		for _, knockbackDistance := range knockbackDistances {
+			desired := target.Plan.Position.Add(
+				delta.Scale(knockbackDistance / distance),
 			)
-		if err != nil {
-			return packets, fmt.Errorf(
-				"swapKnockbackDestination[%d]: %w", target.Plan.ObjectID, err,
-			)
+			var err error
+			destination, isDestinationFound, err =
+				zoneaction.NPCDirectMovementDestination(
+					peerSession.zone.Navigation(), target.Plan.Position, desired,
+					max(target.Plan.NPCProfile.FootprintRadius, float32(0.25)),
+				)
+			if err != nil {
+				return packets, fmt.Errorf(
+					"swapKnockbackDestination[%d]: %w", target.Plan.ObjectID, err,
+				)
+			}
+			if isDestinationFound {
+				break
+			}
 		}
 		if !isDestinationFound {
 			continue

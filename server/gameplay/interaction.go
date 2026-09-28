@@ -1469,7 +1469,7 @@ func (s campaignEquipmentPickupStep) produce() ([][]byte, error) {
 	awardPacket := []byte(nil)
 	if winnerSessionKey != "" {
 		awardPacket, err = lootraknet.MarshalEquipmentAward(
-			grantedPart, winnerSession.deployedObjectID,
+			grantedPart, uint8(winnerSession.binding.Slot), winnerSession.deployedObjectID,
 			winnerSession.playerPosition,
 		)
 		if err != nil {

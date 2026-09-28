@@ -56,6 +56,9 @@ const destructibleLargeDeleteDelay = 2500 * time.Millisecond
 
 const nocturnaThornNounName = "PHYS_moon1_plant_thorny_1.Noun"
 const nightmareVineNounName = "DEST_nocturna_herotree_yellow_1.Noun"
+const nocturnaExplosivePlantNounName = "DEST_nocturna_plant_expl.Noun"
+const nocturnaSupernaturalPlantNounName = "DEST_nocturna_plant_supnat.Noun"
+const nocturnaPrefabSupernaturalPlantNounName = "DEST_prefab_nocturna_plant_supnat.Noun"
 
 func applyNPCSlowTiming(
 	profile zonenpc.ActionProfile, attackScale float32,
@@ -204,9 +207,8 @@ func destructibleDeathPresentation(
 	snapshot zonenpc.Snapshot, physics zoneNounPhysics,
 ) (string, time.Duration) {
 	if strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName) {
-		// The Vine noun's dead graphics state selects its authored destruction
-		// marker set. A generic explosion would cover that presentation.
-		return "", destructibleSmallDeleteDelay
+		return "effect_environment_nocturna_tree_death.ServerEventDef",
+			destructibleSmallDeleteDelay
 	}
 	if strings.EqualFold(snapshot.Plan.NounName, campaignCorruptorPortalNounName) {
 		return "scaldron_boss_portal_explosion_effect.ServerEventDef", time.Millisecond
@@ -1710,6 +1712,26 @@ func (r campaignDamageRuntime) publishTransition(
 		}
 	}
 	packets = append(packets, transition.immediatePackets...)
+	for index, objectID := range transition.nocturnaRootObjectIDs {
+		rootPacket, err := raknet.MarshalApplication(raknet.SetObjectGFXStateMessage{
+			ObjectID: objectID, State: util.HashID("dead"), Timestamp: timestamp,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("transitionVineRoot[%d]: %w", index, err)
+		}
+		packets = append(packets, rootPacket)
+	}
+	if transition.nocturnaTerrorSourceObjectID != 0 {
+		terrorPackets, err := r.publishNocturnaFixtureTerror(
+			packet, sessionKey, generation,
+			transition.nocturnaTerrorSourceObjectID,
+			transition.nocturnaTerrorSourcePosition, timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("transitionNocturnaTerror: %w", err)
+		}
+		packets = append(packets, terrorPackets...)
+	}
 	if len(transition.selfResurrectionPlans) != 0 {
 		for index, plan := range transition.selfResurrectionPlans {
 			animationPacket, err := npcraknet.AnimationState(
@@ -2357,6 +2379,9 @@ type campaignDamageTransition struct {
 	shieldObjectID                  uint32
 	shieldDuration                  time.Duration
 	turtleObjectID                  uint32
+	nocturnaTerrorSourceObjectID    uint32
+	nocturnaTerrorSourcePosition    game.Vec3
+	nocturnaRootObjectIDs           []uint32
 }
 
 const (
@@ -2590,6 +2615,23 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 		}
 		if result.IsDefeated {
 			transition.defeatedObjectID = result.ObjectID
+			defeated, isDefeatedFound := s.zone.NPCs().NPC(result.ObjectID)
+			if isDefeatedFound && isNocturnaTerrorFixture(defeated.Plan.NounName) {
+				transition.nocturnaTerrorSourceObjectID = result.ObjectID
+				transition.nocturnaTerrorSourcePosition = defeated.Plan.Position
+			}
+			if isDefeatedFound && strings.EqualFold(
+				defeated.Plan.NounName, nightmareVineNounName,
+			) {
+				rootObjectIDs, rootErr := s.nightmareVineRootObjectIDs(
+					defeated.Plan.Position,
+				)
+				if rootErr != nil {
+					return campaignDamageTransition{},
+						fmt.Errorf("vineRootDeath: %w", rootErr)
+				}
+				transition.nocturnaRootObjectIDs = rootObjectIDs
+			}
 		}
 	}
 	if result.IsDefeated || result.IsSelfResurrectionStarted ||
@@ -6108,10 +6150,14 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 			Delay: firstAggroDelay, Produce: step.produce,
 		}
 		if isFirstAction && isCampaignBossIntroDelayed(plan) {
+			bossIntroDelay := firstAggroDelay
+			if action.Profile.FirstAggroRevealDelay > 0 {
+				bossIntroDelay = action.Profile.FirstAggroRevealDelay
+			}
 			bossStep := campaignBossIntroStep{runtime: r, zone: zone, sessionKey: sessionKey,
-				generation: generation, plan: action, readyAt: r.now().Add(firstAggroDelay)}
+				generation: generation, plan: action, readyAt: r.now().Add(bossIntroDelay)}
 			producers = append(producers, raknet.ScheduledPacketProducer{
-				Delay: firstAggroDelay, Produce: bossStep.produce,
+				Delay: bossIntroDelay, Produce: bossStep.produce,
 			})
 		}
 		producers = append(producers, producer)

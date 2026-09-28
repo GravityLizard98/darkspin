@@ -2,6 +2,16 @@
 
 ### 2026-09-28
 
+- Restore Nocturna's destructive plants and Nightmare Vines as attackable fixtures across missions 1-3 and 1-4, including vine collapse effects, damaging live roots, dead-root transitions, and nearby enemy terror on destruction.
+- Start Nashira's boss state and music with her reveal and camera focus instead of waiting for her entrance sequence to finish.
+- Keep hero-switch landing knockback working in tight terrain by falling back to shorter reachable push distances.
+- Make Vampiric Leapers hop toward nearby heroes and deal their landing damage instead of repeatedly jumping in place without hitting.
+- Restore missing tree scenery in Nocturna mission 5-2 by composing all three authored smart-object sets.
+- Stop Sync Snapshot from treating the Field Medic drone's normal client-authored orbit as a client/server position divergence.
+- Restore in-mission equipment dropping by resolving temporary client identities against collected mission loot and returning the item to the ground.
+- Show the generated equipment's correct visual when it is picked up by using the native recipient field and keeping transient ground loot out of the client's persistent item identity cache.
+- Restore authored Nightmare Vine fixtures and their matching destructible roots throughout Nocturna, including mission 5-2.
+- Restore the missing exterior roots, trees, and other authored smart-object scenery in Nocturna mission 5-1.
 - Allow mission 1-4 to finish loading by including all authored Nocturna obelisk and smart-object scenery sets in campaign setup.
 - Restore SRS-42's Targeting Computer scanner presentation and scanning sound when becoming stationary, and let its damage bonus build each second up to five stacks at 5% normally or 12% during Overdrive until movement resumes.
 - Change Thornado's green tornado from one effect on every struck enemy to one caster-centered effect that also plays when no enemies are nearby.

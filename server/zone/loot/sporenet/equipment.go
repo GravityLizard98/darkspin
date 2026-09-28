@@ -52,3 +52,13 @@ func MissionEquipment(objectID uint32, part storage.Part) loot.Equipment {
 		Level: part.Level, Rarity: uint8(part.Rarity), Cost: part.Cost,
 	}
 }
+
+func Part(equipment loot.Equipment) storage.Part {
+	part := storage.Part{
+		RigblockAssetID: equipment.RigblockID, PrefixAssetID: equipment.PrefixID,
+		PrefixSecondaryAssetID: equipment.SecondaryPrefixID, SuffixAssetID: equipment.SuffixID,
+		Level: equipment.Level, Rarity: storage.PartRarity(equipment.Rarity), Cost: equipment.Cost,
+	}
+	part.Normalize()
+	return part
+}

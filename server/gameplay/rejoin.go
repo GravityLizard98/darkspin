@@ -241,6 +241,11 @@ func marshalGameplayRejoinBaselineState(
 	// elapsed clock. When this state follows the baseline, the native client
 	// can discard the preceding timer setup while still showing the ship UI.
 	packets = append([][]byte{reconnectPacket}, packets...)
+	rootPackets, err := peerSession.nightmareVineDeadRootPackets(sourceTime)
+	if err != nil {
+		return nil, fmt.Errorf("rejoinVineRoots: %w", err)
+	}
+	packets = append(packets, rootPackets...)
 	crystalPackets, err := marshalGameplayCrystalState(peerSession)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinCrystal: %w", err)

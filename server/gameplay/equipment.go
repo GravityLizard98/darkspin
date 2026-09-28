@@ -40,10 +40,10 @@ func (e campaignEquipmentPickupStep) collectMissionEquipment(
 		return sporenet.Part{}, fmt.Errorf("missionCollect: %w", err)
 	}
 	part := e.pickup.Part
-	// LootAwarded needs nonzero display identities. Keep provisional IDs outside
-	// the persistent inventory ID range; only successful completion allocates it.
-	part.ID = uint64(1)<<32 | uint64(e.pickup.ObjectID)
-	part.ReferenceID = uint64(1)<<63 | uint64(e.pickup.ObjectID)
-	part.CreationDate = uint64(time.Now().Unix())
+	// The native ground-loot event has no persistent inventory identity. Giving
+	// it one lets build 103 reuse unrelated cached item presentation across drops.
+	part.ID = 0
+	part.ReferenceID = 0
+	part.CreationDate = uint64(time.Now().UnixMilli())
 	return part, nil
 }

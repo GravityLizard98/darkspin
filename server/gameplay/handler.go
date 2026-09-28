@@ -2413,11 +2413,19 @@ func (r gameplayPendingRuntime) poll(
 		peerSession, r.now(), packet.SourceTime,
 	)
 	peerSession, isFound = r.registry.sessions[packet.Address.String()]
+	var rootHazardPackets [][]byte
 	if isFound {
 		err := peerSession.queuePartyDefeat()
 		if err != nil {
 			r.registry.mutex.Unlock()
 			return nil, fmt.Errorf("partyDefeatQueue: %w", err)
+		}
+		rootHazardPackets, err = r.pollNightmareVineRootsLocked(
+			&peerSession, packet.SourceTime,
+		)
+		if err != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("nightmareRootPoll: %w", err)
 		}
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}
@@ -2498,7 +2506,10 @@ func (r gameplayPendingRuntime) poll(
 		if err != nil {
 			return nil, fmt.Errorf("pendingCommit: %w", err)
 		}
-		return queuedPackets, nil
+		return append(rootHazardPackets, queuedPackets...), nil
+	}
+	if len(rootHazardPackets) != 0 {
+		return rootHazardPackets, nil
 	}
 	if isArenaTransitionRetry || isArenaPreparationRetry {
 		var responses [][]byte
@@ -5705,7 +5716,7 @@ func (p campaignPreparation) initialize(
 			fixtureMarkers, fixtureErr = director.InitialChainFixtures(contentSelectionID)
 		}
 	} else if binding.Mode == game.ModeChain {
-		fixtureMarkers, fixtureErr = director.NightmareVineFixtures()
+		fixtureMarkers, fixtureErr = director.NocturnaFixtures()
 	}
 	if fixtureErr != nil {
 		return fmt.Errorf("statusChainFixtures: %w", fixtureErr)

@@ -298,6 +298,7 @@ type controlledHeroState struct {
 	campaignLavaReadyAt           time.Time
 	campaignLavaWarningKey        uint64
 	campaignLavaSpoutKey          uint64
+	nightmareRootDamageReadyAt    time.Time
 	passiveKillStack              [squad.Size]uint32
 	soulRavagerObjectIDs          [5]uint32
 	soulRavagerOwnerObjectID      uint32

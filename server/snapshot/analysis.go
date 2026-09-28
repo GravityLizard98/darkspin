@@ -830,7 +830,7 @@ func analyzeObjectState(
 		}
 		allowedDistance := driftBaseDistance +
 			math.Abs(sampleDeltaMS)/1000*movementSpeed
-		isClientOrbitPresented := isClientOrbitPresentedNPC(serverObject.NounName)
+		isClientOrbitPresented := isClientOrbitPresentedObject(state, serverObject)
 		comparison := objectComparison{
 			ObjectID: objectID, ClientObjectID: client.clientObjectID,
 			MappingProvenance: client.mappingProvenance,

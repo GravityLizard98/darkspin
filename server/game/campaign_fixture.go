@@ -13,7 +13,6 @@ const cryosCaveLevel = "cryos_3"
 const cryosCaveSceneryMarkerSet = "cryos_3_smart_object_3.markerset"
 const cryosGeyserLevel = "cryos_1"
 const cryosGeyserMarkerSet = "cryos_1_objects.markerset"
-const nocturnaForestLevel = "nocturna_1"
 const infinityFoundryLevel = "infinity_2"
 
 // CampaignTreeObjects composes Nocturna's authored root clusters around the
@@ -23,7 +22,7 @@ func (e CampaignDirector) CampaignTreeObjects(
 	selectionID uint32,
 ) ([]CampaignScriptObject, error) {
 	const callbackName = "nLevelObject.OnTreeDeath"
-	if !strings.EqualFold(e.Level, nocturnaForestLevel) {
+	if !e.isNocturnaLevel() {
 		objects, err := e.CampaignCallbackObjects(selectionID, callbackName)
 		if err != nil {
 			return nil, fmt.Errorf("treeObjects: %w", err)
@@ -33,6 +32,13 @@ func (e CampaignDirector) CampaignTreeObjects(
 	vineMarkers, err := e.NightmareVineFixtures()
 	if err != nil {
 		return nil, fmt.Errorf("treeVines: %w", err)
+	}
+	if len(vineMarkers) == 0 {
+		objects, callbackErr := e.CampaignCallbackObjects(selectionID, callbackName)
+		if callbackErr != nil {
+			return nil, fmt.Errorf("treeObjects: %w", callbackErr)
+		}
+		return objects, nil
 	}
 	objects, err := e.ScriptObjects()
 	if err != nil {
@@ -54,7 +60,8 @@ func (e CampaignDirector) CampaignTreeObjects(
 		}
 		isVineRoot := false
 		for _, vineMarker := range vineMarkers {
-			if areCampaignPositionsNear(object.Position, vineMarker.Position, 10) {
+			if strings.EqualFold(object.MarkerSetName, vineMarker.MarkerSetName) &&
+				areCampaignPositionsNear(object.Position, vineMarker.Position, 10) {
 				isVineRoot = true
 				break
 			}
@@ -81,16 +88,57 @@ func (e CampaignDirector) CampaignTreeObjects(
 	return selectedObjects, nil
 }
 
+// NocturnaFixtures returns every authored combat destructible in the composed
+// smart-object layout. Nightmare Vines keep their weighted tree replacement
+// rule, while explosive and supernatural plants retain each unique placement.
+func (e CampaignDirector) NocturnaFixtures() ([]CampaignDirectorMarker, error) {
+	if !e.isNocturnaLevel() {
+		return nil, nil
+	}
+	vineMarkers, err := e.NightmareVineFixtures()
+	if err != nil {
+		return nil, fmt.Errorf("nocturnaVines: %w", err)
+	}
+	selectedMarkers := append([]CampaignDirectorMarker(nil), vineMarkers...)
+	for _, markerSet := range e.MarkerSets {
+		if !e.isNocturnaFixtureMarkerSet(markerSet.Name) {
+			continue
+		}
+		for _, marker := range markerSet.Markers {
+			if !isNocturnaPlantFixture(marker) {
+				continue
+			}
+			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) ||
+				!marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 {
+				return nil, fmt.Errorf("plantMarker[%d]: invalid", marker.Ordinal)
+			}
+			isDuplicate := false
+			for _, selectedMarker := range selectedMarkers {
+				if strings.EqualFold(selectedMarker.NounName, marker.NounName) &&
+					areCampaignPositionsNear(selectedMarker.Position, marker.Position, 1) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+			selectedMarkers = append(selectedMarkers, marker)
+		}
+	}
+	return selectedMarkers, nil
+}
+
 // NightmareVineFixtures composes the three authored smart-object sets at each
 // tree placement. A normal tree wins when it occupies more variants; otherwise
 // one destructible vine represents the deduplicated placement.
 func (e CampaignDirector) NightmareVineFixtures() ([]CampaignDirectorMarker, error) {
-	if !strings.EqualFold(e.Level, nocturnaForestLevel) {
+	if !e.isNocturnaLevel() {
 		return nil, nil
 	}
 	candidateMarkers := make([]CampaignDirectorMarker, 0)
 	for _, markerSet := range e.MarkerSets {
-		if !strings.HasPrefix(strings.ToLower(markerSet.Name), "nocturna_1_smart_object_") {
+		if !e.isNocturnaSmartObjectMarkerSet(markerSet.Name) {
 			continue
 		}
 		for _, marker := range markerSet.Markers {
@@ -107,7 +155,7 @@ func (e CampaignDirector) NightmareVineFixtures() ([]CampaignDirectorMarker, err
 		}
 	}
 	if len(candidateMarkers) == 0 {
-		return nil, errors.New("vineMarkers: empty")
+		return nil, nil
 	}
 	selectedMarkers := make([]CampaignDirectorMarker, 0, len(candidateMarkers))
 	for _, candidateMarker := range candidateMarkers {
@@ -218,17 +266,18 @@ func (e CampaignDirector) CryosCaveScenery() (
 	return selected, deletedObjectIDs, nil
 }
 
-// NocturnaScenery selects one authored Obelisk layout and composes the three
-// smart-object sets into their deduplicated union. The smart-object sets repeat
-// shared scenery while also contributing unique environment models.
+// NocturnaScenery selects one authored Obelisk layout and composes the level's
+// smart-object sets into their deduplicated union. The sets repeat shared
+// scenery while also contributing unique environment models.
 func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 	[]CampaignDirectorMarker, []uint32, error,
 ) {
-	if !strings.EqualFold(e.Level, nocturnaForestLevel) {
+	if !e.isNocturnaLevel() {
 		return nil, nil, nil
 	}
+	levelName := strings.ToLower(strings.TrimSpace(e.Level))
 	variant := selectionID%3 + 1
-	selectedObeliskName := fmt.Sprintf("nocturna_1_obelisk_%d.markerset", variant)
+	selectedObeliskName := fmt.Sprintf("%s_obelisk_%d.markerset", levelName, variant)
 	type sceneryIdentity struct {
 		nounName           string
 		position           Vec3
@@ -245,26 +294,29 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 		scriptMarkerIDs[script.MarkerID] = struct{}{}
 	}
 	markerSetCount := 0
+	smartObjectMarkerSetCount := 0
 	for _, markerSet := range e.MarkerSets {
 		name := strings.ToLower(markerSet.Name)
-		isObelisk := strings.HasPrefix(name, "nocturna_1_obelisk_")
-		isSmartObject := strings.HasPrefix(name, "nocturna_1_smart_object_")
-		if !isObelisk && !isSmartObject {
+		isObelisk := strings.HasPrefix(name, levelName+"_obelisk_")
+		isSmartObject := e.isNocturnaSmartObjectMarkerSet(name)
+		isPlantSet := e.isNocturnaPlantMarkerSet(name)
+		if !isObelisk && !isSmartObject && !isPlantSet {
 			continue
 		}
 		markerSetCount++
+		if isSmartObject {
+			smartObjectMarkerSetCount++
+		}
 		for _, marker := range markerSet.Markers {
 			_, isScriptMarker := scriptMarkerIDs[marker.MarkerID]
+			if marker.MarkerID != 0 && isNocturnaCombatFixture(marker) {
+				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				continue
+			}
 			if isScriptMarker || !isCampaignSceneryMarker(marker) {
 				continue
 			}
 			if isObelisk && name != selectedObeliskName {
-				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
-				continue
-			}
-			if isSmartObject && strings.EqualFold(
-				marker.NounName, "DEST_nocturna_herotree_yellow_1.Noun",
-			) {
 				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
 				continue
 			}
@@ -293,13 +345,29 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 			selected = append(selected, marker)
 		}
 	}
-	if markerSetCount != 6 || len(selected) == 0 || len(deletedObjectIDs) == 0 {
+	if markerSetCount == 0 || smartObjectMarkerSetCount == 0 || len(selected) == 0 {
 		return nil, nil, fmt.Errorf(
-			"nocturnaSceneryComposition: sets=%d selected=%d deleted=%d",
-			markerSetCount, len(selected), len(deletedObjectIDs),
+			"nocturnaSceneryComposition: sets=%d smart_sets=%d selected=%d deleted=%d",
+			markerSetCount, smartObjectMarkerSetCount, len(selected), len(deletedObjectIDs),
 		)
 	}
 	return selected, deletedObjectIDs, nil
+}
+
+func isNocturnaCombatFixture(marker CampaignDirectorMarker) bool {
+	return strings.EqualFold(
+		marker.NounName, "DEST_nocturna_herotree_yellow_1.Noun",
+	) || isNocturnaPlantFixture(marker)
+}
+
+func isNocturnaPlantFixture(marker CampaignDirectorMarker) bool {
+	switch strings.ToLower(strings.TrimSpace(marker.NounName)) {
+	case "dest_nocturna_plant_expl.noun", "dest_nocturna_plant_supnat.noun",
+		"dest_prefab_nocturna_plant_supnat.noun":
+		return true
+	default:
+		return false
+	}
 }
 
 // InfinityScenery projects matching authored Obelisk and smart-object layouts
@@ -410,11 +478,14 @@ func isCampaignSceneryMarker(marker CampaignDirectorMarker) bool {
 }
 
 func (e CampaignDirector) isNocturnaVinePlaceholder(marker CampaignDirectorMarker) bool {
+	if !e.isNocturnaLevel() {
+		return false
+	}
 	if !strings.HasPrefix(strings.ToLower(marker.NounName), "moon1_tree_") {
 		return false
 	}
 	for _, markerSet := range e.MarkerSets {
-		if !strings.HasPrefix(strings.ToLower(markerSet.Name), "nocturna_1_smart_object_") {
+		if !e.isNocturnaSmartObjectMarkerSet(markerSet.Name) {
 			continue
 		}
 		for _, candidate := range markerSet.Markers {
@@ -439,10 +510,13 @@ func areCampaignPositionsNear(first Vec3, second Vec3, maximumDistance float32) 
 }
 
 func (e CampaignDirector) isNocturnaVinePosition(position Vec3) bool {
+	if !e.isNocturnaLevel() {
+		return false
+	}
 	vineCount := 0
 	normalTreeCount := 0
 	for _, markerSet := range e.MarkerSets {
-		if !strings.HasPrefix(strings.ToLower(markerSet.Name), "nocturna_1_smart_object_") {
+		if !e.isNocturnaSmartObjectMarkerSet(markerSet.Name) {
 			continue
 		}
 		for _, marker := range markerSet.Markers {
@@ -459,4 +533,33 @@ func (e CampaignDirector) isNocturnaVinePosition(position Vec3) bool {
 		}
 	}
 	return vineCount > 0 && vineCount >= normalTreeCount
+}
+
+func (e CampaignDirector) isNocturnaLevel() bool {
+	levelName := strings.ToLower(strings.TrimSpace(e.Level))
+	return strings.HasPrefix(levelName, "nocturna_")
+}
+
+func (e CampaignDirector) isNocturnaSmartObjectMarkerSet(markerSetName string) bool {
+	if !e.isNocturnaLevel() {
+		return false
+	}
+	levelName := strings.ToLower(strings.TrimSpace(e.Level))
+	name := strings.ToLower(strings.TrimSpace(markerSetName))
+	return strings.HasPrefix(name, levelName+"_smart_object_") ||
+		strings.HasPrefix(name, levelName+"_smart_objects_")
+}
+
+func (e CampaignDirector) isNocturnaPlantMarkerSet(markerSetName string) bool {
+	if !e.isNocturnaLevel() {
+		return false
+	}
+	levelName := strings.ToLower(strings.TrimSpace(e.Level))
+	name := strings.ToLower(strings.TrimSpace(markerSetName))
+	return name == levelName+"_plants.markerset"
+}
+
+func (e CampaignDirector) isNocturnaFixtureMarkerSet(markerSetName string) bool {
+	return e.isNocturnaSmartObjectMarkerSet(markerSetName) ||
+		e.isNocturnaPlantMarkerSet(markerSetName)
 }

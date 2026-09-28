@@ -300,7 +300,7 @@ func (e *Service) detectNPCDriftRequests(
 	}
 	requests := make([]autoRequest, 0, 1)
 	for objectID, npc := range npcsByObjectID {
-		if isClientOrbitPresentedNPC(npc.object.NounName) {
+		if isClientOrbitPresentedObject(state, npc.object) {
 			continue
 		}
 		probe, isFound := latestProbesByObjectID[objectID]
@@ -366,7 +366,21 @@ func (e *Service) detectNPCDriftRequests(
 	return requests
 }
 
-func isClientOrbitPresentedNPC(nounName string) bool {
-	return strings.EqualFold(nounName, "NomadDrone") ||
-		strings.EqualFold(nounName, "NomadDrone.Noun")
+func isClientOrbitPresentedObject(state StateFrame, object ObjectState) bool {
+	if strings.EqualFold(object.NounName, "NomadDrone") ||
+		strings.EqualFold(object.NounName, "NomadDrone.Noun") {
+		return true
+	}
+	if object.Kind != "companion" || object.ObjectID == 0 {
+		return false
+	}
+	for _, session := range state.Sessions {
+		for _, runtime := range session.AbilityRuntimes {
+			if runtime.ObjectID == object.ObjectID &&
+				strings.EqualFold(runtime.Kind, "field_medic_drone") {
+				return true
+			}
+		}
+	}
+	return false
 }

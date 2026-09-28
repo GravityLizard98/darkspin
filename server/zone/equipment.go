@@ -17,6 +17,32 @@ func (e *Zone) MissionEquipment(userID uint64) zoneloot.EquipmentInventory {
 	return e.missionEquipments[userID].Clone()
 }
 
+func (e *Zone) RemoveMissionEquipment(member Member, objectID uint32) error {
+	if objectID == 0 {
+		return errors.New("mission equipment object unavailable")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != StateActive || !e.isCurrentMember(member) {
+		return errors.New("mission equipment member unavailable")
+	}
+	inventory := e.missionEquipments[member.UserID]
+	if inventory.IsForfeited || inventory.IsCommitted {
+		return errors.New("mission equipment collection closed")
+	}
+	for index, equipment := range inventory.Equipments {
+		if equipment.ObjectID != objectID {
+			continue
+		}
+		inventory.Equipments = append(
+			inventory.Equipments[:index], inventory.Equipments[index+1:]...,
+		)
+		e.missionEquipments[member.UserID] = inventory
+		return nil
+	}
+	return errors.New("mission equipment not found")
+}
+
 func (e *Zone) CollectMissionEquipment(
 	ctx context.Context, member Member, store zoneloot.EquipmentStore,
 	req zoneloot.EquipmentCollection,

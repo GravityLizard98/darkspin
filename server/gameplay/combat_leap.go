@@ -73,14 +73,10 @@ func (e campaignLeapSchedule) launch() ([][]byte, error) {
 	deltaX := target.Position.X - enemy.Plan.Position.X
 	deltaY := target.Position.Y - enemy.Plan.Position.Y
 	centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
-	surfaceDistance := max(
-		float32(0), centerDistance-enemy.Plan.NPCProfile.FootprintRadius-
-			target.FootprintRadius,
-	)
-	if surfaceDistance < e.plan.Profile.MinimumRange {
+	if centerDistance < e.plan.Profile.MinimumRange {
 		cancel, scheduleErr := scheduleNPCProducers(e.runtime.registry, e.packet,
 			[]raknet.ScheduledPacketProducer{{
-				Delay: campaignHopperAirTime, Produce: e.landWithoutDamage,
+				Delay: campaignHopperAirTime, Produce: e.landAtCloseRange,
 			}},
 		)
 		if scheduleErr == nil && cancel == nil {
@@ -137,10 +133,10 @@ func (e campaignLeapSchedule) landWithDamage(
 	return e.land(timestamp, true)
 }
 
-func (e campaignLeapSchedule) landWithoutDamage() ([][]byte, error) {
+func (e campaignLeapSchedule) landAtCloseRange() ([][]byte, error) {
 	timestamp := e.timestamp +
 		uint64((e.plan.Profile.HitDelay+campaignHopperAirTime)/time.Millisecond)
-	return e.land(timestamp, false)
+	return e.land(timestamp, true)
 }
 
 func isCampaignLeapTarget(
