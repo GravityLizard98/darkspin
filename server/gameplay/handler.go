@@ -171,24 +171,50 @@ func (r gameplayMovementRuntime) stop(
 	if err != nil {
 		return nil, fmt.Errorf("stopPose: %w", err)
 	}
-	if len(response) < 2 || len(response[0]) == 0 || len(response[1]) == 0 ||
-		response[0][0] != byte(raknet.ObjectPlayerMove) ||
-		response[1][0] != byte(raknet.LocomotionUnreliable) {
-		return response, nil
+	if len(response) >= 2 && len(response[0]) != 0 && len(response[1]) != 0 &&
+		response[0][0] == byte(raknet.ObjectPlayerMove) &&
+		response[1][0] == byte(raknet.LocomotionUnreliable) {
+		movePacket, marshalErr := raknet.MarshalApplication(raknet.ObjectPlayerMoveMessage{
+			ObjectID: command.Common.ObjectID, GoalFlags: 0x20,
+			GoalPosition: command.Common.Position,
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("stopMarshal: %w", marshalErr)
+		}
+		response = append([][]byte{movePacket}, response[2:]...)
 	}
-	movePacket, err := raknet.MarshalApplication(raknet.ObjectPlayerMoveMessage{
-		ObjectID: command.Common.ObjectID, GoalFlags: 0x20,
-		GoalPosition: command.Common.Position,
-	})
+	r.campaign.registry.mutex.Lock()
+	peerSession, isCurrent := r.campaign.registry.sessions[packet.Address.String()]
+	isCurrent = isCurrent && peerSession.generation == commandSession.generation &&
+		peerSession.deployedObjectID == command.Common.ObjectID
+	var targetingPacket []byte
+	if isCurrent {
+		targetingPacket, err = peerSession.startMissileTargetingPresentation(
+			peerSession.deployedCreatureIndex,
+		)
+		if err == nil {
+			r.campaign.registry.sessions[packet.Address.String()] = peerSession
+		}
+	}
+	r.campaign.registry.mutex.Unlock()
 	if err != nil {
-		return nil, fmt.Errorf("stopMarshal: %w", err)
+		return nil, fmt.Errorf("stopTargetingComputer: %w", err)
+	}
+	if len(targetingPacket) != 0 {
+		response = append(response, targetingPacket)
+		err = publishCampaignPeersAfterCommit(
+			r.campaign.registry, packet, [][]byte{targetingPacket},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("stopTargetingComputerPublish: %w", err)
+		}
 	}
 	r.logger.Printf(
 		"RakNet stop object=%d position=(%g,%g,%g)",
 		command.Common.ObjectID, command.Common.Position.X,
 		command.Common.Position.Y, command.Common.Position.Z,
 	)
-	return append([][]byte{movePacket}, response[2:]...), nil
+	return response, nil
 }
 
 type gameplaySimpleActionRuntime struct {
@@ -3541,8 +3567,10 @@ func campaignObjectiveMessages(
 			PlayerIndex: publication.Update.PlayerIndex,
 			Medal:       publication.Update.Medal,
 			Voiceover:   openingVoiceover,
-			IsShown:     openingVoiceover != 0,
-			Token:       publication.Update.Token,
+			// The original server leaves this clear so the client presents
+			// the voice cue and its HELIX portrait for the current squad.
+			IsShown: false,
+			Token:   publication.Update.Token,
 		},
 	), nil
 }
@@ -4394,6 +4422,7 @@ func resetGameplayPeerRuntime(
 	peerSession.soulRavagerVisualStack = 0
 	peerSession.passiveReductionStack = [squad.Size]uint32{}
 	peerSession.passiveReductionExpiresAt = [squad.Size]time.Time{}
+	peerSession.isMissileTargetingPresented = [squad.Size]bool{}
 	peerSession.fireRavagerBasicCount = [squad.Size]uint32{}
 	peerSession.tcShieldAmount = [squad.Size]float32{}
 	peerSession.tcShieldReadyAt = [squad.Size]time.Time{}

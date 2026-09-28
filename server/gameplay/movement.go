@@ -692,13 +692,19 @@ func (r campaignMovementCommandRuntime) handle(
 	if isCurrent {
 		peerSession.followTargetUserID = 0
 		movementNow := r.now()
+		isStop := command.Movement.GoalFlags&0x20 != 0
 		previousPosition, currentPosition, movementErr := peerSession.advancePlayerMovement(
-			movementNow, command.Common.Position, goal, false,
+			movementNow, command.Common.Position, goal, isStop,
 			r.registry.passiveMovementIncrease(peerSession),
 		)
 		if movementErr != nil {
 			r.registry.mutex.Unlock()
 			return nil, fmt.Errorf("moveCampaignAdvance: %w", movementErr)
+		}
+		if !isStop {
+			peerSession.resetMissileTargetingPresentation(
+				peerSession.deployedCreatureIndex,
+			)
 		}
 		publishedGoal = peerSession.playerMovementGoal
 		previous := game.Vec3{

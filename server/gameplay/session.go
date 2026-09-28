@@ -305,6 +305,7 @@ type controlledHeroState struct {
 	passiveReductionStack         [squad.Size]uint32
 	passiveReductionExpiresAt     [squad.Size]time.Time
 	passiveStationarySince        [squad.Size]time.Time
+	isMissileTargetingPresented   [squad.Size]bool
 	fireRavagerBasicCount         [squad.Size]uint32
 	tcShieldAmount                [squad.Size]float32
 	tcShieldReadyAt               [squad.Size]time.Time
@@ -4051,6 +4052,7 @@ func (r gameplaySwitchRuntime) handle(
 	}
 	previousCreatureIndex := peerSession.deployedCreatureIndex
 	peerSession.resetPassiveDamageReduction(previousCreatureIndex)
+	peerSession.resetMissileTargetingPresentation(previousCreatureIndex)
 	peerSession.resetFireRavagerBasic(previousCreatureIndex)
 	shieldPackets, shieldErr := peerSession.stopTCShield(
 		previousCreatureIndex, r.effectPool,

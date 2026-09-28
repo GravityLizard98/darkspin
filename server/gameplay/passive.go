@@ -18,7 +18,40 @@ const (
 	graspingDeadRadius                   = 8
 	graspingDeadSlow                     = 0.15
 	campaignSameGenetypeDamageMultiplier = 2
+	missileTargetingEffectName           = "cyber_missileTempest_targetScanner.ServerEventDef"
+	missileTargetingDamagePerStack       = 0.05
+	missileTargetingOverdrivePerStack    = 0.12
+	missileTargetingMaximumStack         = uint32(5)
 )
+
+func (e *gameplayPeerSession) startMissileTargetingPresentation(
+	creatureIndex uint32,
+) ([]byte, error) {
+	if e == nil || creatureIndex >= uint32(len(e.binding.Creatures)) ||
+		creatureIndex >= uint32(len(e.isMissileTargetingPresented)) ||
+		e.isMissileTargetingPresented[creatureIndex] ||
+		e.binding.Creatures[creatureIndex].PassiveAbility !=
+			util.HashID("MissileTempestPassive") {
+		return nil, nil
+	}
+	packet, err := raknet.MarshalApplication(raknet.ServerEventMessage{
+		Asset: util.HashID(missileTargetingEffectName), ObjectID: e.deployedObjectID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("missileTargetingMarshal: %w", err)
+	}
+	e.isMissileTargetingPresented[creatureIndex] = true
+	return packet, nil
+}
+
+func (e *gameplayPeerSession) resetMissileTargetingPresentation(
+	creatureIndex uint32,
+) {
+	if e == nil || creatureIndex >= uint32(len(e.isMissileTargetingPresented)) {
+		return
+	}
+	e.isMissileTargetingPresented[creatureIndex] = false
+}
 
 func (s gameplayPeerSession) applySameGenetypeDamage(
 	damage float32, damageType uint8, isDamageTypeKnown bool,
@@ -419,8 +452,15 @@ func (s gameplayPeerSession) projectPassiveCreature(
 	if stationarySince.IsZero() || now.Before(stationarySince) {
 		return creature
 	}
-	stackCount := min(uint32(5), uint32(now.Sub(stationarySince)/time.Second))
-	creature.DamageProfile.DamageBuff += 0.05 * float32(stackCount)
+	stackCount := min(
+		missileTargetingMaximumStack,
+		uint32(now.Sub(stationarySince)/time.Second),
+	)
+	damagePerStack := float32(missileTargetingDamagePerStack)
+	if s.isOverdriveActiveAt(now) {
+		damagePerStack = missileTargetingOverdrivePerStack
+	}
+	creature.DamageProfile.DamageBuff += damagePerStack * float32(stackCount)
 	return creature
 }
 

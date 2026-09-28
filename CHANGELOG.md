@@ -2,8 +2,9 @@
 
 ### 2026-09-28
 
+- Restore SRS-42's Targeting Computer scanner presentation and scanning sound when becoming stationary, and let its damage bonus build each second up to five stacks at 5% normally or 12% during Overdrive until movement resumes.
 - Change Thornado's green tornado from one effect on every struck enemy to one caster-centered effect that also plays when no enemies are nearby.
-- Restore HELIX's authored map introduction on campaign mission entry and the authored return-to-planet narration at the corresponding first-pass campaign transitions.
+- Restore HELIX's authored map introduction and portrait for every squad on campaign mission entry, plus the authored return-to-planet narration at the corresponding first-pass campaign transitions.
 - Keep the mission-entry landing animation synchronized with its sound and ground shake even when zone initialization or setup preparation takes longer than usual.
 - Play HELIX's authored obelisk-access line immediately after each successful blue loot-obelisk activation while keeping green health and energy obelisks silent.
 - Keep catalysts locked while entering mission 1-3, then enable their drops, pickups, inventory controls, and bonuses when the scripted catalyst unlock occurs.
