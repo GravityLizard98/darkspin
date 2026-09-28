@@ -2,6 +2,7 @@
 
 ### 2026-09-28
 
+- Allow mission 1-4 to finish loading by including all authored Nocturna obelisk and smart-object scenery sets in campaign setup.
 - Restore SRS-42's Targeting Computer scanner presentation and scanning sound when becoming stationary, and let its damage bonus build each second up to five stacks at 5% normally or 12% during Overdrive until movement resumes.
 - Change Thornado's green tornado from one effect on every struck enemy to one caster-centered effect that also plays when no enemies are nearby.
 - Restore HELIX's authored map introduction and portrait for every squad on campaign mission entry, plus the authored return-to-planet narration at the corresponding first-pass campaign transitions.
