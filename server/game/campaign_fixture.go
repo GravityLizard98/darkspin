@@ -213,6 +213,10 @@ func (e CampaignDirector) VerdanthScenery() (
 			if !isCampaignSceneryMarker(marker) {
 				continue
 			}
+			if name == verdanthSceneryMarkerSet && isVerdanthTotemFixture(marker) {
+				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				continue
+			}
 			if name == verdanthSceneryMarkerSet {
 				selected = append(selected, marker)
 				continue
@@ -227,6 +231,44 @@ func (e CampaignDirector) VerdanthScenery() (
 		)
 	}
 	return selected, deletedObjectIDs, nil
+}
+
+// VerdanthFixtures promotes the selected layout's ancient stone totems from
+// passive scenery to authoritative destructibles while preserving their exact
+// authored placement and scale.
+func (e CampaignDirector) VerdanthFixtures() ([]CampaignDirectorMarker, error) {
+	if !strings.EqualFold(e.Level, verdanthCypressLevel) {
+		return nil, nil
+	}
+	fixtures := make([]CampaignDirectorMarker, 0)
+	for _, markerSet := range e.MarkerSets {
+		if !strings.EqualFold(markerSet.Name, verdanthSceneryMarkerSet) {
+			continue
+		}
+		for _, marker := range markerSet.Markers {
+			if !isVerdanthTotemFixture(marker) {
+				continue
+			}
+			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) ||
+				!marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 {
+				return nil, fmt.Errorf("verdanthTotem[%d]: invalid", marker.Ordinal)
+			}
+			fixtures = append(fixtures, marker)
+		}
+	}
+	if len(fixtures) == 0 {
+		return nil, errors.New("verdanthTotem: empty")
+	}
+	return fixtures, nil
+}
+
+func isVerdanthTotemFixture(marker CampaignDirectorMarker) bool {
+	switch strings.ToLower(strings.TrimSpace(marker.NounName)) {
+	case "dest_tota_headstatue_b.noun", "dest_tota_headstatue_c.noun":
+		return true
+	default:
+		return false
+	}
 }
 
 // CryosCaveScenery projects one complete authored cave layout for 3-2. The
@@ -345,7 +387,8 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 			selected = append(selected, marker)
 		}
 	}
-	if markerSetCount == 0 || smartObjectMarkerSetCount == 0 || len(selected) == 0 {
+	if markerSetCount == 0 || smartObjectMarkerSetCount == 0 ||
+		len(selected)+len(deletedObjectIDs) == 0 {
 		return nil, nil, fmt.Errorf(
 			"nocturnaSceneryComposition: sets=%d smart_sets=%d selected=%d deleted=%d",
 			markerSetCount, smartObjectMarkerSetCount, len(selected), len(deletedObjectIDs),

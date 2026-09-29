@@ -158,22 +158,24 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 			},
 		)
 	} else if isHomingActive {
-		currentSourcePosition, currentAimPosition := campaignNPCProjectileEndpoints(
-			schedule.source, currentTarget, schedule.geometry,
-			runtime.program.NounPhysics[schedule.source.Plan.NounName],
-		)
-		currentLaunchPosition := campaignProjectileLaunchPosition(
-			currentSourcePosition, currentAimPosition,
+		projectileLaunchPosition := campaignProjectileLaunchPosition(
+			schedule.projectileSourcePosition, schedule.projectileTargetPosition,
 			schedule.source.Plan.NPCProfile.FootprintRadius,
 		)
-		travelDistance := zoneability.Distance(
-			currentLaunchPosition, currentAimPosition,
+		// Homing controls the client presentation, but it must not teleport a
+		// hit to the hero's current position when the original flight reaches
+		// its deadline. Resolve against the launched trajectory so moving clear
+		// of the projectile before that deadline is a real dodge.
+		collision, err = zonenpc.ResolveProjectileCollision(
+			projectileLaunchPosition, schedule.projectileTargetPosition,
+			currentTarget.Position,
+			zoneability.Distance(projectileLaunchPosition, schedule.projectileTargetPosition),
+			zonenpc.ProjectileGeometry{
+				ProjectileHalfExtent: schedule.geometry.ProjectileHalfExtent,
+				TargetMinimum:        schedule.geometry.TargetMinimum,
+				TargetMaximum:        schedule.geometry.TargetMaximum,
+			},
 		)
-		collision = sim.ProjectileBoxCollision{
-			Position:       sim.Position(currentAimPosition),
-			TravelDistance: travelDistance,
-			IsDirectHit:    travelDistance < schedule.plan.Profile.ProjectileDistance,
-		}
 	} else {
 		projectileSourcePosition := schedule.source.Plan.Position
 		projectileTargetPosition := schedule.target.Position

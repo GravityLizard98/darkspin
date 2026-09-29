@@ -680,6 +680,7 @@ func (r campaignMovementCommandRuntime) handle(
 	populationAggroPlans := make([]zonenpc.SpawnPlan, 0)
 	populationAggroPackets := make([][]byte, 0)
 	campaignOrbPackets := make([][]byte, 0)
+	missileTargetingPackets := make([][]byte, 0, 1)
 	campaignDNAPackets := make([][]byte, 0)
 	tutorialCapsulePackets := make([][]byte, 0)
 	tutorialHordePackets := make([][]byte, 0)
@@ -702,9 +703,16 @@ func (r campaignMovementCommandRuntime) handle(
 			return nil, fmt.Errorf("moveCampaignAdvance: %w", movementErr)
 		}
 		if !isStop {
-			peerSession.resetMissileTargetingPresentation(
+			targetingPacket, targetingErr := peerSession.stopMissileTargetingPresentation(
 				peerSession.deployedCreatureIndex,
 			)
+			if targetingErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("moveMissileTargetingStop: %w", targetingErr)
+			}
+			if targetingPacket != nil {
+				missileTargetingPackets = append(missileTargetingPackets, targetingPacket)
+			}
 		}
 		publishedGoal = peerSession.playerMovementGoal
 		previous := game.Vec3{
@@ -1092,6 +1100,7 @@ func (r campaignMovementCommandRuntime) handle(
 	movementSideEffectPackets = append(movementSideEffectPackets, companionAttackPackets...)
 	movementSideEffectPackets = append(movementSideEffectPackets, drainStopPackets...)
 	movementSideEffectPackets = append(movementSideEffectPackets, campaignOrbPackets...)
+	movementSideEffectPackets = append(movementSideEffectPackets, missileTargetingPackets...)
 	movementSideEffectPackets = append(
 		movementSideEffectPackets, gameplayPeerPresentationPackets(lavaPackets)...,
 	)
@@ -1163,6 +1172,7 @@ func (r campaignMovementCommandRuntime) handle(
 	response = append(response, populationPackets...)
 	response = append(response, populationAggroPackets...)
 	response = append(response, campaignOrbPackets...)
+	response = append(response, missileTargetingPackets...)
 	response = append(response, lavaPackets...)
 	response = append(response, campaignDNAPackets...)
 	response = append(response, tutorialCapsulePackets...)

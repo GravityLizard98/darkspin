@@ -74,7 +74,7 @@ export function RestartLauncher():Promise<void>;
 
 export function ScanRemoteServers(arg1:string):Promise<Array<main.RemoteServer>>;
 
-export function SendReport(arg1:string,arg2:string):Promise<main.ReportResult>;
+export function SendReport(arg1:string):Promise<main.ReportResult>;
 
 export function SetIdentity(arg1:string):Promise<main.LauncherStatus>;
 

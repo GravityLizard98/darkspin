@@ -263,6 +263,8 @@ type controlledHeroState struct {
 	attackPose                    retainedAttackPose
 	campaignPlayerPursuit         *zoneaction.Pursuit
 	basicSequence                 *zoneability.Sequence
+	basicHeldAbility              raknet.ActionAbilityData
+	isBasicHeldAbilitySet         bool
 	playerPosition                raknet.Vector3
 	playerMovementGoal            raknet.Vector3
 	playerMotion                  *zoneaction.Motion
@@ -548,6 +550,7 @@ type gameplayPeerSession struct {
 	tutorialHorde                        *tutorialHordeSession
 	crystalInventory                     sim.CrystalInventory
 	campaignPartSlotBag                  game.CampaignPartSlotBag
+	campaignWeaponSubjectBag             campaignWeaponSubjectBag
 	campaignEquipmentDropBag             campaignEquipmentDropBag
 	campaignPartRarityBag                game.CampaignPartRarityBag
 	campaignEquipmentWinnerBag           campaignEquipmentWinnerBag
@@ -3212,6 +3215,7 @@ func (s *gameplayPeerSession) applyDamageHitPointsWithOutcome(
 			s.binding.Creatures[s.deployedCreatureIndex], s.binding.Creatures[livingIndex],
 			0, s.deployedManaPoint(), targetCharacter.HitPoints, targetCharacter.ManaPoints,
 			s.playerPosition, raknet.Quaternion{W: 1}, timestamp,
+			timestamp+uint64(standardCreatureSwapCooldown/time.Millisecond),
 			false,
 		)
 		if err != nil {
@@ -4034,6 +4038,7 @@ func (r gameplaySwitchRuntime) handle(
 		targetCharacter.HitPoints, targetCharacter.ManaPoints,
 		peerSession.playerPosition, command.Common.Orientation,
 		arrivalTimestamp,
+		packet.SourceTime+uint64(standardCreatureSwapCooldown/time.Millisecond),
 		isDeathSelection || isVoluntarySwitch,
 	)
 	if err != nil {
@@ -4053,7 +4058,12 @@ func (r gameplaySwitchRuntime) handle(
 	}
 	previousCreatureIndex := peerSession.deployedCreatureIndex
 	peerSession.resetPassiveDamageReduction(previousCreatureIndex)
-	peerSession.resetMissileTargetingPresentation(previousCreatureIndex)
+	missileTargetingStopPacket, targetingStopErr :=
+		peerSession.stopMissileTargetingPresentation(previousCreatureIndex)
+	if targetingStopErr != nil {
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("switchMissileTargetingStop: %w", targetingStopErr)
+	}
 	peerSession.resetFireRavagerBasic(previousCreatureIndex)
 	shieldPackets, shieldErr := peerSession.stopTCShield(
 		previousCreatureIndex, r.effectPool,
@@ -4284,6 +4294,12 @@ func (r gameplaySwitchRuntime) handle(
 	switchPackets = append(switchPackets, heroSummonPackets...)
 	switchPackets = append(switchPackets, trapperStealthPackets...)
 	switchPackets = append(switchPackets, shieldPackets...)
+	if missileTargetingStopPacket != nil {
+		departurePackets = append([][]byte{missileTargetingStopPacket}, departurePackets...)
+		if !isVoluntarySwitch {
+			switchPackets = append([][]byte{missileTargetingStopPacket}, switchPackets...)
+		}
+	}
 	for index, req := range stoppedPassiveRequest {
 		passivePackets, _, passiveErr := marshalSummonPassiveWorldRequest(
 			req, raknet.Vector3{},

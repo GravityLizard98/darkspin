@@ -232,23 +232,23 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 		user.mu.Unlock()
 		return nil, errors.New("creature revision changed or invalid")
 	}
+	ownedPartIDs := make(map[uint64]struct{}, len(user.Parts))
+	for index := range user.Parts {
+		if user.Parts[index].MarketStatus != PartMarketOwned {
+			continue
+		}
+		ownedPartIDs[user.Parts[index].ID] = struct{}{}
+	}
 	selected := make(map[uint64]struct{}, len(command.EquippedPartID))
 	for _, itemID := range command.EquippedPartID {
-		selected[itemID] = struct{}{}
-	}
-	for itemID := range selected {
-		isOwned := false
-		for index := range user.Parts {
-			if user.Parts[index].ID == itemID &&
-				user.Parts[index].MarketStatus == PartMarketOwned {
-				isOwned = true
-				break
-			}
-		}
+		_, isOwned := ownedPartIDs[itemID]
 		if !isOwned {
-			user.mu.Unlock()
-			return nil, ErrPartNotFound
+			// Build 103 can retain stale inventory rows in the editor after a
+			// buyback or reward transition. Ignore those rows while accepting
+			// the valid appearance and owned portion of the loadout.
+			continue
 		}
+		selected[itemID] = struct{}{}
 	}
 	functionalItemCount := 0
 	flairItemCount := uint32(0)

@@ -218,6 +218,15 @@ func destructibleDeathPresentation(
 		// for deletion; it is not an ordinary exploding scenery fixture.
 		return "gravity_orb_fizzle.ServerEventDef", time.Millisecond
 	}
+	if strings.EqualFold(snapshot.Plan.NounName, nocturnaSupernaturalPlantNounName) ||
+		strings.EqualFold(snapshot.Plan.NounName, nocturnaPrefabSupernaturalPlantNounName) {
+		// These nouns own their purple smoke and spectral-ring transition in
+		// the authored dead graphics state. A generic debris explosion masks it.
+		return "", destructibleLargeDeleteDelay
+	}
+	if zonenpc.IsVerdanthTotem(snapshot.Plan) {
+		return "", destructibleSmallDeleteDelay
+	}
 	footprint := max(snapshot.Plan.NPCProfile.FootprintRadius, physics.FootprintRadius)
 	halfWidth := max(
 		(physics.BoundMaximum.X-physics.BoundMinimum.X)*0.5,
@@ -305,6 +314,7 @@ func campaignNPCDeathDefinition(
 	}
 	isNightmareVine := strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName)
 	isGraviticRegulator := zonenpc.IsGraviticRegulator(snapshot.Plan)
+	isVerdanthTotem := zonenpc.IsVerdanthTotem(snapshot.Plan)
 	isIllusion := snapshot.Plan.OwnerObjectID != 0 && zonenpc.IsNashiraNoun(snapshot.Plan.NounName)
 	if isIllusion {
 		// Duplicates dissolve; only the real boss owns the long death scene.
@@ -341,19 +351,20 @@ func campaignNPCDeathDefinition(
 			Y: snapshot.Plan.Position.Y,
 			Z: snapshot.Plan.Position.Z,
 		},
-		hitPoint:                   snapshot.HitPoint,
-		creatureType:               physics.CreatureType,
-		isCreatureTypeKnown:        physics.IsCreatureTypeKnown,
-		isFixture:                  isFixture,
-		isBoss:                     snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:          isNightmareVine || isGraviticRegulator,
-		isCollisionRetained:        isGraviticRegulator,
-		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRegulator,
-		ordinaryDeathAnimation:     ordinaryDeathAnimation,
-		corpseFadeDelay:            deathPresentation.PresentationDuration,
-		graphicsState:              graphicsState,
-		explosionEffectName:        explosionEffectName,
-		deleteDelay:                deleteDelay,
+		hitPoint:            snapshot.HitPoint,
+		creatureType:        physics.CreatureType,
+		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
+		isFixture:           isFixture,
+		isBoss:              snapshot.Plan.IsBoss || isDestructor,
+		isRemnantRetained:   isNightmareVine || isGraviticRegulator || isVerdanthTotem,
+		isCollisionRetained: isGraviticRegulator,
+		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRegulator ||
+			isVerdanthTotem,
+		ordinaryDeathAnimation: ordinaryDeathAnimation,
+		corpseFadeDelay:        deathPresentation.PresentationDuration,
+		graphicsState:          graphicsState,
+		explosionEffectName:    explosionEffectName,
+		deleteDelay:            deleteDelay,
 	}, nil
 }
 

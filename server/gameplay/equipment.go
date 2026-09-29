@@ -11,6 +11,8 @@ import (
 	lootsporenet "github.com/darkspinnet/darkspin/server/zone/loot/sporenet"
 )
 
+const campaignEquipmentTransientIDMask = uint64(1 << 31)
+
 func campaignMissionInventoryStatus(
 	current *zone.Zone, userID uint64, status sporenet.PartInventoryStatus,
 ) sporenet.PartInventoryStatus {
@@ -40,10 +42,11 @@ func (e campaignEquipmentPickupStep) collectMissionEquipment(
 		return sporenet.Part{}, fmt.Errorf("missionCollect: %w", err)
 	}
 	part := e.pickup.Part
-	// The native ground-loot event has no persistent inventory identity. Giving
-	// it one lets build 103 reuse unrelated cached item presentation across drops.
-	part.ID = 0
-	part.ReferenceID = 0
-	part.CreationDate = uint64(time.Now().UnixMilli())
+	// Build 103 keys Recently Acquired entries by their item identity. Use the
+	// reserved half of its 32-bit ID space so each mission pickup stays distinct
+	// without consuming the persistent ID assigned when the mission completes.
+	part.ID = campaignEquipmentTransientIDMask | uint64(e.pickup.ObjectID)
+	part.ReferenceID = member.UserID<<32 | part.ID
+	part.CreationDate = uint64(time.Now().Unix())
 	return part, nil
 }

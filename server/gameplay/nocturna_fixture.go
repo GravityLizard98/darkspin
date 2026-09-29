@@ -16,7 +16,7 @@ import (
 const nocturnaFixtureTerrorRadius = float32(12)
 const nocturnaFixtureTerrorDuration = 3 * time.Second
 const nightmareRootDamageInterval = time.Second
-const nightmareRootDamageRadius = float32(2.5)
+const nightmareRootDamageRadius = float32(4)
 const nightmareRootDamage = float32(4)
 
 func isNocturnaTerrorFixture(nounName string) bool {
@@ -120,9 +120,14 @@ func (r campaignDamageRuntime) publishNocturnaFixtureTerror(
 	}
 	r.registry.mutex.RUnlock()
 
+	npcRuntime := r.npc
+	npcRuntime.registry = r.registry
+	npcRuntime.pursuit.registry = r.registry
+	npcRuntime.pursuit.now = npcRuntime.now
+	npcRuntime.pursuit.logger = r.logger
 	abilityRuntime := campaignAbilityCommandRuntime{
 		registry: r.registry, modifierPool: r.npc.modifierPool,
-		now: r.npc.now, logger: r.logger,
+		npc: npcRuntime, now: npcRuntime.now, logger: r.logger,
 	}
 	packets := make([][]byte, 0)
 	for index, targetObjectID := range targetObjectIDs {

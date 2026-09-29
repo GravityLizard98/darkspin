@@ -452,8 +452,18 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	}
 	defer interruptedBasic.Stop()
 	basicHeldGeneration, isBasicHeldRepeat := ctx.Value(basicHeldContextKey{}).(uint64)
+	isBasicHeldInput := !isActiveRequest && command.Ability.TargetID == 0 &&
+		byte(command.Ability.Unknown) == 1
+	basicHeldAbility := *command.Ability
 	isBasicHeldCurrent := !isBasicHeldRepeat || isFound &&
 		peerSession.basicSequenceSession().IsHeldAt(basicHeldGeneration)
+	isBasicHeldAimRefresh := !isBasicHeldRepeat && isBasicHeldInput &&
+		peerSession.basicSequenceSession().IsHeld()
+	if isBasicHeldAimRefresh {
+		peerSession.basicHeldAbility = basicHeldAbility
+		peerSession.isBasicHeldAbilitySet = true
+		r.registry.sessions[sessionKey] = peerSession
+	}
 	isBasicReady := isFound && peerSession.basicAttack == nil &&
 		peerSession.basicSequenceSession().IsReady(abilityStartTime) &&
 		peerSession.isAbilityReleaseReady(abilityStartTime) &&
@@ -464,6 +474,10 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	isAccepted := isSessionCurrent &&
 		(isActiveRequest && isActiveReady || !isActiveRequest && isBasicReady)
 	if !isAccepted {
+		if isSessionCurrent && isBasicHeldAimRefresh {
+			r.registry.mutex.Unlock()
+			return nil, nil
+		}
 		basicCycleRemaining := peerSession.basicSequenceSession().CooldownEnd().Sub(
 			abilityStartTime,
 		)
@@ -518,8 +532,6 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	if isPursuitRetry {
 		targetObjectID = peerSession.campaignPlayerPursuitSession().Snapshot().TargetObjectID
 	}
-	isBasicHeldInput := !isActiveRequest &&
-		command.Ability.TargetID == 0 && byte(command.Ability.Unknown) == 1
 	if isBasicHeldInput && definition.Kind == sim.AbilityKindMelee &&
 		!isPursuitRetry {
 		targetObjectID = zoneability.CursorTarget(
@@ -566,8 +578,12 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	// not reliably publish ActionCancel for the ground-fire path. Keep each
 	// targetless request single-cycle and let subsequent client requests express
 	// a continued hold.
-	if command.Ability.TargetID == 0 {
+	if targetObjectID == 0 {
 		isBasicHeldInput = false
+	}
+	if isBasicHeldInput {
+		peerSession.basicHeldAbility = basicHeldAbility
+		peerSession.isBasicHeldAbilitySet = true
 	}
 	isAreaBasic := definition.Kind == sim.AbilityKindCone ||
 		(definition.Kind == sim.AbilityKindCursorArea ||
@@ -1695,17 +1711,29 @@ type campaignAreaRepeatStep struct {
 	heldGeneration uint64
 }
 
+func latestBasicHeldCommand(
+	peerSession gameplayPeerSession, command raknet.ActionCommandData,
+) raknet.ActionCommandData {
+	if command.Ability == nil || !peerSession.isBasicHeldAbilitySet {
+		return command
+	}
+	ability := peerSession.basicHeldAbility
+	command.Ability = &ability
+	return command
+}
+
 func (e campaignAreaRepeatStep) produce() ([][]byte, error) {
 	e.runtime.registry.mutex.RLock()
 	current, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && current.generation == e.generation &&
 		current.basicSequenceSession().IsHeldAt(e.heldGeneration)
+	command := latestBasicHeldCommand(current, e.command)
 	e.runtime.registry.mutex.RUnlock()
 	if !isCurrent {
 		return nil, nil
 	}
 	ctx := context.WithValue(context.Background(), basicHeldContextKey{}, e.heldGeneration)
-	packets, err := e.runtime.handle(ctx, e.packet, e.command)
+	packets, err := e.runtime.handle(ctx, e.packet, command)
 	e.runtime.registry.mutex.Lock()
 	latest, isLatestFound := e.runtime.registry.sessions[e.sessionKey]
 	isRepeated := isLatestFound && latest.generation == e.generation &&
@@ -3225,6 +3253,7 @@ func (e campaignHeldRepeatStep) produce() ([][]byte, error) {
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && peerSession.generation == e.generation &&
 		peerSession.basicSequenceSession().IsHeldAt(e.heldGeneration)
+	command := latestBasicHeldCommand(peerSession, e.command)
 	previousNextObjectID := peerSession.nextProjectileObjectID
 	e.runtime.registry.mutex.RUnlock()
 	if !isCurrent {
@@ -3233,7 +3262,7 @@ func (e campaignHeldRepeatStep) produce() ([][]byte, error) {
 	repeatContext := context.WithValue(
 		context.Background(), basicHeldContextKey{}, e.heldGeneration,
 	)
-	packets, err := e.runtime.handle(repeatContext, e.packet, e.command)
+	packets, err := e.runtime.handle(repeatContext, e.packet, command)
 	e.runtime.registry.mutex.Lock()
 	latestSession, isLatestFound :=
 		e.runtime.registry.sessions[e.sessionKey]
@@ -3285,6 +3314,7 @@ func (r campaignBasicScheduleRun) repeat() ([][]byte, error) {
 	peerSession, isFound := r.runtime.registry.sessions[r.sessionKey]
 	isCurrent := isFound && peerSession.generation == r.generation &&
 		peerSession.basicSequenceSession().IsHeldAt(r.heldGeneration)
+	command := latestBasicHeldCommand(peerSession, r.command)
 	r.runtime.registry.mutex.Unlock()
 	if !isCurrent {
 		return nil, nil
@@ -3292,7 +3322,7 @@ func (r campaignBasicScheduleRun) repeat() ([][]byte, error) {
 	repeatContext := context.WithValue(
 		context.Background(), basicHeldContextKey{}, r.heldGeneration,
 	)
-	packet, err := r.runtime.handle(repeatContext, r.repeatPacket, r.command)
+	packet, err := r.runtime.handle(repeatContext, r.repeatPacket, command)
 	r.runtime.registry.mutex.Lock()
 	latestSession, isLatestFound := r.runtime.registry.sessions[r.sessionKey]
 	isRepeated := isLatestFound &&

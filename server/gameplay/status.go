@@ -1850,6 +1850,7 @@ func (r campaignResultRuntime) continueChain(
 			schedulePacket:              continueSession.schedulePacket,
 			crystalInventory:            crystalInventory,
 			campaignPartSlotBag:         continueSession.campaignPartSlotBag.Clone(),
+			campaignWeaponSubjectBag:    continueSession.campaignWeaponSubjectBag.Clone(),
 			campaignEquipmentDropBag:    continueSession.campaignEquipmentDropBag,
 			campaignPartRarityBag:       continueSession.campaignPartRarityBag.Clone(),
 			campaignEquipmentWinnerBag:  continueSession.campaignEquipmentWinnerBag.Clone(),

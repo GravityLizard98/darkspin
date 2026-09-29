@@ -15,6 +15,20 @@ func IsGraviticRegulator(plan SpawnPlan) bool {
 	)
 }
 
+// IsVerdanthTotem identifies the ancient stone destructibles promoted from
+// Verdanth's authored smart-object layout.
+func IsVerdanthTotem(plan SpawnPlan) bool {
+	if !plan.IsFixture {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(plan.NounName)) {
+	case "dest_tota_headstatue_b.noun", "dest_tota_headstatue_c.noun":
+		return true
+	default:
+		return false
+	}
+}
+
 func PlanFixtures(
 	markers []game.CampaignDirectorMarker, firstObjectID uint32,
 	objectIDLimit uint32,

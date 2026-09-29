@@ -1,5 +1,25 @@
 # Changelog
 
+### 2026-09-29
+
+- Make Swarming Herbipods engage from a shorter range and let Homing Swarm projectiles miss moving heroes and expire promptly.
+- Attach SRS-42's Targeting Computer effect to the hero and remove it immediately when movement or hero switching begins.
+- Require an explicit pickup interaction to consume resurrection capsules, leaving them available when no squad hero is defeated.
+- Restore the hero portrait cooldown wipe after switching and keep held right-click attacks aimed at the latest cursor target without interrupting the active strike.
+- Stop ordinary enemy pursuit locomotion at its collision-safe attack goal so enemies do not physically shove heroes while approaching.
+- Simplify launcher bug reports to a title-only form used for the diagnostic ZIP name, with full issue details entered on GitHub.
+- Let Space Barracudas teleport again after each ranged shot instead of remaining at their first blink destination.
+- Remove Zrin's Pain Hounds at the end of their lifetime for every player in the mission.
+- Recover hero saves containing stale client inventory rows while retaining only equipped parts the account owns.
+- Restore Nightmare Vine root damage and Nocturna supernatural plants' authored spectral death presentation, and prevent their terror effect from crashing scheduled combat.
+- Correct the completed and next mission names shown by the campaign reward vote.
+- Restore Verdanth's destructible ancient stone totems with their destroyed model and a high catalyst drop chance.
+- Keep Rezzers engaged by pursuing into Ghostly Bolt range when no resurrection target is available.
+- Allow Nocturna missions with fixture-only smart-object sets to finish loading instead of disconnecting at a black screen when their scenery composition contains only deletions.
+- Keep each in-mission equipment reward visually distinct in Recently Acquired while reserving its permanent inventory identity until mission completion.
+- Restore Invincitron's hover-drone flight animation by driving its orbit through moving locomotion goals instead of repeated stop-position snaps.
+- Select mission equipment for the deployed squad and rotate weapon rewards across its heroes before repeating one, preventing an unlocked hero's weapon family from dominating drops.
+
 ### 2026-09-28
 
 - Restore Nocturna's destructive plants and Nightmare Vines as attackable fixtures across missions 1-3 and 1-4, including vine collapse effects, damaging live roots, dead-root transitions, and nearby enemy terror on destruction.

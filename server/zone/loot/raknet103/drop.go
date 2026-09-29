@@ -227,7 +227,8 @@ func MarshalEquipmentDrop(
 func MarshalEquipmentAward(
 	part sporenet.Part, playerID uint8, objectID uint32, position raknet.Vector3,
 ) ([]byte, error) {
-	if part.RigblockAssetHash == 0 || objectID == 0 || !isFinitePosition(position) {
+	if part.ID == 0 || part.ReferenceID == 0 || part.RigblockAssetHash == 0 ||
+		objectID == 0 || !isFinitePosition(position) {
 		return nil, errors.New("invalid campaign equipment award")
 	}
 	packet, err := raknet.MarshalApplication(raknet.ServerEventMessage{
@@ -235,6 +236,7 @@ func MarshalEquipmentAward(
 		ObjectID: objectID, Position: position,
 		TextValue: uint32(playerID), ClientEventID: util.HashID("LootAwarded"),
 		Loot: &raknet.ServerEventLoot{
+			ReferenceID: part.ReferenceID, InstanceID: part.ID,
 			RigblockID: part.RigblockAssetHash, SuffixAsset: part.SuffixAssetHash,
 			PrefixAsset1: part.PrefixAssetHash, PrefixAsset2: part.PrefixSecondaryAssetHash,
 			ItemLevel: int32(part.Level), Rarity: int32(part.Rarity),

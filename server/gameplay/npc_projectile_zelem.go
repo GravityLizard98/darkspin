@@ -322,8 +322,8 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	}
 	if profile.Family == zonenpc.ActionZelemRanged &&
 		profile.TeleportNormalDistance > 0 {
-		// The engagement opener owns the blink. Pursuit, strafing, and shot
-		// cooldowns must resume the basic attack, not start another blink loop.
+		// A blink hands this action chain to one ordinary shot. The shot's
+		// recovery returns to the blink planner without starting a second timer.
 		profile = zonenpc.ZelemRangedShotProfile()
 	}
 	_, isHomerFamily := zonenpc.NocturnaSpecialHomerMeleeProfile(enemy.Plan.NounName)
@@ -715,7 +715,7 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		expiryDelay := ability.HitDelay + time.Duration(
 			float64(profile.ProjectileDistance)/float64(profile.ProjectileSpeed)*
 				float64(time.Second),
-		) + 5*time.Second
+		) + time.Second
 		expiryStep := campaignNPCProjectileExpiryStep{schedule: projectileSchedule}
 		producers = append(producers, raknet.ScheduledPacketProducer{
 			Delay: expiryDelay, Produce: expiryStep.produce,

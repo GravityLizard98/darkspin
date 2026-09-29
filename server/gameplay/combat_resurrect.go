@@ -88,13 +88,45 @@ func (r campaignNPCActionRuntime) produceRezzerFallback(
 		r.releaseAction(sessionKey, generation, objectID)
 		return nil, nil
 	}
+	action, err := zonenpc.PlanActionWithProfile(
+		campaignNPCActionCommand(
+			source.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+		),
+		profile,
+	)
+	if err != nil {
+		r.registry.mutex.Unlock()
+		r.releaseAction(sessionKey, generation, objectID)
+		return nil, fmt.Errorf("enemyRezzerFallbackPlan: %w", err)
+	}
+	if action.IsPursuitNeeded {
+		r.registry.mutex.Unlock()
+		pursuitPackets, marshalErr := npcraknet.Pursuit(action)
+		if marshalErr != nil {
+			r.releaseAction(sessionKey, generation, objectID)
+			return nil, fmt.Errorf("enemyRezzerFallbackPursuit: %w", marshalErr)
+		}
+		step := campaignRezzerFleeStep{
+			runtime: r, packet: packet, sessionKey: sessionKey,
+			generation: generation, objectID: objectID, timestamp: timestamp,
+		}
+		scheduleErr := r.pursuit.schedule(
+			packet, sessionKey, generation, objectID, timestamp,
+			target.Position, action.Profile, step.produce,
+		)
+		if scheduleErr != nil {
+			r.releaseAction(sessionKey, generation, objectID)
+			return nil, fmt.Errorf("enemyRezzerFallbackSchedule: %w", scheduleErr)
+		}
+		return pursuitPackets, nil
+	}
 	if zonegeometry.Distance(source.Plan.Position, target.Position) > 10 {
 		r.registry.mutex.Unlock()
 		return r.produceZelemShotWithProfile(
 			packet, sessionKey, generation, objectID, timestamp, profile,
 		)
 	}
-	destination, _, err := campaignChronoStrikerFleeDestination(
+	destination, isDestinationFound, err := campaignChronoStrikerFleeDestination(
 		source.Plan.Position, target.Position,
 		peerSession.zone.NPCRandom().Float64,
 		func(candidate game.Vec3) (game.Vec3, bool, error) {
@@ -108,17 +140,24 @@ func (r campaignNPCActionRuntime) produceRezzerFallback(
 	if err != nil {
 		return nil, fmt.Errorf("enemyRezzerFleeDestination: %w", err)
 	}
+	if !isDestinationFound || zonegeometry.Distance(
+		source.Plan.Position, destination,
+	) < source.Plan.NPCProfile.FootprintRadius {
+		return r.produceZelemShotWithProfile(
+			packet, sessionKey, generation, objectID, timestamp, profile,
+		)
+	}
 	fleeProfile := zonenpc.ActionProfile{
 		Family: zonenpc.ActionProjectile, AbilityName: "GhostlyBoltFlee",
 		MovementSpeed: profile.MovementSpeed,
 		Range:         source.Plan.NPCProfile.FootprintRadius,
 	}
-	action := zonenpc.FirstActionPlan{
+	fleeAction := zonenpc.FirstActionPlan{
 		ObjectID: objectID, TargetObjectID: target.ObjectID,
 		SourcePosition: source.Plan.Position, TargetPosition: destination,
 		Profile: fleeProfile, IsPursuitNeeded: true,
 	}
-	pursuitPackets, err := npcraknet.Pursuit(action)
+	pursuitPackets, err := npcraknet.Pursuit(fleeAction)
 	if err != nil {
 		return nil, fmt.Errorf("enemyRezzerFleeMarshal: %w", err)
 	}

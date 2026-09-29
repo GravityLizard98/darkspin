@@ -5717,6 +5717,11 @@ func (p campaignPreparation) initialize(
 		}
 	} else if binding.Mode == game.ModeChain {
 		fixtureMarkers, fixtureErr = director.NocturnaFixtures()
+		if fixtureErr == nil {
+			var verdanthFixtureMarkers []game.CampaignDirectorMarker
+			verdanthFixtureMarkers, fixtureErr = director.VerdanthFixtures()
+			fixtureMarkers = append(fixtureMarkers, verdanthFixtureMarkers...)
+		}
 	}
 	if fixtureErr != nil {
 		return fmt.Errorf("statusChainFixtures: %w", fixtureErr)

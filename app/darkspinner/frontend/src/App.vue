@@ -1,7 +1,6 @@
 <script setup>
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card } from '@/components/ui/card'
 import { DialogTitle } from '@/components/ui/dialog'
@@ -75,14 +74,13 @@ const isProfileCreationBusy = ref(false)
 const isReportBusy = ref(false)
 const isReportComposerOpen = ref(false)
 const reportTitle = ref('')
-const reportDescription = ref('')
 const reportResult = ref(null)
 const reportShareMessage = ref('')
 const myReportsURL = 'https://github.com/darkspinnet/darkspin/issues?q=is%3Aissue%20author%3A%40me%20sort%3Aupdated-desc'
 const reportIssueBody = computed(() => {
   const report = reportResult.value
   if (!report) return ''
-  return `## ${report.title}\n\n${report.description}\n\n### Darkspinner build\n${report.version || 'Unknown'}\n\n### Diagnostic archives\n${report.names.map(name => `- ${name}`).join('\n')}\n\nAttach all ${report.names.length} ZIP(s) from the bug folder before submitting this issue. Each ZIP is at most 25 MB.`
+  return `### What happened\n\n<!-- Describe what you were doing, what you expected, and what happened instead. -->\n\n### Darkspinner build\n${report.version || 'Unknown'}\n\n### Diagnostic archives\n${report.names.map(name => `- ${name}`).join('\n')}\n\nAttach all ${report.names.length} ZIP(s) from the bug folder before submitting this issue. Each ZIP is at most 25 MB.`
 })
 const reportIssueDraft = computed(() => {
   const report = reportResult.value
@@ -158,7 +156,7 @@ const isCreatingProfile = computed(() =>
 const isFirstRunOnboarding = computed(() => isProfileListLoaded.value && profiles.value.length === 0)
 const isInstallationRequired = computed(() => isInstallationLoaded.value && !installation.value.isLocalReady)
 const isIntegrationSelected = computed(() => isStartMenuShortcut.value || isDesktopShortcut.value || isSteamLaunch.value)
-const isReportReady = computed(() => !!reportTitle.value.trim() && !!reportDescription.value.trim() && !isReportBusy.value)
+const isReportReady = computed(() => !!reportTitle.value.trim() && !isReportBusy.value)
 const isNewProfileNameValid = computed(() => {
   const name = newProfileName.value.trim()
   return /^[A-Za-z0-9]{1,20}$/.test(name)
@@ -941,16 +939,14 @@ function closeReportComposer() {
 
 async function sendReport() {
   const title = reportTitle.value.trim()
-  const description = reportDescription.value.trim()
-  if (!title || !description || isReportBusy.value) return
+  if (!title || isReportBusy.value) return
   isReportBusy.value = true
   try {
-    const report = await SendReport(title, description)
-    reportResult.value = { ...report, title, description, version:status.value.version }
+    const report = await SendReport(title)
+    reportResult.value = { ...report, title, version:status.value.version }
     reportShareMessage.value = ''
     isReportComposerOpen.value = false
     reportTitle.value = ''
-    reportDescription.value = ''
   }
   catch (error) { recordError(error) }
   finally { isReportBusy.value = false }
@@ -971,8 +967,8 @@ async function openReportIssue() {
   try {
     if (reportIssueDraft.value.isLong) {
       const isCopied = await ClipboardSetText(reportIssueBody.value)
-      if (!isCopied) throw new Error('Could not copy the report. The complete description is also in report.txt inside the ZIP.')
-      reportShareMessage.value = 'Full report copied. Paste it into the GitHub description, then attach every report ZIP.'
+      if (!isCopied) throw new Error('Could not copy the GitHub issue template.')
+      reportShareMessage.value = 'Issue template copied. Paste it into GitHub, add the bug details, then attach every report ZIP.'
     } else {
       reportShareMessage.value = 'GitHub opened with your report details. Open the bug folder and drag the ZIP into the issue before submitting.'
     }
@@ -1607,13 +1603,11 @@ async function copyLauncherFailure() {
           <a class="report-manage-link" :href="myReportsURL" @click.prevent="openMyReports">MANAGE MY REPORTS ↗</a>
         </div>
         <p class="eyebrow">LOCAL DIAGNOSTIC REPORT</p>
-        <DialogTitle as="h2">WHAT HAPPENED?</DialogTitle>
-        <p>Give the report a short title, then describe exactly what you were doing, what you expected, and what happened instead. More detail makes the captured logs easier to understand.</p>
+        <DialogTitle as="h2">NAME THIS REPORT</DialogTitle>
+        <p>Give the report a short title. This title identifies the ZIP; add the full details when you create the GitHub issue.</p>
         <form class="report-form" @submit.prevent="sendReport">
           <label for="report-title-input">TITLE</label>
           <Input id="report-title-input" v-model="reportTitle" type="text" autocomplete="off" placeholder="Example: Revenant ability crashed the game" :disabled="isReportBusy" />
-          <label for="report-description-input">DESCRIPTION</label>
-          <Textarea id="report-description-input" v-model="reportDescription" placeholder="Describe everything that may be relevant. You can write as much as you need." :disabled="isReportBusy"></Textarea>
           <div class="notice-actions">
             <Button variant="outline" class="onboarding-cancel" type="button" :disabled="isReportBusy" @click="closeReportComposer">CANCEL</Button>
             <Button variant="default" class="report-folder-button" type="submit" :disabled="!isReportReady">{{ isReportBusy ? 'PREPARING...' : 'CREATE REPORT' }}</Button>

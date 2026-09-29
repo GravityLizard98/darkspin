@@ -26,6 +26,14 @@ type levelDirectorStore interface {
 // into content.db. Its complete rows remain an emergency fallback, but imported
 // ClassAttributes always supply combat statistics when available.
 var build103CampaignNPCProfile = map[string]contentsqlite.NonPlayerNounProfile{
+	"dest_tota_headstatue_b.noun": {
+		NounName: "DEST_tota_headstatue_b.Noun", HitPoint: 50,
+		GraphicsScale: 1, FootprintRadius: 1.25, IsTargetable: true,
+	},
+	"dest_tota_headstatue_c.noun": {
+		NounName: "DEST_tota_headstatue_c.Noun", HitPoint: 50,
+		GraphicsScale: 1, FootprintRadius: 1.25, IsTargetable: true,
+	},
 	"dest_prefab_islands_instrument_scitech_11.noun": {
 		NounName: "DEST_prefab_islands_instrument_scitech_11.Noun", HitPoint: 1,
 		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 1,

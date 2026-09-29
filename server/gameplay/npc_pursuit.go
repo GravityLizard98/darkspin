@@ -229,6 +229,9 @@ func (r campaignNPCPursuitRuntime) scheduleTargetCorrection(
 	publishedGoal game.Vec3, lastPublicationTimestamp uint64,
 	profile zonenpc.ActionProfile, onArrival campaignNPCArrival,
 ) error {
+	if r.registry == nil || r.now == nil {
+		return errors.New("enemy pursuit runtime unavailable")
+	}
 	r.registry.mutex.RLock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && peerSession.generation == generation &&

@@ -259,6 +259,94 @@ func (r campaignInteractionRuntime) handlePickup(
 	if command.Ability != nil {
 		abilityIndex = command.Ability.Index
 	}
+	orbPickup := zoneinteract.Orb{}
+	isOrbPickup := false
+	if currentSession.zone.Orbs() != nil {
+		orbPickup, isOrbPickup = currentSession.zone.Orbs().Orb(command.Value)
+	}
+	if isOrbPickup && orbPickup.Request.Kind == sim.ResurrectionOrbDrop {
+		if !orbPickup.AvailableAt.IsZero() && r.now().Before(orbPickup.AvailableAt) {
+			r.registry.mutex.Unlock()
+			return r.rejectPickup(command, "resurrection capsule still moving")
+		}
+		maximumDistance := currentSession.campaignPickupMaximumDistance()
+		pickup, admission := currentSession.reserveCampaignPickup(command, maximumDistance)
+		if admission != zoneinteract.PickupAccepted {
+			r.registry.mutex.Unlock()
+			if admission == zoneinteract.PickupRejectedRange {
+				return r.pursuePickup(packet, sessionKey, command, pickup, maximumDistance)
+			}
+			return r.rejectPickup(command, campaignPickupRejectionReason(admission))
+		}
+		resurrections, resurrectionErr := currentSession.resurrectDeadZoneSquad()
+		if resurrectionErr != nil {
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignResurrectionPickup: %w", resurrectionErr)
+		}
+		if len(resurrections) == 0 {
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return r.rejectPickup(command, "no defeated heroes")
+		}
+		movementPackets, movementErr := currentSession.stopCampaignPickup(r.now())
+		if movementErr != nil {
+			currentSession.rollbackZoneSquadResurrection(resurrections)
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignResurrectionPose: %w", movementErr)
+		}
+		orbPackets, marshalErr := marshalCampaignOrbPickup(
+			orbPickup, currentSession.deployedObjectID, zoneResurrectionOrb, false,
+			currentSession.deployedHitPoint(), currentSession.deployedManaPoint(), 1,
+		)
+		if marshalErr != nil {
+			currentSession.rollbackZoneSquadResurrection(resurrections)
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignResurrectionMarshal: %w", marshalErr)
+		}
+		acceptPacket, marshalErr := actionraknet.Accept(
+			command, "PickUpLoot", packet.SourceTime,
+			campaignEquipmentPickupCommitDelay, campaignEquipmentPickupDelay,
+		)
+		if marshalErr != nil {
+			currentSession.rollbackZoneSquadResurrection(resurrections)
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignResurrectionAccept: %w", marshalErr)
+		}
+		releasePacket, marshalErr := abilityraknet.ReleaseResponse(
+			command.Common.Unknown[0], util.HashID("PickUpLoot"), abilityIndex,
+			packet.SourceTime, campaignEquipmentPickupCommitDelay,
+			campaignEquipmentPickupDelay,
+		)
+		if marshalErr != nil {
+			currentSession.rollbackZoneSquadResurrection(resurrections)
+			currentSession.zone.Pickups().Release(command.Value)
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignResurrectionRelease: %w", marshalErr)
+		}
+		if !currentSession.zone.Pickups().Commit(command.Value) {
+			currentSession.rollbackZoneSquadResurrection(resurrections)
+			r.registry.mutex.Unlock()
+			return nil, errors.New("campaign resurrection capsule commit missing")
+		}
+		currentSession.zone.Orbs().Remove(command.Value)
+		r.registry.sessions[sessionKey] = currentSession
+		r.registry.mutex.Unlock()
+		response := append([][]byte{acceptPacket}, movementPackets...)
+		response = append(response, orbPackets...)
+		for _, resurrection := range resurrections {
+			response = append(response, resurrection.packet)
+		}
+		response = append(response, releasePacket)
+		r.logger.Printf(
+			"RakNet campaign resurrection capsule accepted source=%d target=%d heroes=%d",
+			command.Common.ObjectID, command.Value, len(resurrections),
+		)
+		return response, nil
+	}
 	equipmentPickup := zoneinteract.EquipmentPickup{}
 	isEquipmentPickup := false
 	if isCurrentFound && currentSession.zone.PickupPayload() != nil {
@@ -855,8 +943,8 @@ func (s *gameplayPeerSession) campaignPartSubjects() []game.GameplayCreature {
 	if s == nil {
 		return nil
 	}
-	partSubjects := make([]game.GameplayCreature, 0, len(s.binding.ActivatedCreatures))
-	for _, creature := range s.binding.ActivatedCreatures {
+	partSubjects := make([]game.GameplayCreature, 0, len(s.binding.Creatures))
+	for _, creature := range s.binding.Creatures {
 		if creature.Noun != 0 && creature.ClassType != "" && creature.ElementType != "" {
 			partSubjects = append(partSubjects, creature)
 		}
@@ -864,7 +952,7 @@ func (s *gameplayPeerSession) campaignPartSubjects() []game.GameplayCreature {
 	if len(partSubjects) != 0 {
 		return partSubjects
 	}
-	for _, creature := range s.binding.Creatures {
+	for _, creature := range s.binding.ActivatedCreatures {
 		if creature.Noun != 0 && creature.ClassType != "" && creature.ElementType != "" {
 			partSubjects = append(partSubjects, creature)
 		}
@@ -902,6 +990,56 @@ type campaignEquipmentDropBag struct {
 	missCount uint32
 }
 
+type campaignWeaponSubjectBag struct {
+	usedCreatureIDs map[uint32]struct{}
+	lastCreatureID  uint32
+}
+
+func (e campaignWeaponSubjectBag) Clone() campaignWeaponSubjectBag {
+	clone := campaignWeaponSubjectBag{lastCreatureID: e.lastCreatureID}
+	if len(e.usedCreatureIDs) == 0 {
+		return clone
+	}
+	clone.usedCreatureIDs = make(map[uint32]struct{}, len(e.usedCreatureIDs))
+	for creatureID := range e.usedCreatureIDs {
+		clone.usedCreatureIDs[creatureID] = struct{}{}
+	}
+	return clone
+}
+
+func (e *campaignWeaponSubjectBag) selectSubject(
+	partSubjects []game.GameplayCreature, choice uint32,
+) (game.GameplayCreature, bool) {
+	candidateIndexes := make([]int, 0, len(partSubjects))
+	for subjectIndex, partSubject := range partSubjects {
+		if _, isUsed := e.usedCreatureIDs[partSubject.ID]; !isUsed {
+			candidateIndexes = append(candidateIndexes, subjectIndex)
+		}
+	}
+	isRefill := len(candidateIndexes) == 0
+	if isRefill {
+		for subjectIndex, partSubject := range partSubjects {
+			if len(partSubjects) > 1 && partSubject.ID == e.lastCreatureID {
+				continue
+			}
+			candidateIndexes = append(candidateIndexes, subjectIndex)
+		}
+	}
+	if len(candidateIndexes) == 0 {
+		candidateIndexes = append(candidateIndexes, 0)
+	}
+	subjectIndex := candidateIndexes[choice%uint32(len(candidateIndexes))]
+	return partSubjects[subjectIndex], isRefill
+}
+
+func (e *campaignWeaponSubjectBag) recordSubject(creatureID uint32, isRefill bool) {
+	if isRefill || e.usedCreatureIDs == nil {
+		e.usedCreatureIDs = make(map[uint32]struct{})
+	}
+	e.usedCreatureIDs[creatureID] = struct{}{}
+	e.lastCreatureID = creatureID
+}
+
 type campaignEquipmentSlotCandidate struct {
 	Part         sporenet.Part
 	PartSubject  game.GameplayCreature
@@ -910,6 +1048,7 @@ type campaignEquipmentSlotCandidate struct {
 
 type campaignPartBagCommit struct {
 	partSlotBag             game.CampaignPartSlotBag
+	weaponSubjectBag        campaignWeaponSubjectBag
 	partRarityBag           game.CampaignPartRarityBag
 	limitedEditionPity      sporenet.LimitedEditionPity
 	isPending               bool
@@ -931,9 +1070,11 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 		return sporenet.Part{}, commit, errors.New("campaign winner roster unavailable")
 	}
 	commit.partSlotBag = s.campaignPartSlotBag.Clone()
+	commit.weaponSubjectBag = s.campaignWeaponSubjectBag.Clone()
 	commit.partRarityBag = s.campaignPartRarityBag.Clone()
-	partSubjectIndex := int(pickup.WinnerRewardChoice % uint32(len(partSubjects)))
-	partSubject := partSubjects[partSubjectIndex]
+	partSubject, isSubjectRefill := commit.weaponSubjectBag.selectSubject(
+		partSubjects, pickup.WinnerRewardChoice,
+	)
 	var part sporenet.Part
 	var err error
 	if pickup.IsWinnerRewardBoss {
@@ -1004,6 +1145,10 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 		return sporenet.Part{}, campaignPartBagCommit{}, fmt.Errorf(
 			"winnerPartGenerate: %w", err,
 		)
+	}
+	partDefinition, isPartDefined := gameplayJoin.CampaignPartDefinition(part.RigblockAssetID)
+	if isPartDefined && partDefinition.SlotType == "weapon" {
+		commit.weaponSubjectBag.recordSubject(partSubject.ID, isSubjectRefill)
 	}
 	commit.isPending = true
 	return part, commit, nil
@@ -1442,6 +1587,7 @@ func (s campaignEquipmentPickupStep) produce() ([][]byte, error) {
 				continue
 			}
 			candidate.campaignPartSlotBag = s.partBagCommit.partSlotBag
+			candidate.campaignWeaponSubjectBag = s.partBagCommit.weaponSubjectBag
 			candidate.campaignPartRarityBag = s.partBagCommit.partRarityBag
 			s.runtime.registry.sessions[candidateSessionKey] = candidate
 		}
@@ -2122,6 +2268,9 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 	)
 	packets := make([][]byte, 0, len(pickups)*3)
 	for _, pickup := range pickups {
+		if pickup.Request.Kind == sim.ResurrectionOrbDrop {
+			continue
+		}
 		registeredPickup, admission := s.reserveCampaignPickupContact(
 			pickup.ObjectID, start, end, campaignOrbPickupRadius,
 		)
@@ -2140,14 +2289,10 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 		alliedRestorations := make([]alliedZoneSquadRestoration, 0)
 		partyResourcePackets := make([][]byte, 0)
 		alliedWorldPackets := make([][]byte, 0)
-		resurrections := make([]zoneSquadResurrection, 0)
 		restoreFraction := campaignOrbRestoreFraction *
 			(1 + s.campaignPartAttribute(campaignOrbEffectAttribute))
 		if pickup.Request.Kind == sim.ManaOrbDrop {
 			kind = zoneManaOrb
-		}
-		if pickup.Request.Kind == sim.ResurrectionOrbDrop {
-			kind = zoneResurrectionOrb
 		}
 		if kind == zoneHealthOrb {
 			var err error
@@ -2174,15 +2319,6 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 			for _, restoration := range manaRestorations {
 				restoredAmount += restoration.amount
 			}
-		}
-		if kind == zoneResurrectionOrb {
-			var err error
-			resurrections, err = s.resurrectDeadZoneSquad()
-			if err != nil {
-				s.zone.Pickups().Release(pickup.ObjectID)
-				return nil, fmt.Errorf("orbResurrection: %w", err)
-			}
-			isFull = len(resurrections) == 0
 		}
 		if registry != nil && (kind == zoneHealthOrb || kind == zoneManaOrb) {
 			var allyPackets [][]byte
@@ -2214,7 +2350,6 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 		if err != nil {
 			s.rollbackZoneSquadHealing(healing)
 			s.rollbackZoneSquadManaRestoration(manaRestorations)
-			s.rollbackZoneSquadResurrection(resurrections)
 			registry.rollbackAlliedZoneSquadRestorationsLocked(alliedRestorations)
 			s.zone.Pickups().Release(pickup.ObjectID)
 			return nil, fmt.Errorf("orbPickupMarshal: %w", err)
@@ -2228,9 +2363,6 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 			continue
 		}
 		s.clearCampaignOrbFullContact(pickup.ObjectID)
-		for _, resurrection := range resurrections {
-			encoded = append(encoded, resurrection.packet)
-		}
 		encoded = append(encoded, partyResourcePackets...)
 		encoded = append(encoded, alliedWorldPackets...)
 		for _, healedCharacter := range healing {
@@ -2262,7 +2394,6 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 		if !s.zone.Pickups().Commit(pickup.ObjectID) {
 			s.rollbackZoneSquadHealing(healing)
 			s.rollbackZoneSquadManaRestoration(manaRestorations)
-			s.rollbackZoneSquadResurrection(resurrections)
 			registry.rollbackAlliedZoneSquadRestorationsLocked(alliedRestorations)
 			return nil, errors.New("campaign orb commit missing")
 		}
@@ -2484,6 +2615,7 @@ func (s *gameplayPeerSession) expireCampaignOrb(
 // A source amount of 26 produces an exact four-percent attempt for the
 // integer [0,100) draw through the recovered source*0.15 threshold.
 const campaignNPCCrystalSourceAmount = int32(26)
+const campaignVerdanthTotemCrystalSourceAmount = int32(500)
 
 func campaignDropDestination(
 	source sim.Position, player raknet.Vector3,
@@ -2758,10 +2890,16 @@ func (s *gameplayPeerSession) spawnCampaignNPCCrystal(
 	}
 	pendingDropBag := s.campaignCrystalDropBag
 	pendingSelectionBag := s.campaignCrystalSelectionBag.Clone()
+	challenge := campaignNPCCrystalSourceAmount
+	if zonenpc.IsVerdanthTotem(enemy.Plan) {
+		// Ancient Totems are authored as deliberate catalyst caches. A source
+		// amount of 500 yields a 75-percent base chance before find bonuses.
+		challenge = campaignVerdanthTotemCrystalSourceAmount
+	}
 	packets, objectID, err := s.spawnCampaignCrystal(
 		game.CampaignScriptInvocation{
 			Position:  enemy.Plan.Position,
-			Challenge: campaignNPCCrystalSourceAmount,
+			Challenge: challenge,
 		},
 		definitions, offsets, sourceTime, &pendingDropBag, &pendingSelectionBag,
 	)

@@ -203,7 +203,6 @@
 .report-composer-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .report-manage-link { color: var(--muted-foreground); font-size: 10px; height: auto; padding: 0; }
 .report-manage-link:hover { color: var(--foreground); }
-.report-form textarea { min-height: 140px; resize: vertical; }
 .report-archives { padding-left: 18px; list-style: disc; font-size: 11px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .report-path { width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: left; font-size: 11px; margin-top: 12px; }
 .credits-list { display: flex; align-items: center; gap: 14px; margin-top: 16px; }

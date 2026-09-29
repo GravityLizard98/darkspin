@@ -22,6 +22,7 @@ const (
 	missileTargetingDamagePerStack       = 0.05
 	missileTargetingOverdrivePerStack    = 0.12
 	missileTargetingMaximumStack         = uint32(5)
+	missileTargetingEffectSlot           = uint8(31)
 )
 
 func (e *gameplayPeerSession) startMissileTargetingPresentation(
@@ -34,7 +35,8 @@ func (e *gameplayPeerSession) startMissileTargetingPresentation(
 			util.HashID("MissileTempestPassive") {
 		return nil, nil
 	}
-	packet, err := raknet.MarshalApplication(raknet.ServerEventMessage{
+	packet, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
+		Slot: missileTargetingEffectSlot, IsForceAttached: true,
 		Asset: util.HashID(missileTargetingEffectName), ObjectID: e.deployedObjectID,
 	})
 	if err != nil {
@@ -44,13 +46,22 @@ func (e *gameplayPeerSession) startMissileTargetingPresentation(
 	return packet, nil
 }
 
-func (e *gameplayPeerSession) resetMissileTargetingPresentation(
+func (e *gameplayPeerSession) stopMissileTargetingPresentation(
 	creatureIndex uint32,
-) {
-	if e == nil || creatureIndex >= uint32(len(e.isMissileTargetingPresented)) {
-		return
+) ([]byte, error) {
+	if e == nil || creatureIndex >= uint32(len(e.isMissileTargetingPresented)) ||
+		!e.isMissileTargetingPresented[creatureIndex] {
+		return nil, nil
+	}
+	packet, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
+		Slot: missileTargetingEffectSlot, IsRemovalRequested: true,
+		IsHardStop: true, ObjectID: e.deployedObjectID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("missileTargetingStopMarshal: %w", err)
 	}
 	e.isMissileTargetingPresented[creatureIndex] = false
+	return packet, nil
 }
 
 func (s gameplayPeerSession) applySameGenetypeDamage(

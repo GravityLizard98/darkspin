@@ -94,7 +94,9 @@ func (r gameplaySwitchRuntime) handleArenaSwitch(
 		sourceCharacter.HitPoints, sourceCharacter.ManaPoints,
 		targetCharacter.HitPoints, targetCharacter.ManaPoints,
 		peerSession.playerPosition, command.Common.Orientation,
-		packet.SourceTime+uint64(campaignCreatureWarpOutDelay/time.Millisecond), true,
+		packet.SourceTime+uint64(campaignCreatureWarpOutDelay/time.Millisecond),
+		packet.SourceTime+uint64(standardCreatureSwapCooldown/time.Millisecond),
+		true,
 	)
 	if err != nil {
 		r.registry.mutex.Unlock()

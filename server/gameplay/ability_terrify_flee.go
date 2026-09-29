@@ -297,6 +297,9 @@ func (r campaignNPCActionRuntime) restartAfterTerrify(
 	packet raknet.Packet, sessionKey string, generation uint64,
 	objectID uint32, timestamp uint64,
 ) ([][]byte, error) {
+	if r.registry == nil {
+		return nil, errors.New("terrify restart runtime unavailable")
+	}
 	r.registry.mutex.Lock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && peerSession.generation == generation &&

@@ -62,7 +62,7 @@ export const RemoveLauncherIntegration = kind => call('RemoveLauncherIntegration
 export const RepairLauncherIntegration = kind => call('RepairLauncherIntegration', kind)
 export const RestartLauncher = () => call('RestartLauncher')
 export const ScanRemoteServers = address => call('ScanRemoteServers', address)
-export const SendReport = (title, description) => call('SendReport', title, description)
+export const SendReport = title => call('SendReport', title)
 export const SetIdentity = identity => call('SetIdentity', identity)
 export const SetServerPort = port => call('SetServerPort', port)
 export const SetSkipCinematic = isSkipped => call('SetSkipCinematic', isSkipped)

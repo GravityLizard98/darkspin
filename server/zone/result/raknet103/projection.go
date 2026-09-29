@@ -68,7 +68,10 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 		currentVoice = presentation.CurrentMovie
 	}
 	message := raknet.ChainVoteMessage{
-		CurrentLevel:       util.HashID(snapshot.Level + ".Level"),
+		// Build 103 labels these two wire slots opposite their recovered field
+		// names: the current card reads NextLevel and the continue card reads
+		// CurrentLevel.
+		CurrentLevel:       util.HashID(snapshot.NextLevel + ".Level"),
 		NextDifficulty:     nextDifficulty,
 		TimeRemaining:      float32(zoneresult.VoteDuration.Seconds()),
 		PlanetsRepresented: snapshot.PlanetsCompleted,
@@ -85,7 +88,7 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 			presentation.NextMovie,
 			presentation.NextMovie,
 		},
-		NextLevel: util.HashID(snapshot.NextLevel + ".Level"),
+		NextLevel: util.HashID(snapshot.Level + ".Level"),
 	}
 	packet, err := raknet.MarshalApplication(message)
 	if err != nil {

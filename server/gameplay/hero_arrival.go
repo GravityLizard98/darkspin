@@ -16,7 +16,7 @@ func marshalCampaignCharacterSwitch(
 	sourceCreature, targetCreature game.GameplayCreature,
 	sourceHitPoint, sourcePowerPoint, targetHitPoint, targetPowerPoint float32,
 	position raknet.Vector3, orientation raknet.Quaternion, animationTimestamp uint64,
-	isDeathSelection bool,
+	deployCooldownDeadline uint64, isDeathSelection bool,
 ) ([][]byte, error) {
 	sourceBeam := campaignCharacterBeam(sourceCreature, false)
 	messages := make([]raknet.ApplicationMessage, 0, 15)
@@ -46,11 +46,7 @@ func marshalCampaignCharacterSwitch(
 		},
 		raknet.LabsPlayerDeployCooldownMessage{
 			PlayerSlot: playerIndex, DeployedCreatureIndex: creatureIndex,
-			// Build 103 compares this field directly with a private local
-			// gameplay clock that no client request publishes. Keep the
-			// authoritative cooldown in the squad session and clear the
-			// client field rather than extending its lock with another epoch.
-			DeadlineMilliseconds: 0,
+			DeadlineMilliseconds: deployCooldownDeadline,
 		},
 	)
 	messages = append(messages, campaignCharacterArrivalMessages(

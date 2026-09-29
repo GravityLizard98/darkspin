@@ -175,16 +175,17 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 			},
 		}, "projectilePursuit")
 	}
+	goal := pursuitGoal(source, target, plan.Profile.Range)
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
-			ObjectID: plan.ObjectID, GoalFlags: 0x41, GoalPosition: target,
+			ObjectID: plan.ObjectID, GoalFlags: 0x41, GoalPosition: goal,
 			Facing:              direction(source, target),
 			AllowedStopDistance: plan.Profile.Range,
 			DesiredStopDistance: plan.Profile.Range,
 			TargetPosition:      target, TargetObjectID: plan.TargetObjectID,
 		},
 		raknet.LocomotionUnreliableMessage{
-			ObjectID: plan.ObjectID, GoalPosition: target,
+			ObjectID: plan.ObjectID, GoalPosition: goal,
 		},
 	}, "pursuit")
 }
@@ -338,16 +339,17 @@ func pursuitRedirect(
 			},
 		}, "projectilePursuitRedirect")
 	}
+	goal := pursuitGoal(source, target, stopDistance)
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
-			ObjectID: objectID, GoalFlags: 0x41, GoalPosition: target,
+			ObjectID: objectID, GoalFlags: 0x41, GoalPosition: goal,
 			Facing:              direction(source, target),
 			AllowedStopDistance: stopDistance,
 			DesiredStopDistance: stopDistance,
 			TargetPosition:      target, TargetObjectID: targetObjectID,
 		},
 		raknet.LocomotionUnreliableMessage{
-			ObjectID: objectID, GoalPosition: target,
+			ObjectID: objectID, GoalPosition: goal,
 		},
 	}, "pursuitRedirect")
 }
@@ -389,6 +391,7 @@ func PursuitProgress(
 		}
 		source := vector(step.Position)
 		target := vector(step.TargetPosition)
+		goal := pursuitGoal(source, target, step.StopDistance)
 		stepPackets, err := marshalMessages([]raknet.ApplicationMessage{
 			raknet.ObjectPositionUpdateMessage{
 				ObjectID: step.ObjectID, PositionX: source.X,
@@ -396,14 +399,14 @@ func PursuitProgress(
 			},
 			raknet.ObjectPlayerMoveMessage{
 				ObjectID: step.ObjectID, GoalFlags: 0x41,
-				GoalPosition: target, Facing: direction(source, target),
+				GoalPosition: goal, Facing: direction(source, target),
 				AllowedStopDistance: step.StopDistance,
 				DesiredStopDistance: step.StopDistance,
 				TargetPosition:      target,
 				TargetObjectID:      targetObjectID,
 			},
 			raknet.LocomotionUnreliableMessage{
-				ObjectID: step.ObjectID, GoalPosition: target,
+				ObjectID: step.ObjectID, GoalPosition: goal,
 			},
 		}, "pursuitProgress")
 		if err != nil {

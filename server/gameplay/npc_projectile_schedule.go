@@ -235,12 +235,38 @@ func (e campaignNPCProjectileSchedule) resume(
 			timestamp, e.hasteEndTimestamp,
 		)
 	case campaignNPCProjectileZelem:
-		return e.runtime.produceZelemShot(
-			e.packet, e.sessionKey, e.generation, e.sourceObjectID, timestamp,
-		)
+		return e.resumeZelem(timestamp)
 	default:
 		return nil, errors.New("enemy projectile kind unsupported")
 	}
+}
+
+func (e campaignNPCProjectileSchedule) resumeZelem(
+	timestamp uint64,
+) ([][]byte, error) {
+	e.runtime.registry.mutex.RLock()
+	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
+	isCurrent := isFound && peerSession.isCampaignNPCSourceGenerationActive(
+		e.generation, e.sourceObjectID, e.plan.ActionGeneration,
+	)
+	enemy, isEnemyFound := zonenpc.Snapshot{}, false
+	if isCurrent && peerSession.zone != nil && peerSession.zone.NPCs() != nil {
+		enemy, isEnemyFound = peerSession.zone.NPCs().NPC(e.sourceObjectID)
+	}
+	e.runtime.registry.mutex.RUnlock()
+	if !isCurrent || !isEnemyFound || enemy.IsDefeated {
+		return nil, nil
+	}
+	profile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
+	if isProfileFound && profile.Family == zonenpc.ActionZelemRanged &&
+		profile.TeleportNormalDistance > 0 {
+		return e.runtime.produceZelemBlink(
+			e.packet, e.sessionKey, e.generation, e.sourceObjectID, timestamp,
+		)
+	}
+	return e.runtime.produceZelemShot(
+		e.packet, e.sessionKey, e.generation, e.sourceObjectID, timestamp,
+	)
 }
 
 func (e campaignNPCProjectileSchedule) next() ([][]byte, error) {
