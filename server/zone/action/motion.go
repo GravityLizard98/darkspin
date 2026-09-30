@@ -79,6 +79,25 @@ func (e *Motion) SamplePosition(now time.Time) (sim.Position, error) {
 	return position, nil
 }
 
+// SetSpeed retimes a retained path without consuming the position interval
+// needed by command-driven encounter and trigger observers.
+func (e *Motion) SetSpeed(now time.Time, speed float32) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	elapsed, err := e.elapsed(now)
+	if err != nil {
+		return fmt.Errorf("speedTime: %w", err)
+	}
+	movement := e.movement.Clone()
+	err = movement.SetSpeed(max(elapsed, movement.Snapshot().At), speed)
+	if err != nil {
+		return fmt.Errorf("speedPath: %w", err)
+	}
+	e.movement = movement
+	e.revision++
+	return nil
+}
+
 func (m *Motion) Revision() uint64 {
 	if m == nil {
 		return 0

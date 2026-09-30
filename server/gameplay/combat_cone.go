@@ -206,6 +206,18 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 				}
 				return append(cleanupPackets, nextPackets...), nil
 			}
+			if zonenpc.ArcturusRank(source.Plan.NounName) > 0 {
+				// The cancelled cast released its owner. Start a new generation so
+				// the next attack runs and the old laser callbacks remain retired.
+				nextPackets, nextErr := e.runtime.scheduleFirstActions(
+					e.packet, e.sessionKey, e.generation, []zonenpc.SpawnPlan{source.Plan},
+					e.timestamp+uint64(hitDelay/time.Millisecond),
+				)
+				if nextErr != nil {
+					return nil, fmt.Errorf("bossLaserRestart: %w", nextErr)
+				}
+				return append(cleanupPackets, nextPackets...), nil
+			}
 			resumePackets, err := e.resume(
 				e.timestamp + uint64(hitDelay/time.Millisecond),
 			)

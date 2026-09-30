@@ -422,6 +422,28 @@ func (s *Session) AcquireReadyNearby(
 func (s *Session) AcquireTargets(
 	targets []Target, isCurrentTargetIncluded bool,
 ) ([]Snapshot, error) {
+	acquired, err := s.acquireTargets(targets, isCurrentTargetIncluded, 0)
+	if err != nil {
+		return nil, fmt.Errorf("targetsAcquire: %w", err)
+	}
+	return acquired, nil
+}
+
+// ReacquireBossTarget resumes an already engaged boss without requiring hero input.
+func (e *Session) ReacquireBossTarget(objectID uint32, targets []Target) ([]Snapshot, error) {
+	if objectID == 0 {
+		return nil, errors.New("boss target object unavailable")
+	}
+	acquired, err := e.acquireTargets(targets, true, objectID)
+	if err != nil {
+		return nil, fmt.Errorf("bossAcquire: %w", err)
+	}
+	return acquired, nil
+}
+
+func (s *Session) acquireTargets(
+	targets []Target, isCurrentTargetIncluded bool, bossObjectID uint32,
+) ([]Snapshot, error) {
 	if s == nil {
 		return nil, errors.New("nil npc session")
 	}
@@ -443,6 +465,9 @@ func (s *Session) AcquireTargets(
 	acquired := make([]Snapshot, 0)
 	for _, objectID := range s.objectIDs {
 		npc := s.npcs[objectID]
+		if bossObjectID != 0 && (objectID != bossObjectID || !npc.Plan.IsBoss || !npc.IsFirstActionStarted) {
+			continue
+		}
 		if npc.IsDefeated || !npc.IsPublished ||
 			npc.Plan.IsFixture || npc.IsActionStarted {
 			continue
@@ -465,7 +490,7 @@ func (s *Session) AcquireTargets(
 			distance := s.aggroRadius + target.FootprintRadius +
 				max(float32(0), npc.Plan.NPCProfile.FootprintRadius)
 			distanceSquared := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
-			if distanceSquared > distance*distance ||
+			if (bossObjectID == 0 && distanceSquared > distance*distance) ||
 				distanceSquared >= selectedDistanceSquared {
 				continue
 			}

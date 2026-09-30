@@ -8,6 +8,15 @@ import (
 	"github.com/darkspinnet/darkspin/server/game"
 )
 
+// InstrumentSlowAura and ZelemSlow, recovered from the authored Lua modifiers.
+const GraviticFieldRadius = float32(12.5)
+const GraviticMovementSpeedBuff = float32(-0.4)
+const GraviticFieldEffectName = "effect_zelem_instrument_slow_aura.ServerEventDef"
+
+func IsGraviticStabilizer(plan SpawnPlan) bool {
+	return plan.IsFixture && strings.EqualFold(plan.NounName, game.GraviticStabilizerNoun)
+}
+
 // Gravitic Regulators leave a solid base after their machinery is destroyed.
 func IsGraviticRegulator(plan SpawnPlan) bool {
 	return plan.IsFixture && strings.EqualFold(

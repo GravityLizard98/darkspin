@@ -342,42 +342,6 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		)
 		profile = applyNPCSlowTiming(profile, slowAttackScale)
 	}
-	if profile.AbilityName == "CryosElementalSpecialThree" && !volley.isActive {
-		targetObjectIDs := make([]uint32, 0)
-		targetObjectIDs = append(targetObjectIDs, target.ObjectID)
-		for _, candidate := range peerSession.zone.LiveNPCTargets() {
-			if candidate.ObjectID == target.ObjectID || candidate.HitPoint <= 0 ||
-				zonegeometry.Distance(enemy.Plan.Position, candidate.Position) >
-					profile.Range {
-				continue
-			}
-			targetObjectIDs = append(targetObjectIDs, candidate.ObjectID)
-		}
-		profile.ProjectileShotCount = uint32(len(targetObjectIDs))
-		profile.IsProjectileParallelVolley = len(targetObjectIDs) > 1
-		volley.targetObjectIDs = targetObjectIDs
-	}
-	if volley.isActive && len(volley.targetObjectIDs) > volley.shotIndex {
-		selected, isSelectedFound := peerSession.campaignNPCTarget(
-			generation, volley.targetObjectIDs[volley.shotIndex],
-		)
-		if !isSelectedFound {
-			r.registry.mutex.Unlock()
-			err = r.scheduleZelemVolleyBoundary(
-				packet, sessionKey, generation, objectID, timestamp,
-				volley, profile,
-			)
-			if err != nil {
-				r.releaseActionGeneration(
-					sessionKey, generation, objectID,
-					volley.plan.ActionGeneration,
-				)
-				return nil, fmt.Errorf("enemyZelemVolleyTarget: %w", err)
-			}
-			return nil, nil
-		}
-		target = selected
-	}
 	isControlProjectile := profile.AbilityName == "Puller"
 	ability, abilityErr := campaignNPCProjectileAbility(profile)
 	if abilityErr != nil {
@@ -388,8 +352,7 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	var planErr error
 	if volley.isActive {
 		if profile.ProjectileShotCount < 2 ||
-			(len(volley.targetObjectIDs) == 0 &&
-				volley.plan.TargetObjectID != target.ObjectID) {
+			volley.plan.TargetObjectID != target.ObjectID {
 			r.registry.mutex.Unlock()
 			return nil, nil
 		}
@@ -499,7 +462,6 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		volley = campaignNPCProjectileVolley{
 			isActive: true, startTimestamp: timestamp,
 			retainedTargetPosition: target.Position,
-			targetObjectIDs:        volley.targetObjectIDs,
 			plan:                   plan,
 		}
 	}
@@ -577,8 +539,7 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 			profile.ProjectileSpeed, maximumLeadAngle,
 		)
 	}
-	if profile.IsProjectilePiercing &&
-		profile.AbilityName != "CryosElementalSpecialThree" {
+	if profile.IsProjectilePiercing {
 		targetPosition = campaignNPCProjectileRangeEndpoint(
 			sourcePosition, targetPosition, profile.ProjectileDistance,
 		)

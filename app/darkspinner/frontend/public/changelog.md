@@ -1,5 +1,17 @@
 # Changelog
 
+### 2026-09-30
+
+- Fix mission 3-2 Frigid Caverns hanging on a black loading screen by loading its three authored cave scenery sets before mission initialization.
+- Change Ray Killer's single-target lightning shot to a seven-bolt forward fan with muzzle effects, and fix retreating from damage or nearby heroes before resuming ranged attacks, including captain variants.
+- Keep Reconstruct's channel bar visible for its default three-second healing window, independent of cooldown reduction, and stop healing and effects when the button is released or movement interrupts it.
+- Restore authored Gravitic Regulators and destructible Gravitic Stabilizers in Outer Ring and Chaos Fields, including stabilizer shields that slow heroes by 40% within 12.5 units and clear on exit or destruction.
+- Increase Destructor rewards from one equipment item to six arranged around the fallen boss, with 60% rare and 15% epic odds per item.
+- Resume idle Destructor combat automatically while a living target remains and restart Arcturus correctly after an interrupted Twin Laser.
+- Hold Destructors in place during their entrance cinematics, restore Arcturus and Corruptor entrance animations, and keep entrance timing independent of the selected attack.
+- Make Arachno Striker's homing projectiles track moving heroes when resolving hits so movement alone no longer prevents terror.
+- Make terrified heroes automatically panic-walk around where fear began and stop when fear expires or is removed.
+
 ### 2026-09-29
 
 - Make Swarming Herbipods engage from a shorter range and let Homing Swarm projectiles miss moving heroes and expire promptly.

@@ -162,14 +162,20 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 			schedule.projectileSourcePosition, schedule.projectileTargetPosition,
 			schedule.source.Plan.NPCProfile.FootprintRadius,
 		)
-		// Homing controls the client presentation, but it must not teleport a
-		// hit to the hero's current position when the original flight reaches
-		// its deadline. Resolve against the launched trajectory so moving clear
-		// of the projectile before that deadline is a real dodge.
+		projectileTargetPosition := schedule.projectileTargetPosition
+		if schedule.plan.Profile.AbilityName == "NocturnaSpecialHomer" {
+			// Arachno Striker's fear projectile follows its selected target.
+			// Preserve the authored aim offset while tracking the target's move;
+			// the original launch ray would incorrectly turn that move into a miss.
+			projectileTargetPosition = projectileTargetPosition.Add(
+				currentTarget.Position.Sub(schedule.target.Position),
+			)
+		}
+		// Other homing profiles retain their dodgeable launched trajectory.
 		collision, err = zonenpc.ResolveProjectileCollision(
-			projectileLaunchPosition, schedule.projectileTargetPosition,
+			projectileLaunchPosition, projectileTargetPosition,
 			currentTarget.Position,
-			zoneability.Distance(projectileLaunchPosition, schedule.projectileTargetPosition),
+			zoneability.Distance(projectileLaunchPosition, projectileTargetPosition),
 			zonenpc.ProjectileGeometry{
 				ProjectileHalfExtent: schedule.geometry.ProjectileHalfExtent,
 				TargetMinimum:        schedule.geometry.TargetMinimum,

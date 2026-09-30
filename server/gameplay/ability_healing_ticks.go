@@ -18,10 +18,13 @@ import (
 )
 
 type heroHealingTicksRun struct {
-	mutex      sync.Mutex
-	cancel     raknet.CancelSchedule
-	effectPool *attachedEffectPool
-	effects    []fieldMedicEffectLease
+	mutex          sync.Mutex
+	cancel         raknet.CancelSchedule
+	effectPool     *attachedEffectPool
+	effects        []fieldMedicEffectLease
+	isChanneled    bool
+	sourceObjectID uint32
+	releasePacket  []byte
 }
 
 type fieldMedicEffectLease struct {
@@ -268,7 +271,7 @@ func (e heroHealingTicksSchedule) tick(
 	} else {
 		peerSession = targetSession
 	}
-	if isFinal {
+	if isFinal && !e.run.isChanneled {
 		peerSession.heroHealingTicks = nil
 		e.run.cancel = nil
 	}
@@ -385,10 +388,17 @@ func (e heroHealingTicksSchedule) resourcePacket() ([]byte, error) {
 }
 
 func (e heroHealingTicksSchedule) release() ([][]byte, error) {
-	e.runtime.registry.mutex.RLock()
+	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && peerSession.generation == e.generation
-	e.runtime.registry.mutex.RUnlock()
+	if e.run.isChanneled {
+		isCurrent = e.isCurrent(peerSession, isFound)
+		if isCurrent {
+			peerSession.heroHealingTicks = nil
+			e.runtime.registry.sessions[e.sessionKey] = peerSession
+		}
+	}
+	e.runtime.registry.mutex.Unlock()
 	if !isCurrent {
 		return nil, nil
 	}
@@ -455,7 +465,13 @@ func (r campaignAbilityCommandRuntime) handleHeroHealingTicks(
 		)
 		targetObjectID = target.objectID
 	}
-	projected, err := zoneability.ProjectTiming(creature, definition)
+	var projected sim.AbilityDefinition
+	var err error
+	if definition.Name == "FieldMedicSupport" {
+		projected, err = zoneability.ProjectHealingChannelTiming(creature, definition)
+	} else {
+		projected, err = zoneability.ProjectTiming(creature, definition)
+	}
 	if err != nil {
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("healingTicksTiming: %w", err)
@@ -486,13 +502,17 @@ func (r campaignAbilityCommandRuntime) handleHeroHealingTicks(
 	}
 	remainingManaPoint := peerSession.deployedManaPoint() - manaCost
 	previousManaPoint := peerSession.deployedManaPoint()
+	channelDuration := time.Duration(0)
+	if isFieldMedicSupport {
+		channelDuration = projected.Duration
+	}
 	start, err := abilityraknet.StartAreaBasic(abilityraknet.AreaBasicStartRequest{
 		SyncStamp: req.command.Common.Unknown[0], SourceID: req.command.Common.ObjectID,
 		AbilityID: activeAbilityID, AbilityIndex: req.command.Ability.Index,
 		SourceTime: req.packet.SourceTime, AnimationName: projected.AnimationName,
 		MuzzleEffectName: projected.MuzzleEffectName,
 		HitDelay:         projected.HitDelay, ReleaseDelay: projected.ReleaseDelay,
-		Cooldown: projected.Cooldown,
+		Cooldown: projected.Cooldown, ChannelDuration: channelDuration,
 	})
 	if err != nil {
 		r.registry.mutex.Unlock()
@@ -533,7 +553,10 @@ func (r campaignAbilityCommandRuntime) handleHeroHealingTicks(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("healingTicksCommit: %w", err)
 	}
-	run := &heroHealingTicksRun{}
+	run := &heroHealingTicksRun{
+		isChanneled: isFieldMedicSupport, sourceObjectID: req.command.Common.ObjectID,
+		releasePacket: start.Release,
+	}
 	startPresentation := make([][]byte, 0, 2)
 	if isFieldMedicSupport {
 		effectSlot, isEffectAllocated := r.effectPool.Allocate(target.objectID)

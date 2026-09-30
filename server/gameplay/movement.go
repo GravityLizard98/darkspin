@@ -365,6 +365,7 @@ func (e *gameplayPeerSession) applySecurityTeleport(
 type campaignMovementInterruption struct {
 	basicAttack        *abilityraknet.MeleeRun
 	heroDrain          *heroDrainRun
+	healingChannel     *heroHealingTicksRun
 	basicSyncStamp     uint8
 	attackPose         retainedAttackPose
 	isAttackBlocked    bool
@@ -392,12 +393,17 @@ func (e campaignActionAuthority) interruptMovement(
 	if !isCurrent {
 		return campaignMovementInterruption{}
 	}
-	if peerSession.heroDrain != nil {
+	isHealingChannel := peerSession.heroHealingTicks != nil && peerSession.heroHealingTicks.isChanneled
+	if peerSession.heroDrain != nil || isHealingChannel {
 		interruption := campaignMovementInterruption{
 			heroDrain:      peerSession.heroDrain,
 			playerPosition: peerSession.playerPosition,
 		}
 		peerSession.heroDrain = nil
+		if isHealingChannel {
+			interruption.healingChannel = peerSession.heroHealingTicks
+			peerSession.heroHealingTicks = nil
+		}
 		peerSession.resetAbilityRelease()
 		e.registry.sessions[sessionKey] = peerSession
 		return interruption
@@ -498,9 +504,7 @@ func (r campaignMovementCommandRuntime) handle(
 		return response, nil
 	}
 	if commandSession.isEnemyFearActive(r.now()) {
-		response, marshalErr := marshalZonePlayerMove(
-			command.Common.ObjectID, commandSession.playerPosition,
-		)
+		response, marshalErr := marshalHeroFearMovement(commandSession, true)
 		if marshalErr != nil {
 			return nil, fmt.Errorf("moveCampaignFearMarshal: %w", marshalErr)
 		}
@@ -602,6 +606,14 @@ func (r campaignMovementCommandRuntime) handle(
 		if drainErr != nil {
 			return nil, fmt.Errorf("moveCampaignDrainStop: %w", drainErr)
 		}
+	}
+	if interruption.healingChannel != nil {
+		healingPackets, healingErr := interruption.healingChannel.interruptionPacketsAt(packet.SourceTime)
+		interruption.healingChannel.Stop()
+		if healingErr != nil {
+			return nil, fmt.Errorf("moveHealingStop: %w", healingErr)
+		}
+		drainStopPackets = append(drainStopPackets, healingPackets...)
 	}
 	danceStopPackets := make([][]byte, 0, 1)
 	if interruption.isDanceStopped {

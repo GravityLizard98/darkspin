@@ -151,7 +151,6 @@ type campaignNPCProjectileVolley struct {
 	shotIndex              int
 	startTimestamp         uint64
 	retainedTargetPosition game.Vec3
-	targetObjectIDs        []uint32
 	plan                   zonenpc.AttackPlan
 }
 

@@ -2815,7 +2815,8 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 	if result.IsDefeated && !result.IsSelfResurrectionStarted &&
 		isDefeatedNPCFound {
 		profile, isProfileFound := zonenpc.ActionProfileForPlan(defeatedNPC.Plan)
-		if isProfileFound && profile.PassiveEffectName != "" {
+		if (isProfileFound && profile.PassiveEffectName != "") ||
+			zonenpc.IsGraviticStabilizer(defeatedNPC.Plan) {
 			passiveEffectRemove, marshalErr := raknet.MarshalApplication(
 				raknet.AttachedEffectMessage{
 					Slot: 16, ObjectID: result.ObjectID,
@@ -4181,6 +4182,7 @@ func campaignNPCFirstAction(
 		// Distance-based selection may replace the clone's stored ranged profile.
 		profile = zonenpc.NashiraCloneProfile(profile)
 	}
+	profile = zonenpc.WithBossIntroduction(plan, profile)
 	action, err := zonenpc.PlanActionWithProfile(
 		campaignNPCActionCommand(
 			plan,
@@ -5441,8 +5443,7 @@ func (e campaignNPCFirstActionStep) produce() ([][]byte, error) {
 	}
 	action.ActionGeneration = e.actionGeneration
 	action.Profile.MovementSpeed *= graspingDeadSpeed * slowMovementScale
-	actionTimestamp := e.timestamp +
-		uint64(action.Profile.FirstAggroDelay/time.Millisecond)
+	actionTimestamp := e.timestamp
 	activationPackets := make([][]byte, 0)
 	if e.isDelayedReveal {
 		activationPackets, err = npcraknet.FirstAggroActivate(action)
@@ -6146,16 +6147,13 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 			})
 		}
 		objectID := plan.ObjectID
-		actionTimestamp := timestamp
-		if _, isSpawnPresentation := spawnPresentationObjectIDs[plan.ObjectID]; isSpawnPresentation {
-			actionTimestamp += uint64(zonespawn.Duration / time.Millisecond)
-		}
+		actionTimestamp := timestamp + uint64(firstAggroDelay/time.Millisecond)
 		step := campaignNPCFirstActionStep{
 			runtime: r, packet: packet, sessionKey: sessionKey,
 			generation: generation, actionGeneration: npc.ActionGeneration,
 			objectID: objectID, timestamp: actionTimestamp,
 			isDelayedReveal: isFirstAction && !isFloorWarpIntroduction &&
-				action.Profile.FirstAggroRevealDelay > 0,
+				(action.Profile.FirstAggroRevealDelay > 0 || action.Profile.FirstAggroCinematicDuration > 0),
 		}
 		producer := raknet.ScheduledPacketProducer{
 			Delay: firstAggroDelay, Produce: step.produce,
@@ -6172,6 +6170,15 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 			})
 		}
 		producers = append(producers, producer)
+		if isFirstAction && plan.OwnerObjectID == 0 && zoneboss.IsFinalBossNoun(plan.NounName) {
+			delay := max(firstAggroDelay, bossEngagementInterval)
+			bossCombat := campaignBossCombatStep{
+				runtime: r, packet: packet, zone: zone, sessionKey: sessionKey,
+				generation: generation, objectID: objectID,
+				timestamp: timestamp + uint64(delay/time.Millisecond),
+			}
+			producers = append(producers, raknet.ScheduledPacketProducer{Delay: delay, Produce: bossCombat.produce})
+		}
 		startedObjectIDs = append(startedObjectIDs, objectID)
 	}
 	// Publish target state before a zero-delay producer can commit movement.
@@ -6437,7 +6444,7 @@ func (s *gameplayPeerSession) enemyMovementSpeedBuff() float32 {
 	if s == nil || s.deployedObjectID == 0 {
 		return 0
 	}
-	movementSpeedBuff := float32(0)
+	movementSpeedBuff := s.graviticMovementSpeedBuff()
 	for _, run := range s.campaignNPCModifiers {
 		if run == nil || run.record.TargetObjectID != s.deployedObjectID ||
 			!run.isActive() {

@@ -298,6 +298,8 @@ type controlledHeroState struct {
 	enemyFearExpiresAt            time.Time
 	enemyFearTargetObjectID       uint32
 	campaignLavaReadyAt           time.Time
+	graviticSlowObjectID          uint32
+	isGraviticSpeedPresented      bool
 	campaignLavaWarningKey        uint64
 	campaignLavaSpoutKey          uint64
 	nightmareRootDamageReadyAt    time.Time
@@ -1332,9 +1334,9 @@ func (e *gameplayPeerSession) stopPlayerMovement(now time.Time) error {
 }
 
 func (e *gameplayPeerSession) startEnemyFearMovement(
-	now time.Time, destination raknet.Vector3,
+	now time.Time, destination raknet.Vector3, movementIncrease float32,
 ) error {
-	if e == nil || !isFiniteZonePosition(destination) {
+	if e == nil || e.zone == nil || !isFiniteZonePosition(destination) {
 		return errors.New("fear movement invalid")
 	}
 	if e.playerMotion == nil {
@@ -1344,16 +1346,26 @@ func (e *gameplayPeerSession) startEnemyFearMovement(
 		}
 		e.playerMotion = motion
 	}
-	_, position, err := e.playerMotion.Advance(
+	e.playerMotion.SetNavigation(e.zone.Navigation(), e.deployedCampaignFootprintRadius())
+	moveSpeed := zonePlayerMoveSpeed * (1 + max(float32(-0.9), movementIncrease+e.enemyMovementSpeedBuff()))
+	previous, position, err := e.playerMotion.Advance(
 		now, toSimPosition(e.playerPosition), toSimPosition(destination),
-		false, false, zonePlayerPoseCorrectionRange, zonePlayerMoveSpeed*0.5,
+		false, false, zonePlayerPoseCorrectionRange, moveSpeed,
 	)
 	if err != nil {
 		return fmt.Errorf("fearMovementAdvance: %w", err)
 	}
 	e.playerPosition = toRakNetPosition(position)
+	e.playerMovementGoal = toRakNetPosition(e.playerMotion.Snapshot().Movement().Goal)
+	if previous != position {
+		e.isDancing = false
+	}
 	if e.deployedCreatureIndex < uint32(len(e.passiveStationarySince)) {
 		e.passiveStationarySince[e.deployedCreatureIndex] = time.Time{}
+	}
+	err = e.syncZoneHeroPose()
+	if err != nil {
+		return fmt.Errorf("fearPose: %w", err)
 	}
 	return nil
 }
@@ -2884,20 +2896,25 @@ func (e campaignActionAuthority) expirePursuit(
 
 func (e campaignActionAuthority) cancel(
 	sessionKey string, objectID uint32,
-) (zoneaction.PursuitSnapshot, *abilityraknet.MeleeRun, *heroDrainRun, bool) {
+) (zoneaction.PursuitSnapshot, *abilityraknet.MeleeRun, *heroDrainRun, *heroHealingTicksRun, bool) {
 	e.registry.mutex.Lock()
 	defer e.registry.mutex.Unlock()
 
 	peerSession, isFound := e.registry.sessions[sessionKey]
 	isCurrent := isFound && objectID == peerSession.deployedObjectID
 	if !isCurrent {
-		return zoneaction.PursuitSnapshot{}, nil, nil, false
+		return zoneaction.PursuitSnapshot{}, nil, nil, nil, false
 	}
 	pursuit := peerSession.campaignPlayerPursuitSession().Snapshot()
 	basicAttack := peerSession.basicAttack
 	basicSyncStamp := peerSession.basicAttackSyncStamp
 	heroDrain := peerSession.heroDrain
 	peerSession.heroDrain = nil
+	var healingChannel *heroHealingTicksRun
+	if peerSession.heroHealingTicks != nil && peerSession.heroHealingTicks.isChanneled {
+		healingChannel = peerSession.heroHealingTicks
+		peerSession.heroHealingTicks = nil
+	}
 	interruptedBasic := peerSession.resetInterruptibleActionAdmission()
 	// Build 103 sends ActionCancel when held basic input is released. Once the
 	// swing owns a transport schedule, cancellation releases the held-input
@@ -2908,7 +2925,7 @@ func (e campaignActionAuthority) cancel(
 		interruptedBasic = nil
 	}
 	e.registry.sessions[sessionKey] = peerSession
-	return pursuit, interruptedBasic, heroDrain, true
+	return pursuit, interruptedBasic, heroDrain, healingChannel, true
 }
 
 func (e campaignActionAuthority) admitPursuit(

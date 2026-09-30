@@ -957,6 +957,13 @@ func (r campaignAbilityCommandRuntime) purgeHeroDebuffs(
 		}
 	}
 	if run := peerSession.campaignNPCFears[objectID]; run != nil {
+		if peerSession.deployedObjectID == objectID {
+			stopPackets, stopErr := peerSession.stopHeroFearMovement(r.now())
+			if stopErr != nil {
+				return nil, fmt.Errorf("heroFearStop: %w", stopErr)
+			}
+			packets = append(packets, stopPackets...)
+		}
 		if run.cancel != nil {
 			run.cancel()
 			run.cancel = nil

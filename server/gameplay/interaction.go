@@ -1072,6 +1072,7 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 	commit.partSlotBag = s.campaignPartSlotBag.Clone()
 	commit.weaponSubjectBag = s.campaignWeaponSubjectBag.Clone()
 	commit.partRarityBag = s.campaignPartRarityBag.Clone()
+	commit.partRarityBag.IsDestructorReward = pickup.IsDestructorReward
 	partSubject, isSubjectRefill := commit.weaponSubjectBag.selectSubject(
 		partSubjects, pickup.WinnerRewardChoice,
 	)
@@ -1147,6 +1148,7 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 		)
 	}
 	partDefinition, isPartDefined := gameplayJoin.CampaignPartDefinition(part.RigblockAssetID)
+	commit.partRarityBag.IsDestructorReward = false
 	if isPartDefined && partDefinition.SlotType == "weapon" {
 		commit.weaponSubjectBag.recordSubject(partSubject.ID, isSubjectRefill)
 	}
@@ -1457,6 +1459,18 @@ func (s *gameplayPeerSession) spawnCampaignNPCEquipment(
 	)
 	if !isReserved {
 		return nil, 0, nil
+	}
+	if isCampaignDestructorLoot(enemy.Plan) {
+		packets, objectID, err := s.spawnDestructorEquipment(enemy, gameplayJoin, sourceTime)
+		if err != nil {
+			reservation.Release()
+			return nil, 0, fmt.Errorf("destructorEquipment: %w", err)
+		}
+		err = reservation.Commit()
+		if err != nil {
+			return nil, 0, fmt.Errorf("destructorCommit: %w", err)
+		}
+		return packets, objectID, nil
 	}
 	// A map boss awards equipment once through the shared NPC reservation;
 	// ordinary enemies and interactables retain their normal chance roll.

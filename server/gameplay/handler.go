@@ -692,7 +692,7 @@ func (r gameplaySimpleActionRuntime) cancel(
 	isSessionFound bool,
 ) ([][]byte, error) {
 	if isSessionFound {
-		pursuit, interruptedBasic, heroDrain, isCanceled := r.action.cancel(
+		pursuit, interruptedBasic, heroDrain, healingChannel, isCanceled := r.action.cancel(
 			packet.Address.String(), command.Common.ObjectID,
 		)
 		if !isCanceled {
@@ -706,6 +706,14 @@ func (r gameplaySimpleActionRuntime) cancel(
 			heroDrain.Stop()
 			if err != nil {
 				return nil, fmt.Errorf("cancelHeroDrain: %w", err)
+			}
+			return packets, nil
+		}
+		if healingChannel != nil {
+			packets, err := healingChannel.interruptionPacketsAt(packet.SourceTime)
+			healingChannel.Stop()
+			if err != nil {
+				return nil, fmt.Errorf("cancelHealingChannel: %w", err)
 			}
 			return packets, nil
 		}
@@ -2406,6 +2414,10 @@ func (r gameplayPendingRuntime) poll(
 	if err != nil {
 		return nil, fmt.Errorf("operativePoll: %w", err)
 	}
+	graviticPackets, err := r.pollGraviticFields(packet)
+	if err != nil {
+		return nil, fmt.Errorf("graviticPoll: %w", err)
+	}
 	r.registry.mutex.Lock()
 	peerSession, isFound = r.registry.sessions[packet.Address.String()]
 	// Follow must advance while the ally is moving, even between input packets.
@@ -2429,6 +2441,7 @@ func (r gameplayPendingRuntime) poll(
 		}
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}
+	rootHazardPackets = append(rootHazardPackets, graviticPackets...)
 	queuedPackets, pendingPacketBatchID := peerSession.pendingPackets()
 	isPendingPacketOverflow := peerSession.isPendingPacketOverflow
 	peerSession.isPendingPacketOverflow = false
@@ -4419,6 +4432,8 @@ func resetGameplayPeerRuntime(
 	peerSession.zoneEffectPresentation = zoneEffectPresentation{}
 	peerSession.zonePresentationRuntime = zonePresentationRuntime{}
 	peerSession.controlledHeroPresentation = controlledHeroPresentation{}
+	peerSession.graviticSlowObjectID = 0
+	peerSession.isGraviticSpeedPresented = false
 	peerSession.enemySilenceExpiresAt = time.Time{}
 	peerSession.enemySleepExpiresAt = time.Time{}
 	peerSession.enemyStunExpiresAt = time.Time{}
@@ -5725,6 +5740,15 @@ func (p campaignPreparation) initialize(
 	}
 	if fixtureErr != nil {
 		return fmt.Errorf("statusChainFixtures: %w", fixtureErr)
+	}
+	if binding.Mode == game.ModeChain {
+		graviticMarkers, graviticDeleteObjectIDs, graviticErr :=
+			director.GraviticFixtures(contentSelectionID)
+		if graviticErr != nil {
+			return fmt.Errorf("statusGraviticFixtures: %w", graviticErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, graviticMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, graviticDeleteObjectIDs...)
 	}
 	if len(fixtureMarkers) != 0 {
 		fixturePlans, nextObjectID, fixtureErr = zonenpc.PlanFixtures(

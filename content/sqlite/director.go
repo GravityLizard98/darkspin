@@ -260,11 +260,15 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		  AND (marker.noun_name LIKE 'SpawnPoint_Director%.Noun' COLLATE NOCASE
 		       OR marker.noun_name LIKE 'Tutorial%.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_11.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_7.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_nocturna_herotree_yellow_1.Noun' COLLATE NOCASE
 		       OR level_marker_set.asset_name COLLATE NOCASE IN (
 		              'verdanth_3_Smart_Objects_1.Markerset',
 		              'verdanth_3_Smart_Objects_2.Markerset',
 		              'verdanth_3_Smart_Objects_3.Markerset',
+		              'cryos_3_Smart_Object_1.Markerset',
+		              'cryos_3_Smart_Object_2.Markerset',
+		              'cryos_3_Smart_Object_3.Markerset',
 		              'nocturna_1_Obelisk_1.Markerset',
 		              'nocturna_1_Obelisk_2.Markerset',
 		              'nocturna_1_Obelisk_3.Markerset',

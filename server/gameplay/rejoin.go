@@ -139,6 +139,7 @@ func (r gameplaySetupRuntime) commitRejoin(
 		current.isRejoinPending
 	if isCurrent {
 		current.isRejoinPending = false
+		current.isGraviticSpeedPresented = false
 		current.isNPCRecoveryPending = true
 		r.registry.sessions[sessionKey] = current
 	}

@@ -18,6 +18,7 @@ type EquipmentPickup struct {
 	Part                   sporenet.Part
 	IsWinnerReward         bool
 	IsWinnerRewardBoss     bool
+	IsDestructorReward     bool
 }
 
 type EquipmentPickupRoll struct {

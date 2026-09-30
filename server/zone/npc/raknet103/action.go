@@ -432,9 +432,10 @@ func FirstAggro(plan zonenpc.FirstActionPlan, timestamp uint64) ([][]byte, error
 		))
 	}
 	isDelayedReveal := plan.Profile.FirstAggroRevealDelay > 0
+	isCinematic := plan.Profile.FirstAggroCinematicDuration > 0
 	targetObjectID := plan.TargetObjectID
 	attackerCount := uint32(1)
-	if isDelayedReveal {
+	if isDelayedReveal || isCinematic {
 		targetObjectID = 0
 		attackerCount = 0
 	}
@@ -446,11 +447,17 @@ func FirstAggro(plan zonenpc.FirstActionPlan, timestamp uint64) ([][]byte, error
 		},
 		raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, TargetID: targetObjectID,
-			IsInCombat: !isDelayedReveal, IsTargetable: !isDelayedReveal,
+			IsInCombat: !isDelayedReveal && !isCinematic, IsTargetable: !isDelayedReveal && !isCinematic,
 			AttackerCount: attackerCount,
 		},
-		attackTurn(plan.FirstAggroFacingPlan()),
 	)
+	if isCinematic {
+		messages = append(messages, raknet.ObjectPlayerMoveMessage{
+			ObjectID: plan.ObjectID, GoalFlags: 0x20, GoalPosition: source,
+		})
+	} else {
+		messages = append(messages, attackTurn(plan.FirstAggroFacingPlan()))
+	}
 	if plan.Profile.FirstAggroRevealDelay <= 0 && plan.Profile.FirstAggroAnimationName != "" {
 		messages = append(messages, raknet.SetAnimationStateMessage{
 			ObjectID:  plan.ObjectID,
@@ -513,7 +520,7 @@ func FirstAggroReveal(plan zonenpc.FirstActionPlan, timestamp uint64) ([][]byte,
 func FirstAggroActivate(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 	if plan.ObjectID == 0 || plan.TargetObjectID == 0 ||
 		!isFiniteVec3(plan.SourcePosition) ||
-		plan.Profile.FirstAggroRevealDelay <= 0 {
+		(plan.Profile.FirstAggroRevealDelay <= 0 && plan.Profile.FirstAggroCinematicDuration <= 0) {
 		return nil, errors.New("npc first aggro activation invalid")
 	}
 	source := vector(plan.SourcePosition)

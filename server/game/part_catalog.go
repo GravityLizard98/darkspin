@@ -46,7 +46,8 @@ type CampaignPartSlotBag struct {
 // CampaignPartRarityBag progressively weights an authored rarity when that
 // exact rarity has not appeared among a player's recent campaign equipment.
 type CampaignPartRarityBag struct {
-	dryDrawCounts [4]uint32
+	dryDrawCounts      [4]uint32
+	IsDestructorReward bool
 }
 
 // Clone creates an independent bag so callers can commit a draw only after the
@@ -819,9 +820,13 @@ func (e *PartCatalog) campaignPartRarityFromBag(
 		return e.campaignPartRarity(difficulty, choice)
 	}
 	weights := e.campaignPartRarityWeights(difficulty)
+	if bag.IsDestructorReward {
+		// Destructor reward policy: 25% uncommon, 60% rare, 15% epic.
+		weights = [4]float64{0, 25, 60, 15}
+	}
 	totalWeight := float64(0)
 	for index := range weights {
-		if index > int(sporenet.PartBasic) {
+		if !bag.IsDestructorReward && index > int(sporenet.PartBasic) {
 			dryDrawCount := min(
 				bag.dryDrawCounts[index], campaignRarityPityMaximumMisses,
 			)

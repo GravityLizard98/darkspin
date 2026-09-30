@@ -403,28 +403,30 @@ func (r campaignNPCActionRuntime) produceRayKillerFlee(
 		return nil, false, nil
 	}
 	enemy, isEnemyFound := peerSession.zone.NPCs().NPC(objectID)
-	if !isEnemyFound || campaignDifficultyNounFamily(enemy.Plan.NounName) !=
-		"cryoselementalspecialthree" {
+	if !isEnemyFound {
+		r.registry.mutex.Unlock()
+		return nil, false, nil
+	}
+	profile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
+	if !isProfileFound || profile.AbilityName != "CryosElementalSpecialThree" {
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
 	target, isTargetFound := peerSession.campaignNPCTarget(
 		generation, enemy.TargetObjectID,
 	)
-	if !isTargetFound || peerSession.zone.NPCRandom() == nil ||
-		!peerSession.zone.NPCs().ConsumeDamageFlee(objectID) {
+	if !isTargetFound {
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
-	destination, isDestinationFound, err := campaignChronoStrikerFleeDestination(
-		enemy.Plan.Position, target.Position,
-		peerSession.zone.NPCRandom().Float64,
-		func(candidate game.Vec3) (game.Vec3, bool, error) {
-			return zoneaction.NPCDirectMovementDestination(
-				peerSession.zone.Navigation(), enemy.Plan.Position, candidate,
-				enemy.Plan.NPCProfile.FootprintRadius,
-			)
-		},
+	isDamaged := peerSession.zone.NPCs().ConsumeDamageFlee(objectID)
+	if !isDamaged && zonegeometry.Distance(enemy.Plan.Position, target.Position) >=
+		profile.Range*0.5 {
+		r.registry.mutex.Unlock()
+		return nil, false, nil
+	}
+	destination, isDestinationFound, err := campaignRayKillerFleeDestination(
+		peerSession.zone.Navigation(), enemy, target.Position, profile.Range,
 	)
 	if err != nil {
 		r.registry.mutex.Unlock()
@@ -434,19 +436,15 @@ func (r campaignNPCActionRuntime) produceRayKillerFlee(
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
-	profile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
-	if !isProfileFound {
-		r.registry.mutex.Unlock()
-		return nil, false, nil
-	}
-	profile.Family = zonenpc.ActionMelee
+	// Retain the projectile family so pursuit accepts this ranged NPC's action.
 	profile.AbilityName = "Flee"
-	profile.Range = 1.5 * enemy.Plan.NPCProfile.FootprintRadius
+	profile.Range = 0.25
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
 	action := zonenpc.FirstActionPlan{
 		ObjectID: objectID, TargetObjectID: target.ObjectID,
-		SourcePosition: enemy.Plan.Position, TargetPosition: destination,
+		ActionGeneration: enemy.ActionGeneration,
+		SourcePosition:   enemy.Plan.Position, TargetPosition: destination,
 		Profile: profile, IsPursuitNeeded: true,
 	}
 	packets, err := npcraknet.Pursuit(action)

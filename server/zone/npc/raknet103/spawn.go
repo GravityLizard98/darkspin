@@ -156,6 +156,12 @@ func Spawn(plan zonenpc.SpawnPlan) ([][]byte, error) {
 			ObjectID: plan.ObjectID,
 		})
 	}
+	if zonenpc.IsGraviticStabilizer(plan) {
+		messages = append(messages, raknet.AttachedEffectMessage{
+			Slot: 16, IsForceAttached: true,
+			Asset: util.HashID(zonenpc.GraviticFieldEffectName), ObjectID: plan.ObjectID,
+		})
+	}
 	if plan.Introduction == zonenpc.SpawnIntroductionDormant &&
 		isActionKnown && actionProfile.PreAggroAnimationName != "" {
 		messages = append(messages, raknet.SetAnimationStateMessage{

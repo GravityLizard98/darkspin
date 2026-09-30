@@ -75,7 +75,8 @@ func (e *gameplaySessionRegistry) updatePlayerFollowersLocked(
 			follower.binding.UserID != target.binding.UserID &&
 			follower.stage.IsDungeon() && follower.dungeonSetup.IsCommitted() &&
 			follower.deployedObjectID != 0 && follower.deployedHitPoint() > 0 && !follower.isZoneTerminal()
-		if !isFollowing || now.Sub(follower.followUpdatedAt) < playerFollowInterval {
+		if !isFollowing || follower.isEnemyFearActive(now) ||
+			now.Sub(follower.followUpdatedAt) < playerFollowInterval {
 			continue
 		}
 		err := target.advancePlayerPosition(now, raknet.Vector3{})
