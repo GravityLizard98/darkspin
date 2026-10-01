@@ -310,12 +310,22 @@ func marshalGameplayRejoinBaselineState(
 		}
 		packets = append(packets, usePackets...)
 	}
-	for index, plans := range peerSession.zone.ActiveHordeBarrierPlans() {
+	activeBarrierPlans := peerSession.zone.ActiveHordeBarrierPlans()
+	for index, plans := range activeBarrierPlans {
 		barrierPackets, marshalErr := barrierraknet.Create(plans)
 		if marshalErr != nil {
 			return nil, fmt.Errorf("rejoinBarrier[%d]: %w", index, marshalErr)
 		}
 		packets = append(packets, barrierPackets...)
+	}
+	if len(activeBarrierPlans) != 0 {
+		statePacket, stateErr := raknet.MarshalApplication(raknet.DirectorStateMessage{
+			IsHordeSpawned: true, IsHordeSpawnedPresent: true,
+		})
+		if stateErr != nil {
+			return nil, fmt.Errorf("rejoinHordeState: %w", stateErr)
+		}
+		packets = append(packets, statePacket)
 	}
 	objectiveMessages, err := campaignObjectiveMessages(
 		peerSession.zone.Objective().State(), uint8(binding.Slot), 0,

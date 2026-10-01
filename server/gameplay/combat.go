@@ -2822,6 +2822,13 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 	if result.IsDefeated && !result.IsSelfResurrectionStarted &&
 		isDefeatedNPCFound {
 		profile, isProfileFound := zonenpc.ActionProfileForPlan(defeatedNPC.Plan)
+		if defeatedNPC.Plan.NounName == zonenpc.MutationAgentNounName {
+			packets, err := mutationAgentDeathPackets(result.ObjectID)
+			if err != nil {
+				return campaignDamageTransition{}, fmt.Errorf("mutationDeath: %w", err)
+			}
+			transition.immediatePackets = append(transition.immediatePackets, packets...)
+		}
 		if (isProfileFound && profile.PassiveEffectName != "") ||
 			zonenpc.IsGraviticStabilizer(defeatedNPC.Plan) {
 			passiveEffectRemove, marshalErr := raknet.MarshalApplication(
@@ -2925,6 +2932,13 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 	if result.IsDefeated && s.zone.Horde() != nil {
 		transition.hordeTransition = hordeTransition
 		if hordeTransition.IsComplete {
+			statePacket, stateErr := raknet.MarshalApplication(raknet.DirectorStateMessage{
+				IsHordeSpawnedPresent: true,
+			})
+			if stateErr != nil {
+				return campaignDamageTransition{}, fmt.Errorf("hordeStateClear: %w", stateErr)
+			}
+			transition.immediatePackets = append(transition.immediatePackets, statePacket)
 			barrierPlans := s.zone.HordeBarrierPlans(hordeTransition.MarkerSetName)
 			if len(barrierPlans) != 0 {
 				packet, err := barrierraknet.Delete(barrierPlans)

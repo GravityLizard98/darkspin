@@ -2467,6 +2467,12 @@ func (r gameplayPendingRuntime) poll(
 				return nil, fmt.Errorf("fungusPoll: %w", fungusErr)
 			}
 			rootHazardPackets = append(rootHazardPackets, fungusPackets...)
+			mutationPackets, mutationErr := r.pollMutationAgentsLocked(&peerSession)
+			if mutationErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("mutationPoll: %w", mutationErr)
+			}
+			rootHazardPackets = append(rootHazardPackets, mutationPackets...)
 		}
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}
@@ -5945,7 +5951,7 @@ func (p campaignPreparation) initialize(
 			Director:               directorSession,
 			Script:                 scriptRegistry,
 			Encounter:              zoneencounter.NewStageSession(),
-			Horde:                  zonehorde.NewSession(),
+			Horde:                  zonehorde.NewCampaignSession(binding.ChainLevelIndex),
 			Boss:                   zoneboss.NewSession(),
 			Death:                  zonedeath.NewSession(),
 			Objective:              objectiveSession,

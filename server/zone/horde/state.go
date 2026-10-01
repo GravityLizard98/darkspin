@@ -28,6 +28,7 @@ const (
 type Transition struct {
 	MarkerSetName      string
 	NextWaveActorCount int
+	NextWaveOrdinal    int
 	NextWaveDelay      time.Duration
 	IsComplete         bool
 	Completion         Completion
@@ -56,18 +57,26 @@ type GateContact struct {
 }
 
 type encounter struct {
-	publication   game.CampaignDirectorPublication
-	phase         Phase
-	waveOrdinal   int
-	liveObjectIDs map[uint32]bool
-	isGateActive  bool
-	completion    Completion
+	publication     game.CampaignDirectorPublication
+	phase           Phase
+	waveOrdinal     int
+	liveObjectIDs   map[uint32]bool
+	isGateActive    bool
+	completion      Completion
+	mutationAgentID uint32
 }
 
 type Session struct {
-	mu                    sync.RWMutex
-	encountersByMarkerSet map[string]*encounter
-	wavesByMarkerSet      map[string]*WaveSequence
+	mu                       sync.RWMutex
+	areMutationAgentsEnabled bool
+	encountersByMarkerSet    map[string]*encounter
+	wavesByMarkerSet         map[string]*WaveSequence
+}
+
+func NewCampaignSession(chainLevelIndex uint32) *Session {
+	e := NewSession()
+	e.areMutationAgentsEnabled = chainLevelIndex >= 7
+	return e
 }
 
 func NewSession() *Session {
@@ -234,22 +243,38 @@ func (s *Session) Defeat(
 	if encounter == nil {
 		return Transition{}, nil
 	}
+	if encounter.phase == PhaseComplete {
+		return Transition{}, nil
+	}
 	if encounter.phase != PhaseActiveWave || !encounter.liveObjectIDs[result.ObjectID] {
 		return Transition{}, fmt.Errorf("horde defeat: unexpected actor %d", result.ObjectID)
 	}
 	delete(encounter.liveObjectIDs, result.ObjectID)
-	if len(encounter.liveObjectIDs) != 0 {
+	if len(encounter.liveObjectIDs) != 0 && result.ObjectID != encounter.mutationAgentID {
 		return Transition{}, nil
 	}
 	transition := Transition{MarkerSetName: encounter.publication.MarkerSetName}
+	if s.areMutationAgentsEnabled && encounter.waveOrdinal < 3 {
+		encounter.phase = PhaseInterWave
+		count, isFound := ListenerCount(encounter.publication)
+		if !isFound {
+			return Transition{}, errors.New("horde listeners unavailable")
+		}
+		transition.NextWaveActorCount = max(6, count*2)
+		transition.NextWaveOrdinal = encounter.waveOrdinal + 1
+		transition.NextWaveDelay = InterWaveDelay
+		return transition, nil
+	}
 	if strings.EqualFold(encounter.publication.MarkerSetName, "zelems_1_Ai_Horde_2.Markerset") &&
 		encounter.waveOrdinal == 1 {
 		encounter.phase = PhaseInterWave
 		transition.NextWaveActorCount = 3
+		transition.NextWaveOrdinal = 2
 		transition.NextWaveDelay = InterWaveDelay
 		return transition, nil
 	}
 	encounter.phase = PhaseComplete
+	clear(encounter.liveObjectIDs)
 	encounter.isGateActive = false
 	encounter.completion = Completion{
 		MarkerSetName: encounter.publication.MarkerSetName,
@@ -268,7 +293,7 @@ func (s *Session) Revive(snapshot zonenpc.Snapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	encounter := s.encountersByMarkerSet[strings.ToLower(snapshot.Plan.MarkerSetName)]
-	if encounter == nil {
+	if encounter == nil || encounter.phase == PhaseComplete {
 		return nil
 	}
 	if encounter.phase != PhaseActiveWave ||
@@ -295,8 +320,11 @@ func (s *Session) AdmitNextWave(
 	liveObjectIDs := make(map[uint32]bool, len(plans))
 	for _, plan := range plans {
 		liveObjectIDs[plan.ObjectID] = true
+		if strings.EqualFold(plan.NounName, zonenpc.MutationAgentNounName) {
+			encounter.mutationAgentID = plan.ObjectID
+		}
 	}
-	encounter.waveOrdinal = 2
+	encounter.waveOrdinal++
 	encounter.phase = PhaseActiveWave
 	encounter.liveObjectIDs = liveObjectIDs
 	return nil
@@ -320,7 +348,7 @@ func (s *Session) canAdmitNextWave(
 		return errors.New("horde next wave: invalid admission")
 	}
 	encounter := s.encountersByMarkerSet[strings.ToLower(markerSetName)]
-	if encounter == nil || encounter.phase != PhaseInterWave || encounter.waveOrdinal != 1 {
+	if encounter == nil || encounter.phase != PhaseInterWave || encounter.waveOrdinal >= 3 {
 		return errors.New("horde next wave: invalid state")
 	}
 	seenObjectIDs := make(map[uint32]bool, len(plans))

@@ -2262,6 +2262,13 @@ func (r campaignEncounterRuntime) advance(
 				}
 			}
 			plannedPackets = append(barrierPackets, plannedPackets...)
+			hordeStatePacket, stateErr := raknet.MarshalApplication(raknet.DirectorStateMessage{
+				IsHordeSpawned: true, IsHordeSpawnedPresent: true,
+			})
+			if stateErr != nil {
+				return result, fmt.Errorf("hordeState: %w", stateErr)
+			}
+			plannedPackets = append(plannedPackets, hordeStatePacket)
 			hordeErr := peerSession.zone.AdmitFirstHorde(
 				publication, peerSession.deployedObjectID, plannedHorde,
 			)

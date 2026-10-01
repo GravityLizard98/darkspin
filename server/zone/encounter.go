@@ -137,7 +137,7 @@ func (e *Zone) PlanHordeFollowup(
 	}
 	plans, _, err := zonehorde.PlanWave(
 		directorDefinition, publication, objectID.Next(), gameID,
-		transition.NextWaveActorCount, 2,
+		transition.NextWaveActorCount, transition.NextWaveOrdinal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("hordeFollowupPlan: %w", err)

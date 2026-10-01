@@ -22,7 +22,7 @@ var campaignScenes = []campaignScene{
 	{chainLevelIndex: 1, movieName: "cam_fmv_02_zelems"},
 	{chainLevelIndex: 3, movieName: "cam_fmv_03_nocturna"},
 	{chainLevelIndex: 5, movieName: "cam_fmv_04_verdanth"},
-	{chainLevelIndex: 8, voiceName: "vo_ship_flow_reinfect_zelems"},
+	{chainLevelIndex: 7, voiceName: "vo_ship_flow_reinfect_zelems"},
 	{chainLevelIndex: 9, movieName: "cam_fmv_05_cryos"},
 	{chainLevelIndex: 12, voiceName: "vo_ship_flow_reinfect_verdanth"},
 	{chainLevelIndex: 13, movieName: "cam_fmv_06_infinity"},

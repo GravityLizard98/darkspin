@@ -43,6 +43,9 @@ func PlanFirstWave(
 		return nil, firstObjectID,
 			errors.New("hordePlanPublication: invalid")
 	}
+	if !strings.HasPrefix(strings.ToLower(publication.MarkerSetName), "zelems_1_") {
+		actorCount = max(6, actorCount*2)
+	}
 	plans, nextObjectID, err := PlanWave(
 		director, publication, firstObjectID, gameID, actorCount, 1,
 	)
@@ -88,13 +91,14 @@ func PlanWave(
 		return nil, firstObjectID,
 			errors.New("hordePlanPosition: incomplete")
 	}
-	startIndex := int(
-		(gameID ^ publication.TriggerMarkerID ^
-			uint32(waveOrdinal*0x103)) % uint32(len(eligibleEntry)),
-	)
+	random := sim.NewSimulatorRandom(gameID ^ publication.TriggerMarkerID ^ uint32(waveOrdinal*0x103))
 	plans := make([]zonenpc.SpawnPlan, 0, actorCount)
 	for index := 0; index < actorCount; index++ {
-		entry := eligibleEntry[(startIndex+index)%len(eligibleEntry)]
+		entryIndex, err := random.Index(uint32(len(eligibleEntry)))
+		if err != nil {
+			return nil, firstObjectID, fmt.Errorf("hordeChoice: %w", err)
+		}
+		entry := eligibleEntry[entryIndex]
 		plans = append(plans, zonenpc.SpawnPlan{
 			ObjectID: firstObjectID + uint32(index),
 			NounName: entry.NounName, Position: positions[index],
@@ -105,6 +109,23 @@ func PlanWave(
 			MarkerSetName: publication.MarkerSetName,
 			NPCProfile:    entry.NPCProfile,
 		})
+	}
+	if waveOrdinal == 3 {
+		profile, isFound := director.NPCProfilesByNoun[strings.ToLower(zonenpc.MutationAgentNounName)]
+		if !isFound || !profile.IsKnown {
+			return nil, firstObjectID, errors.New("mutation agent profile unavailable")
+		}
+		if firstObjectID+uint32(actorCount) >= zoneobject.ProjectileIDStart {
+			return nil, firstObjectID, errors.New("mutation agent object ID exhausted")
+		}
+		plans = append(plans, zonenpc.SpawnPlan{
+			ObjectID: firstObjectID + uint32(actorCount), NounName: zonenpc.MutationAgentNounName,
+			Position: positions[0], LocusID: publication.TriggerMarkerID,
+			Kind: sim.DirectorLocusHorde, MarkerSetName: publication.MarkerSetName,
+			NPCProfile: profile, ActionProfile: zonenpc.MutationAgentActionProfile(), IsActionKnown: true,
+			Introduction: zonenpc.SpawnIntroductionFloorWarp,
+		})
+		actorCount++
 	}
 	return plans, firstObjectID + uint32(actorCount), nil
 }
