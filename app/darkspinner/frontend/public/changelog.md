@@ -2,7 +2,8 @@
 
 ### 2026-10-01
 
-- [#37](https://github.com/darkspinnet/darkspin/issues/37) Allow shipped loot definitions with empty level ranges such as 999..100 to load during content preparation while excluding them from generated drops and nearest-level fallback.
+- [#37](https://github.com/darkspinnet/darkspin/issues/37) Update content verification from 2,288 to all 2,408 shipped loot definitions, including the 120 restored weapons.
+- [#37](https://github.com/darkspinnet/darkspin/issues/37) Allow shipped loot definitions with empty level ranges such as 999..100 through content parsing and database storage, rebuild older content schemas, and exclude these items from generated drops and nearest-level fallback.
 - [#40](https://github.com/darkspinnet/darkspin/issues/40) Expand hordes from Outer Rings onward to three independently spawned waves with a final Mutation Agent that promotes nearby enemies to elites; close authored arena gates, publish horde state through completion and reconnect, and move HELIX's Zelem reinfection cue to mission 2-3.
 - [#38](https://github.com/darkspinnet/darkspin/issues/38) Give Dimensionist shields the Gravitic Stabilizer's hero status and projectile slowing behavior for every nearby player, using each shield's own radius and lifetime.
 - [#38](https://github.com/darkspinnet/darkspin/issues/38) Make Frigid Caverns' Toxic Fungus attackable with its authored 5 HP and death graphics, poison-stalk explosion, and a short-lived cloud that poisons heroes on contact.

@@ -19,7 +19,7 @@ import (
 const (
 	SourceVersion  = "5.3.0.103"
 	SourceBuild    = 103
-	RecipeVersion  = 57
+	RecipeVersion  = 58
 	ContentRelease = "build-103-content"
 	RuntimeRole    = "runtime-content"
 )
@@ -330,7 +330,7 @@ func Verify(ctx context.Context, path string) (*Verification, error) {
 	}
 	expectedLootRigblockCount := 0
 	if lootSourceCount != 0 {
-		expectedLootRigblockCount = 2288
+		expectedLootRigblockCount = build103LootRigblockCount
 	}
 	if lootRigblockCount != expectedLootRigblockCount {
 		return nil, fmt.Errorf("lootRigblockCount: got %d, want %d", lootRigblockCount, expectedLootRigblockCount)
@@ -1334,8 +1334,9 @@ func writeContentDatabase(
 			image_name TEXT NOT NULL,
 			weapon_noun_id INTEGER NOT NULL,
 			content_flags INTEGER NOT NULL CHECK (content_flags >= 0 AND content_flags <= 255),
-			minimum_level INTEGER NOT NULL CHECK (minimum_level >= 0),
-			maximum_level INTEGER NOT NULL CHECK (maximum_level >= minimum_level),
+			-- Empty authored ranges disable drops but retain item metadata.
+			minimum_level INTEGER NOT NULL CHECK (minimum_level BETWEEN 0 AND 1000),
+			maximum_level INTEGER NOT NULL CHECK (maximum_level BETWEEN 0 AND 1000),
 			is_unique_family INTEGER NOT NULL CHECK (is_unique_family IN (0, 1))
 		);
 		CREATE TABLE loot_affix (

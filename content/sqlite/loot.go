@@ -15,6 +15,9 @@ import (
 
 const lootAssetPackage = "AssetData_Binary.package"
 
+// Includes the 120 weapon definitions recovered from prefixed identity strings.
+const build103LootRigblockCount = 2408
+
 // LootRigblock is the immutable profile-facing projection of one base item.
 type LootRigblock struct {
 	ID              uint16
@@ -270,7 +273,7 @@ func (s *Store) LootRigblocks(ctx context.Context) ([]LootRigblock, error) {
 		return nil, fmt.Errorf("rigblockQuery: %w", err)
 	}
 	defer rows.Close()
-	rigblocks := make([]LootRigblock, 0, 2288)
+	rigblocks := make([]LootRigblock, 0, build103LootRigblockCount)
 	for rows.Next() {
 		var rigblock LootRigblock
 		err = rows.Scan(&rigblock.ID, &rigblock.SlotType, &rigblock.ClassType, &rigblock.ScienceType,
