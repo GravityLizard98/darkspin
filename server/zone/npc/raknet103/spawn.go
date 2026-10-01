@@ -15,6 +15,10 @@ import (
 const permanentModifierStartMilliseconds = 1
 
 func Spawn(plan zonenpc.SpawnPlan) ([][]byte, error) {
+	return spawn(plan, false)
+}
+
+func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	err := zonenpc.ValidateSpawnPlan(plan, zoneobject.ProjectileIDStart)
 	if err != nil {
 		return nil, fmt.Errorf("spawnValidate: %w", err)
@@ -156,7 +160,7 @@ func Spawn(plan zonenpc.SpawnPlan) ([][]byte, error) {
 			ObjectID: plan.ObjectID,
 		})
 	}
-	if zonenpc.IsGraviticStabilizer(plan) {
+	if zonenpc.IsGraviticStabilizer(plan) && !isRemnant {
 		messages = append(messages, raknet.AttachedEffectMessage{
 			Slot: 16, IsForceAttached: true,
 			Asset: util.HashID(zonenpc.GraviticFieldEffectName), ObjectID: plan.ObjectID,

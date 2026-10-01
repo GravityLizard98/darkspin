@@ -737,6 +737,7 @@ func (r gameplaySimpleActionRuntime) cancel(
 }
 
 type campaignCloudLobRun struct {
+	lob    *graviticLob
 	cancel raknet.CancelSchedule
 }
 
@@ -2418,6 +2419,10 @@ func (r gameplayPendingRuntime) poll(
 	if err != nil {
 		return nil, fmt.Errorf("graviticPoll: %w", err)
 	}
+	landingPackets, err := r.pollKnockbackLanding(packet)
+	if err != nil {
+		return nil, fmt.Errorf("knockbackPoll: %w", err)
+	}
 	r.registry.mutex.Lock()
 	peerSession, isFound = r.registry.sessions[packet.Address.String()]
 	// Follow must advance while the ally is moving, even between input packets.
@@ -2439,9 +2444,34 @@ func (r gameplayPendingRuntime) poll(
 			r.registry.mutex.Unlock()
 			return nil, fmt.Errorf("nightmareRootPoll: %w", err)
 		}
+		if peerSession.zone != nil && peerSession.stage.IsDungeon() &&
+			!peerSession.isZoneTerminal() && peerSession.dungeonSetup.IsCommitted() {
+			geyserPackets, geyserErr := peerSession.pollCryosGeyserEffects(r.now())
+			if geyserErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("geyserPoll: %w", geyserErr)
+			}
+			rootHazardPackets = append(rootHazardPackets, geyserPackets...)
+			lavaPackets, lavaDelta, lavaErr := peerSession.applyCampaignLavaContact(
+				game.Vec3(peerSession.playerPosition), packet.SourceTime, r.now(),
+			)
+			if lavaErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("lavaPoll: %w", lavaErr)
+			}
+			peerSession.queueStatDelta(lavaDelta)
+			rootHazardPackets = append(rootHazardPackets, lavaPackets...)
+			fungusPackets, fungusErr := r.pollCryosFungusLocked(&peerSession, packet.SourceTime)
+			if fungusErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("fungusPoll: %w", fungusErr)
+			}
+			rootHazardPackets = append(rootHazardPackets, fungusPackets...)
+		}
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}
 	rootHazardPackets = append(rootHazardPackets, graviticPackets...)
+	rootHazardPackets = append(rootHazardPackets, landingPackets...)
 	queuedPackets, pendingPacketBatchID := peerSession.pendingPackets()
 	isPendingPacketOverflow := peerSession.isPendingPacketOverflow
 	peerSession.isPendingPacketOverflow = false
@@ -4253,6 +4283,20 @@ func stopGameplayPeerRuntime(
 	peerSession gameplayPeerSession, modifierInstancePool *modifierPool,
 	effectPool *attachedEffectPool,
 ) {
+	for objectID, projectile := range peerSession.graviticProjectiles {
+		projectile.setSpeed(time.Now(), 1)
+		err := modifierInstancePool.Release(projectile.instanceID)
+		if err != nil {
+			log.Printf("Gravitic projectile cleanup object=%d: %v", objectID, err)
+		}
+		delete(peerSession.graviticProjectiles, objectID)
+	}
+	if peerSession.graviticModifierID != 0 {
+		err := modifierInstancePool.Release(peerSession.graviticModifierID)
+		if err != nil {
+			log.Printf("Gravitic hero cleanup: %v", err)
+		}
+	}
 	cageErr := peerSession.releaseOperativeCage(modifierInstancePool)
 	if cageErr != nil {
 		log.Printf("RakNet operative cage cleanup failed user=%d: %v", peerSession.binding.UserID, cageErr)
@@ -4433,6 +4477,9 @@ func resetGameplayPeerRuntime(
 	peerSession.zonePresentationRuntime = zonePresentationRuntime{}
 	peerSession.controlledHeroPresentation = controlledHeroPresentation{}
 	peerSession.graviticSlowObjectID = 0
+	peerSession.graviticModifierID = 0
+	peerSession.isGraviticEffectAttached = false
+	peerSession.graviticProjectiles = nil
 	peerSession.isGraviticSpeedPresented = false
 	peerSession.enemySilenceExpiresAt = time.Time{}
 	peerSession.enemySleepExpiresAt = time.Time{}
@@ -4440,6 +4487,7 @@ func resetGameplayPeerRuntime(
 	peerSession.enemyStunTargetObjectID = 0
 	peerSession.enemyRootExpiresAt = time.Time{}
 	peerSession.enemyRootTargetObjectID = 0
+	peerSession.heroKnockbackLanding = heroKnockbackLanding{}
 	peerSession.enemyFearExpiresAt = time.Time{}
 	peerSession.enemyFearTargetObjectID = 0
 	peerSession.passiveKillStack = [squad.Size]uint32{}
@@ -5753,6 +5801,7 @@ func (p campaignPreparation) initialize(
 		fixtureMarkers = append(fixtureMarkers, graviticMarkers...)
 		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, graviticDeleteObjectIDs...)
 	}
+	fixtureMarkers = append(fixtureMarkers, director.CryosFungusFixtures()...)
 	if len(fixtureMarkers) != 0 {
 		fixturePlans, nextObjectID, fixtureErr = zonenpc.PlanFixtures(
 			fixtureMarkers, nextObjectID, zoneobject.ProjectileIDStart,

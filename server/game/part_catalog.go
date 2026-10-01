@@ -502,6 +502,9 @@ func (c *PartCatalog) generateCampaignPart(
 		weaponCompatibility = c.campaignWeaponCompatibility(
 			classType, scienceType, creatureName, accountLevel, isUniqueFamily,
 		)
+		if weaponCompatibility == campaignWeaponIncompatible {
+			return sporenet.Part{}, errors.New("campaign weapon family unavailable")
+		}
 	}
 	for rigblockID, definition := range c.partsByRigblock {
 		if definition.IsUniqueFamily != isUniqueFamily || definition.SlotType != slotType ||
@@ -595,9 +598,9 @@ func (c *PartCatalog) campaignPartSlotTypes(
 
 const campaignWeaponIncompatible = 1 << 30
 
-// campaignWeaponCompatibility finds the best packaged weapon family available
-// to a hero. Build 103 only authored weapon families for some heroes, so an
-// exact-only lookup would remove weapon drops from every other family.
+// campaignWeaponCompatibility requires the hero's authored weapon family.
+// Cross-family fallback concealed missing catalog imports and could award
+// weapons the selected hero cannot equip.
 func (c *PartCatalog) campaignWeaponCompatibility(
 	classType string, scienceType string, creatureName string,
 	accountLevel uint32, isUniqueFamily bool,
@@ -621,20 +624,12 @@ func campaignWeaponCompatibility(
 ) int {
 	isClassCompatible := partCategoryContains(definition.ClassType, classType)
 	isScienceCompatible := partCategoryContains(definition.ScienceType, scienceType)
-	isFamilyCompatible := campaignHeroFamilyName(definition.WeaponOwnerName) ==
-		campaignHeroFamilyName(creatureName)
-	switch {
-	case isFamilyCompatible && isClassCompatible && isScienceCompatible:
+	isFamilyCompatible := creatureName == "" || (definition.WeaponOwnerName != "" &&
+		campaignHeroFamilyName(definition.WeaponOwnerName) == campaignHeroFamilyName(creatureName))
+	if isFamilyCompatible && isClassCompatible && isScienceCompatible {
 		return 0
-	case isClassCompatible && isScienceCompatible:
-		return 1
-	case isClassCompatible:
-		return 2
-	case isScienceCompatible:
-		return 3
-	default:
-		return 4
 	}
+	return campaignWeaponIncompatible
 }
 
 func isCampaignPartCompatible(

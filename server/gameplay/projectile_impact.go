@@ -75,7 +75,8 @@ func (e campaignProjectileStep) produce() ([][]byte, error) {
 		packets, err := schedule.run.Advance(
 			context.Background(), e.deadline,
 		)
-		if err == nil && e.deadline == schedule.run.LastDeadline() {
+		if err == nil && e.deadline == schedule.run.LastDeadline() &&
+			!schedule.run.Snapshot(schedule.runtime.now()).IsActive {
 			delete(peerSession.sageAttacks, schedule.projectileObjectID)
 			schedule.runtime.registry.sessions[schedule.sessionKey] =
 				peerSession
@@ -86,10 +87,37 @@ func (e campaignProjectileStep) produce() ([][]byte, error) {
 		}
 		return packets, nil
 	}
+	remaining := schedule.run.RemainingFlightDelay(schedule.runtime.now())
+	if remaining > abilityraknet.ProjectileCollisionTick {
+		schedule.runtime.registry.mutex.Unlock()
+		err := scheduleNPCProducer(schedule.runtime.registry, schedule.packet,
+			min(remaining, campaignProjectileMotionPollInterval), e.produce)
+		if err != nil {
+			return nil, fmt.Errorf("basicSlowResume: %w", err)
+		}
+		return nil, nil
+	}
+	e.deadline = max(e.deadline, schedule.run.Now())
+	defer e.retireResolved()
 	if schedule.isElectronSphere {
 		return e.produceElectronImpact(peerSession)
 	}
 	return e.produceDirectImpact(peerSession)
+}
+
+func (e campaignProjectileStep) retireResolved() {
+	schedule := e.schedule
+	schedule.runtime.registry.mutex.Lock()
+	defer schedule.runtime.registry.mutex.Unlock()
+	member, isFound := schedule.runtime.registry.sessions[schedule.sessionKey]
+	if !isFound || member.generation != schedule.generation ||
+		member.sageAttacks[schedule.projectileObjectID] != schedule.run ||
+		schedule.run.Now() < schedule.run.LastDeadline() ||
+		schedule.run.Snapshot(schedule.runtime.now()).IsActive {
+		return
+	}
+	delete(member.sageAttacks, schedule.projectileObjectID)
+	schedule.runtime.registry.sessions[schedule.sessionKey] = member
 }
 
 func (e campaignProjectileStep) produceElectronImpact(

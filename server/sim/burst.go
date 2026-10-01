@@ -43,6 +43,9 @@ type projectileBurstShot struct {
 	isTargetValid  bool
 	isLaunched     bool
 	isResolved     bool
+	motionElapsed  time.Duration
+	motionUpdated  time.Duration
+	speedScale     float32
 }
 
 type ProjectileBurstBehavior struct {
@@ -58,6 +61,7 @@ type ProjectileBurstBehavior struct {
 // ProjectileBurstShotSnapshot is one active burst projectile projected at a
 // wall-clock offset from the activation boundary.
 type ProjectileBurstShotSnapshot struct {
+	SpeedScale        float32
 	Index             int
 	Position          Position
 	Direction         Position
@@ -90,7 +94,7 @@ func (b *ProjectileBurstBehavior) Snapshots(
 		if err != nil {
 			continue
 		}
-		flightDuration := elapsed - b.input.ShotDelays[index]
+		flightDuration := b.shotFlightDuration(index, elapsed)
 		if flightDuration < 0 {
 			flightDuration = 0
 		}
@@ -100,7 +104,8 @@ func (b *ProjectileBurstBehavior) Snapshots(
 			launchPosition, scalePosition(direction, travelDistance),
 		)
 		snapshots = append(snapshots, ProjectileBurstShotSnapshot{
-			Index: index, Position: position, Direction: direction,
+			SpeedScale: shot.speedScale,
+			Index:      index, Position: position, Direction: direction,
 			TargetPosition:    shot.targetPosition,
 			RemainingDistance: b.input.ProjectileDistance - travelDistance,
 			IsTargetValid:     shot.isTargetValid, IsActive: true,
@@ -148,6 +153,7 @@ func StartProjectileBurst(
 	}
 	for index, role := range input.ProjectileRoles {
 		behavior.shots[index] = projectileBurstShot{
+			speedScale: 1, motionUpdated: input.ShotDelays[index],
 			role: role, actorPosition: input.ActorPosition,
 			targetPosition: input.TargetPosition, actorFacing: facing,
 			isTargetValid: input.IsTargetValid,

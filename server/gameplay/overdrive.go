@@ -79,7 +79,8 @@ func (e *gameplayPeerSession) rechargeOverdrive(
 		return 0, false
 	}
 	bonus := max(float32(-1), e.binding.Creatures[creatureIndex].OverdriveBuildupIncrease)
-	recharge := float32(baseEnergy) * (1 + bonus)
+	// A full meter takes at most 25 ordinary kills before equipment bonuses.
+	recharge := max(float32(4), float32(baseEnergy)*2) * (1 + bonus)
 	if recharge <= 0 {
 		return 0, false
 	}
@@ -93,7 +94,7 @@ func (e *gameplayPeerSession) rechargeOverdrive(
 		))
 		return energy, true
 	}
-	if !e.isOverdriveSpent {
+	if e.overdriveEnergy >= float32(campaignOverdriveMaximumEnergy) {
 		return 0, false
 	}
 	e.overdriveEnergy = min(

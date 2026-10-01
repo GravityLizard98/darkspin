@@ -822,25 +822,35 @@ func applyThirdChainPopulationPlan(
 func applySeventhChainPopulationPlan(
 	candidates []candidate, random *sim.SimulatorRandom,
 ) ([]candidate, error) {
-	return applyCampaignPopulationThemes(
+	plans, err := applyCampaignPopulationThemes(
 		candidates,
 		[2]campaignPopulationTheme{
 			seventhChainQuantumTheme, seventhChainCyberTheme,
 		},
 		random,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("outerRingThemes: %w", err)
+	}
+	balanceOuterRingMinions(plans)
+	return plans, nil
 }
 
 func applyEighthChainPopulationPlan(
 	candidates []candidate, random *sim.SimulatorRandom,
 ) ([]candidate, error) {
-	return applyCampaignPopulationThemes(
+	plans, err := applyCampaignPopulationThemes(
 		candidates,
 		[2]campaignPopulationTheme{
 			eighthChainQuantumTheme, eighthChainNecroTheme,
 		},
 		random,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("chaosFieldThemes: %w", err)
+	}
+	balanceChaosFieldMinions(plans)
+	return plans, nil
 }
 
 func applyCampaignPopulationThemes(

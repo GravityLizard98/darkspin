@@ -96,6 +96,18 @@ const isChangelogOpen = ref(false)
 const isCreditsOpen = ref(false)
 const isChangelogLoading = ref(false)
 const changelogText = ref('')
+const changelogSegments = computed(() => {
+  const segments = []
+  const issueLinks = /\[#(\d+)\]\((https:\/\/github\.com\/darkspinnet\/darkspin\/issues\/\1)\)/g
+  let offset = 0
+  for (const match of changelogText.value.matchAll(issueLinks)) {
+    if (match.index > offset) segments.push({ text: changelogText.value.slice(offset, match.index) })
+    segments.push({ text: `#${match[1]}`, url: match[2] })
+    offset = match.index + match[0].length
+  }
+  if (offset < changelogText.value.length) segments.push({ text: changelogText.value.slice(offset) })
+  return segments
+})
 const changelogError = ref('')
 const retainedAutoPatch = localStorage.getItem('darkspinner.autoPatch')
 const isAutoPatchEnabled = ref(retainedAutoPatch === null || retainedAutoPatch === 'true')
@@ -1666,7 +1678,7 @@ async function copyLauncherFailure() {
         <DialogTitle as="h2">DARK SPIN {{ status.version }}</DialogTitle>
         <p v-if="isChangelogLoading" class="changelog-state">LOADING CHANGELOG...</p>
         <p v-else-if="changelogError" class="changelog-state changelog-error">{{ changelogError }}</p>
-        <pre v-else>{{ changelogText }}</pre>
+        <pre v-else><template v-for="(segment, index) in changelogSegments" :key="index"><a v-if="segment.url" :href="segment.url" @click.prevent="BrowserOpenURL(segment.url)">{{ segment.text }}</a><template v-else>{{ segment.text }}</template></template></pre>
         <div class="notice-actions">
           <Button variant="outline" class="onboarding-cancel" type="button" @click="isChangelogOpen = false">CLOSE</Button>
         </div>

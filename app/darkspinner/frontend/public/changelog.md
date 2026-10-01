@@ -1,5 +1,22 @@
 # Changelog
 
+### 2026-10-01
+
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Give Dimensionist shields the Gravitic Stabilizer's hero status and projectile slowing behavior for every nearby player, using each shield's own radius and lifetime.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Make Frigid Caverns' Toxic Fungus attackable with its authored 5 HP and death graphics, poison-stalk explosion, and a short-lived cloud that poisons heroes on contact.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Correct Cryos geyser particle packets, repeat bursts every ten seconds, and apply damage and lingering burns even when heroes stand still.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Allow Overdrive to recharge whenever its meter is below full, double kill energy gains, and award at least four energy per kill before equipment bonuses.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Honor squad changes when continuing between missions, retain each player's selection through party voting, and initialize the new squad's own health and energy limits.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Balance Chaos Fields' planned small-enemy population across Strafing Drakon, Chrono Striker, and Blasting Fiend in equal shares while preserving spawn locations and total population.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Balance Outer Rings' planned small-enemy population across Pincering Carapace, Sting Raider, and Robo-Bomber in equal shares while preserving spawn locations and total population.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Restrict Gravitic Regulator and Gravitic Stabilizer loot to a 75% DNA chance and a separate 10% health-or-energy chance, and allow catalyst drops from totems only among destructibles.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Make Pincering Carapace use its basic bite before charging its knockback and between charge cycles, preventing long pursuits from skipping its simpler attack.
+- [#37](https://github.com/darkspinnet/darkspin/issues/37) Restore 120 missing weapon definitions across Zrin, Goliath, and ten other hero families, fixing missing drops and incorrect Utility Slot metadata, and restrict hero weapon drops to their authored family instead of cross-family substitutes.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Finish enemy knockback reactions on heroes with the native landing/outro transition instead of leaving the airborne animation looping, including for multiplayer allies.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Restore Gravitic Stabilizer shield status presentation on heroes and clear it when they leave the field or the stabilizer is destroyed.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Expand Gravitic Stabilizer combat bounds from the small fallback footprint to its authored body and corners, and retain its destroyed model and collision after death and reconnect.
+- [#38](https://github.com/darkspinnet/darkspin/issues/38) Slow hero projectiles inside Gravitic Stabilizer shields, including bursts, thrown shots, cloud lobs, and companion shots, while delaying impact damage and starting ground effects on arrival.
+
 ### 2026-09-30
 
 - Let melee swings finish as misses when their target dies before impact, preserving the attack release instead of aborting the animation schedule.

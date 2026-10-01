@@ -243,6 +243,17 @@ func (e heroBurstStep) produceImpact() ([][]byte, error) {
 		schedule.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
+	remaining := schedule.run.RemainingFlightDelay(e.index, schedule.runtime.now(), e.deadline)
+	if remaining > abilityraknet.ProjectileCollisionTick {
+		schedule.runtime.registry.mutex.Unlock()
+		err := scheduleNPCProducer(schedule.runtime.registry, schedule.packet,
+			min(remaining, campaignProjectileMotionPollInterval), e.produceImpact)
+		if err != nil {
+			return nil, fmt.Errorf("burstSlowResume: %w", err)
+		}
+		return nil, nil
+	}
+	e.deadline = max(e.deadline, schedule.run.Now())
 	if schedule.definition.BurstTargeting == sim.ProjectileBurstTargetingRadial ||
 		schedule.definition.BurstTargeting == sim.ProjectileBurstTargetingArc ||
 		schedule.definition.BurstTargeting == sim.ProjectileBurstTargetingCursorArea {
@@ -860,6 +871,15 @@ func (e heroBurstSchedule) produceFinish() ([][]byte, error) {
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
+	if isCurrent && len(e.run.Snapshots(e.runtime.now())) > 0 {
+		e.runtime.registry.mutex.Unlock()
+		err := scheduleNPCProducer(e.runtime.registry, e.packet,
+			campaignProjectileMotionPollInterval, e.produceFinish)
+		if err != nil {
+			return nil, fmt.Errorf("burstSlowFinish: %w", err)
+		}
+		return nil, nil
+	}
 	if isCurrent {
 		delete(peerSession.heroBurstAttacks, e.firstProjectileObjectID)
 		e.run.SetCancel(nil)

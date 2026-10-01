@@ -2638,21 +2638,12 @@ func (e campaignElectronSecondaryStep) produce() ([][]byte, error) {
 		schedule.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
-	travelDuration := max(
-		time.Duration(0), e.deadline-schedule.definition.HitDelay,
-	)
-	projectileDistance := min(
-		schedule.travelDistance,
-		schedule.definition.Speed*float32(travelDuration.Seconds()),
-	)
-	projectilePosition := game.Vec3{
-		X: schedule.startPosition.X +
-			schedule.facing.X*projectileDistance,
-		Y: schedule.startPosition.Y +
-			schedule.facing.Y*projectileDistance,
-		Z: schedule.startPosition.Z +
-			schedule.facing.Z*projectileDistance,
+	snapshot := schedule.run.Snapshot(schedule.runtime.now())
+	if !snapshot.IsActive {
+		schedule.runtime.registry.mutex.Unlock()
+		return nil, nil
 	}
+	projectilePosition := game.Vec3(snapshot.Position)
 	secondaryPlan, err := zoneability.PlanElectronSphereSecondary(
 		peerSession.zone.NPCs(), schedule.sourceObjectID,
 		projectilePosition, schedule.creature, schedule.definition,
@@ -2691,7 +2682,7 @@ func (e campaignElectronSecondaryStep) produce() ([][]byte, error) {
 		return nil, fmt.Errorf("campaignElectronSecondaryDelay: %w", err)
 	}
 	nextDeadline := e.deadline + nextDelay
-	isRescheduled := nextDeadline < schedule.impactDeadline
+	isRescheduled := snapshot.RemainingFlightDuration > nextDelay
 	schedule.runtime.registry.sessions[schedule.sessionKey] = peerSession
 	schedule.runtime.registry.mutex.Unlock()
 
@@ -2869,10 +2860,13 @@ func (e campaignCloudLobSchedule) commitPoison(
 }
 
 func (e campaignCloudLobSchedule) produceLaunch() ([][]byte, error) {
-	e.runtime.registry.mutex.RLock()
+	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
-	e.runtime.registry.mutex.RUnlock()
+	if isCurrent {
+		e.run.lob = newGraviticLob(e.runtime.now(), e.plan.LaunchPosition[e.projectileIndex], e.plan.Lob[e.projectileIndex])
+	}
+	e.runtime.registry.mutex.Unlock()
 	if !isCurrent {
 		return nil, nil
 	}
@@ -2886,6 +2880,23 @@ func (e campaignCloudLobSchedule) produceLaunch() ([][]byte, error) {
 }
 
 func (e campaignCloudLobSchedule) produceLanding() ([][]byte, error) {
+	e.runtime.registry.mutex.RLock()
+	member, isFound := e.runtime.registry.sessions[e.sessionKey]
+	isCurrent := e.isCurrent(member, isFound)
+	lob := e.run.lob
+	e.runtime.registry.mutex.RUnlock()
+	if !isCurrent {
+		return nil, nil
+	}
+	remaining := lob.remaining(e.runtime.now(), 0)
+	if remaining > abilityraknet.ProjectileCollisionTick {
+		err := scheduleNPCProducer(e.runtime.registry, e.packet,
+			min(remaining, campaignProjectileMotionPollInterval), e.produceLanding)
+		if err != nil {
+			return nil, fmt.Errorf("cloudSlowResume: %w", err)
+		}
+		return nil, nil
+	}
 	landingPackets, err := abilityraknet.CloudLobLanding(
 		e.plan, e.projectileObjectID, e.cloudObjectID,
 	)
@@ -2898,7 +2909,33 @@ func (e campaignCloudLobSchedule) produceLanding() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("campaignCloudLobPoison: %w", err)
 	}
+	err = e.scheduleCloudAfterLanding()
+	if err != nil {
+		return nil, fmt.Errorf("cloudContactSchedule: %w", err)
+	}
 	return append(landingPackets, poisonPackets...), nil
+}
+
+func (e campaignCloudLobSchedule) scheduleCloudAfterLanding() error {
+	cloud := e.plan.Definition.CloudLob
+	producers := []raknet.ScheduledPacketProducer{
+		{Delay: cloud.CloudDuration + 300*time.Millisecond, Produce: e.produceCleanup},
+		{Delay: cloud.CloudDuration, Produce: e.produceDeactivate},
+	}
+	limit := uint32(cloud.CloudDuration/cloud.TickDuration) + cloud.TickCount
+	for index := uint32(1); index < limit; index++ {
+		elapsed := time.Duration(index) * cloud.TickDuration
+		step := campaignCloudPoisonStep{schedule: e, index: index, elapsed: elapsed, isFinal: index+1 == limit}
+		producers = append(producers, raknet.ScheduledPacketProducer{Delay: elapsed, Produce: step.produce})
+	}
+	cancel, err := scheduleNPCProducers(e.runtime.registry, e.packet, producers)
+	if err != nil {
+		return fmt.Errorf("cloudTimers: %w", err)
+	}
+	if cancel == nil {
+		return errors.New("cloud timers cancellation unavailable")
+	}
+	return nil
 }
 
 func (e campaignCloudLobSchedule) produceCleanup() ([][]byte, error) {
@@ -3122,6 +3159,16 @@ func (e campaignTossLandingStep) produce() ([][]byte, error) {
 		schedule.runtime.registry.sessions[schedule.sessionKey]
 	if !schedule.isCurrent(peerSession, isFound) || schedule.run.isLanded {
 		schedule.runtime.registry.mutex.Unlock()
+		return nil, nil
+	}
+	remaining := schedule.run.lob.remaining(schedule.runtime.now(), e.elapsed)
+	if remaining > abilityraknet.ProjectileCollisionTick {
+		schedule.runtime.registry.mutex.Unlock()
+		err := scheduleNPCProducer(schedule.runtime.registry, schedule.packet,
+			min(remaining, campaignProjectileMotionPollInterval), e.produce)
+		if err != nil {
+			return nil, fmt.Errorf("tossSlowResume: %w", err)
+		}
 		return nil, nil
 	}
 	// Lob locomotion publishes a fixed destination. Damage and effects must
@@ -4069,33 +4116,11 @@ func (r campaignAbilityCommandRuntime) handleCloudLobBasic(
 	landingProducer := raknet.ScheduledPacketProducer{
 		Delay: landingDelay, Produce: schedule.produceLanding,
 	}
-	cleanupDelay := landingDelay + cloudPlan.Definition.CloudLob.CloudDuration + 300*time.Millisecond
-	cleanupProducer := raknet.ScheduledPacketProducer{
-		Delay: cleanupDelay, Produce: schedule.produceCleanup,
-	}
-	deactivateProducer := raknet.ScheduledPacketProducer{
-		Delay:   landingDelay + cloudPlan.Definition.CloudLob.CloudDuration,
-		Produce: schedule.produceDeactivate,
-	}
 	producers := []raknet.ScheduledPacketProducer{
-		launchProducer, landingProducer, cleanupProducer, deactivateProducer,
+		launchProducer, landingProducer,
 		{
 			Delay: selection.ReleaseDelay, Produce: schedule.produceRelease,
 		},
-	}
-	activeTickCount := uint32(
-		cloudPlan.Definition.CloudLob.CloudDuration / cloudPlan.Definition.CloudLob.TickDuration,
-	)
-	poisonTickLimit := activeTickCount + cloudPlan.Definition.CloudLob.TickCount
-	for tickIndex := uint32(1); tickIndex < poisonTickLimit; tickIndex++ {
-		elapsed := time.Duration(tickIndex) *
-			cloudPlan.Definition.CloudLob.TickDuration
-		producers = append(
-			producers,
-			schedule.poisonProducer(
-				tickIndex, elapsed, tickIndex+1 == poisonTickLimit,
-			),
-		)
 	}
 	repeatPacket := packet
 	repeatPacket.Payload = append([]byte(nil), packet.Payload...)

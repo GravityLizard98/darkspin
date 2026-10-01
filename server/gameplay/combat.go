@@ -206,6 +206,10 @@ type zoneNPCDeathDefinition struct {
 func destructibleDeathPresentation(
 	snapshot zonenpc.Snapshot, physics zoneNounPhysics,
 ) (string, time.Duration) {
+	if strings.EqualFold(snapshot.Plan.NounName, game.CryosFungusNoun) {
+		// The dead graphics state and poison-stalk particle own this transition.
+		return "", 8 * time.Second
+	}
 	if strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName) {
 		return "effect_environment_nocturna_tree_death.ServerEventDef",
 			destructibleSmallDeleteDelay
@@ -316,7 +320,7 @@ func campaignNPCDeathDefinition(
 		)
 	}
 	isNightmareVine := strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName)
-	isGraviticRegulator := zonenpc.IsGraviticRegulator(snapshot.Plan)
+	isGraviticRemnant := zonenpc.IsGraviticRemnant(snapshot.Plan)
 	isVerdanthTotem := zonenpc.IsVerdanthTotem(snapshot.Plan)
 	isIllusion := snapshot.Plan.OwnerObjectID != 0 && zonenpc.IsNashiraNoun(snapshot.Plan.NounName)
 	if isIllusion {
@@ -359,9 +363,9 @@ func campaignNPCDeathDefinition(
 		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
 		isFixture:           isFixture,
 		isBoss:              snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:   isNightmareVine || isGraviticRegulator || isVerdanthTotem,
-		isCollisionRetained: isGraviticRegulator,
-		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRegulator ||
+		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem,
+		isCollisionRetained: isGraviticRemnant,
+		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRemnant ||
 			isVerdanthTotem,
 		ordinaryDeathAnimation: ordinaryDeathAnimation,
 		corpseFadeDelay:        deathPresentation.PresentationDuration,
@@ -4115,6 +4119,9 @@ func campaignTargetProjectileGeometry(
 	if halfExtent.X <= 0 || halfExtent.Y <= 0 || halfExtent.Z <= 0 {
 		return zonenpc.ProjectileGeometry{}, false,
 			errors.New("projectile geometry unavailable")
+	}
+	if zonenpc.IsGraviticStabilizer(target.Plan) {
+		return graviticProjectileGeometry(target.Plan, halfExtent), false, nil
 	}
 	isTargetGeometryFound := isFound &&
 		physics.BoundMinimum.X < physics.BoundMaximum.X &&
@@ -8381,6 +8388,7 @@ func (r campaignNPCActionRuntime) applyEnemyForcedMovement(
 		return nil, fmt.Errorf("forcedResources: %w", resourceErr)
 	}
 	packets = append(packets, resourcePackets...)
+	targetSession.retainKnockbackLanding(plan, target.Position, destination, r.now())
 	if targetSession != peerSession {
 		r.registry.sessions[targetSessionKey] = *targetSession
 	}

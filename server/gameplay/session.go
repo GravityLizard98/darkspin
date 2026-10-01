@@ -215,6 +215,7 @@ type zoneEffectPresentation struct {
 	campaignCorruptorStates             map[uint32]campaignCorruptorState
 	campaignNPCRuptionNextMagmas        map[uint32]uint64
 	campaignNPCDragSlowShieldReadiness  map[uint32]uint64
+	campaignNPCDragShieldExpirations    map[uint32]time.Time
 	campaignNPCShielderNextGrenades     map[uint32]uint64
 	campaignNPCNextSleepMushrooms       map[uint32]uint64
 	campaignNPCShielderShieldSetups     map[uint32]bool
@@ -228,6 +229,14 @@ type zoneEffectPresentation struct {
 // zonePresentationRuntime owns connection-local scheduling and transfers.
 // Authoritative world state remains on Zone.
 type zonePresentationRuntime struct {
+	cryosFungusExpirations map[uint32]time.Time
+	cryosGeyserWarnings    map[uint32]uint64
+	cryosGeyserSpouts      map[uint32]uint64
+	cryosPoisonReadyAt     time.Time
+	cryosPoisonExpiresAt   time.Time
+	cryosPoisonSourceID    uint32
+	cryosBurnExpiresAt     time.Time
+	cryosBurnHazard        campaignLavaHazard
 	zoneCombatPresentation
 	campaignSchedule            *zoneaction.ScheduleSession
 	campaignUnlockPresentation  *unlockraknet.ActiveSession
@@ -246,6 +255,7 @@ type zonePresentationRuntime struct {
 // chainPeerRuntime survives the boundary between one completed zone and the
 // next zone selected by the same connected player.
 type chainPeerRuntime struct {
+	chainSelectedSquadID  uint32
 	chainResult           *zoneresult.Session
 	chainPlanetsCompleted uint8
 	chainMedalCounts      [4]zoneresult.MedalCount
@@ -295,10 +305,15 @@ type controlledHeroState struct {
 	operativeCage                 *campaignNPCModifierRun
 	enemyRootExpiresAt            time.Time
 	enemyRootTargetObjectID       uint32
+	heroKnockbackLanding          heroKnockbackLanding
 	enemyFearExpiresAt            time.Time
 	enemyFearTargetObjectID       uint32
 	campaignLavaReadyAt           time.Time
 	graviticSlowObjectID          uint32
+	graviticEffectSlot            uint8
+	graviticModifierID            uint32
+	isGraviticEffectAttached      bool
+	graviticProjectiles           map[uint32]graviticProjectile
 	isGraviticSpeedPresented      bool
 	campaignLavaWarningKey        uint64
 	campaignLavaSpoutKey          uint64
@@ -1082,6 +1097,7 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNPCDiseaseImmunityEnds)
 	clear(s.campaignNPCFleeDeathCounts)
 	clear(s.campaignNPCDragSlowShieldReadiness)
+	clear(s.campaignNPCDragShieldExpirations)
 	clear(s.campaignNPCPullReadiness)
 	clear(s.campaignNPCSinkholeReadiness)
 	clear(s.campaignNPCSinkholeEffectSlots)

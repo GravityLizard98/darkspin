@@ -1013,9 +1013,7 @@ func (r campaignResultRuntime) handleActiveResult(
 		chainCommand.Type == raknet.ChainPlayerSelectContinue &&
 		chainCommand.Choice == 1 &&
 		chainCommand.SelectedRecordID != 0
-	// The result screen sends its local selection record here. It is not the
-	// durable squad ID used during the initial chain preparation.
-	squadID := peerSession.binding.SquadID
+	squadID := chainCommand.SelectedRecordID
 	nextLevel := resultSnapshot.NextLevel
 	isContinuePhase := resultSnapshot.Phase == zoneresult.ChainVoting ||
 		resultSnapshot.IsContinueReplay(squadID, nextLevel)
@@ -1025,6 +1023,23 @@ func (r campaignResultRuntime) handleActiveResult(
 				ctx, packet, peerSession, resultSnapshot,
 				zoneresult.VoteChoiceCashOut,
 			)
+		}
+		selectedBinding, selectionErr := r.gameplayJoin.SelectCampaignSquad(peerSession.binding, squadID)
+		if selectionErr != nil {
+			return nil, fmt.Errorf("continueSquad: %w", selectionErr)
+		}
+		r.registry.mutex.Lock()
+		currentSession, isCurrentFound := r.registry.sessions[packet.Address.String()]
+		isCurrent := isCurrentFound && currentSession.generation == peerSession.generation &&
+			currentSession.chainResult == peerSession.chainResult
+		if isCurrent {
+			currentSession.chainSelectedSquadID = selectedBinding.SquadID
+			r.registry.sessions[packet.Address.String()] = currentSession
+			peerSession = currentSession
+		}
+		r.registry.mutex.Unlock()
+		if !isCurrent {
+			return nil, nil
 		}
 		return r.castVote(
 			ctx, packet, peerSession, resultSnapshot,
@@ -1153,8 +1168,12 @@ func (r campaignResultRuntime) consumeVote(
 	}
 	switch decision {
 	case zoneresult.VoteDecisionContinue:
+		squadID := peerSession.chainSelectedSquadID
+		if squadID == 0 {
+			squadID = peerSession.binding.SquadID
+		}
 		return r.continueChain(
-			ctx, packet, peerSession, snapshot, peerSession.binding.SquadID,
+			ctx, packet, peerSession, snapshot, squadID,
 		)
 	case zoneresult.VoteDecisionCashOut:
 		return r.cashOut(packet, peerSession, snapshot)
@@ -1785,12 +1804,23 @@ func (r campaignResultRuntime) continueChain(
 	snapshot zoneresult.Snapshot, squadID uint32,
 ) ([][]byte, error) {
 	nextBinding := peerSession.binding
+	maximumHitPoints := peerSession.maximumHitPoints
+	maximumManaPoints := peerSession.maximumManaPoints
+	if squadID != nextBinding.SquadID {
+		selectedBinding, err := r.gameplayJoin.SelectCampaignSquad(nextBinding, squadID)
+		if err != nil {
+			return nil, fmt.Errorf("continueSelection: %w", err)
+		}
+		nextBinding = selectedBinding
+		maximumHitPoints = [squad.Size]float32{}
+		maximumManaPoints = [squad.Size]float32{}
+	}
 	nextBinding.Level = snapshot.NextLevel
 	nextBinding.ChainLevelIndex = snapshot.CompletedIndex + 1
 	nextBinding.Difficulty = nextBinding.ChainLevelIndex
 	nextBinding.IsCatalystUnlocked = nextBinding.ChainProgression >= 3
 	for index := range nextBinding.Creatures {
-		maximumManaPoint := peerSession.maximumManaPoints[index]
+		maximumManaPoint := maximumManaPoints[index]
 		if maximumManaPoint <= 0 {
 			continue
 		}
@@ -1840,8 +1870,8 @@ func (r campaignResultRuntime) continueChain(
 				chainMedalCounts:      snapshot.MedalCounts,
 			},
 			controlledHeroState: controlledHeroState{
-				maximumHitPoints:  continueSession.maximumHitPoints,
-				maximumManaPoints: continueSession.maximumManaPoints,
+				maximumHitPoints:  maximumHitPoints,
+				maximumManaPoints: maximumManaPoints,
 				overdriveEnergy:   campaignInitialOverdriveEnergy(nextBinding),
 			},
 			binding:                     nextBinding,
@@ -1864,8 +1894,8 @@ func (r campaignResultRuntime) continueChain(
 	}
 	stopGameplayPeerSession(continueSession, r.modifierPool, r.effectPool)
 	r.logger.Printf(
-		"RakNet campaign continue accepted for %s result=%d level=%q chain_progression=%d without fabricated reward",
-		packet.Address, snapshot.ResultID, snapshot.NextLevel, chainProgression,
+		"RakNet campaign continue accepted for %s result=%d level=%q squad=%d chain_progression=%d without fabricated reward",
+		packet.Address, snapshot.ResultID, snapshot.NextLevel, nextBinding.SquadID, chainProgression,
 	)
 	return [][]byte{setupPacket}, nil
 }

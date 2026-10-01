@@ -211,6 +211,8 @@
 .credits-link { height: auto; padding: 0; color: var(--primary); font-size: 13px; }
 .credits-link:hover { color: var(--foreground); }
 .changelog-notice pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 "Segoe UI", sans-serif; color: var(--muted-foreground); max-height: 55vh; overflow: auto; }
+.changelog-notice pre a { color: var(--primary); text-decoration: underline; }
+.changelog-notice pre a:hover { color: var(--foreground); }
 .remote-delete-error, .changelog-error { color: var(--destructive); }
 .install-frame { display: grid; align-items: center; }
 .install-card { width: min(100%, 580px); margin-inline: auto; padding: 24px; gap: 0; }

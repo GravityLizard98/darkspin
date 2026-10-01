@@ -113,7 +113,11 @@ func LoadLootRigblocks(ctx context.Context, packagePath string) ([]LootRigblock,
 			return nil, fmt.Errorf("propertyParse[%d]: %w", ordinal, parseErr)
 		}
 		if !isLoot {
-			continue
+			return nil, fmt.Errorf("rigblockIdentity[%d]: missing", ordinal)
+		}
+		expectedInstance := uint64(webHashID(fmt.Sprintf("LootRigblock%d", rigblock.ID)))
+		if entry.Instance != expectedInstance {
+			return nil, fmt.Errorf("rigblockResource[%d]: got %x, want %x", ordinal, entry.Instance, expectedInstance)
 		}
 		rigblock.SourceOrdinal = ordinal
 		existing, isFound := rigblocksByID[rigblock.ID]
@@ -203,6 +207,9 @@ func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
 	if !isRigblockFound {
 		return LootRigblock{}, false, nil
 	}
+	if headerID := binary.LittleEndian.Uint32(payload); headerID != uint32(rigblock.ID) {
+		return LootRigblock{}, false, fmt.Errorf("rigblockHeader: got %d, want %d", headerID, rigblock.ID)
+	}
 	rigblock.MinimumLevel = binary.LittleEndian.Uint32(payload[64:])
 	rigblock.MaximumLevel = binary.LittleEndian.Uint32(payload[68:])
 	rigblock.ContentFlags = payload[108]
@@ -241,13 +248,19 @@ func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
 }
 
 func lootRigblockIdentity(field string) (string, bool, bool) {
+	// Build-103 stores the name immediately after the binary hero-hash array.
+	// Its final bytes can be printable (Zrin ends in "X9"), so the string
+	// scanner may include them. Locate the marker instead of requiring it at
+	// the start; the header ID and package resource identity are checked too.
 	const ordinaryPrefix = "LootRigblockNames!0x"
-	if strings.HasPrefix(field, ordinaryPrefix) {
-		return strings.TrimPrefix(field, ordinaryPrefix), false, true
+	ordinaryIndex := strings.Index(field, ordinaryPrefix)
+	if ordinaryIndex >= 0 {
+		return field[ordinaryIndex+len(ordinaryPrefix):], false, true
 	}
 	const uniquePrefix = "LootUniqueRigblockNames!0x"
-	if strings.HasPrefix(field, uniquePrefix) {
-		return strings.TrimPrefix(field, uniquePrefix), true, true
+	uniqueIndex := strings.Index(field, uniquePrefix)
+	if uniqueIndex >= 0 {
+		return field[uniqueIndex+len(uniquePrefix):], true, true
 	}
 	return "", false, false
 }

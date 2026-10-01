@@ -2,12 +2,31 @@ package gameplay
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/raknet"
+	"github.com/darkspinnet/darkspin/server/sim"
+	"github.com/darkspinnet/darkspin/server/util"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
+
+func graviticProjectileGeometry(plan zonenpc.SpawnPlan, halfExtent sim.Position) zonenpc.ProjectileGeometry {
+	scale := plan.PlacementScale
+	if scale <= 0 {
+		scale = 1
+	}
+	// Rotate the authored 8x10 base into a world-space collision envelope.
+	sine, cosine := math.Sincos(float64(plan.Rotation.Z) * math.Pi / 180)
+	x := float32(4*math.Abs(cosine)+5*math.Abs(sine)) * scale
+	y := float32(4*math.Abs(sine)+5*math.Abs(cosine)) * scale
+	return zonenpc.ProjectileGeometry{
+		ProjectileHalfExtent: halfExtent,
+		TargetMinimum:        sim.Position{X: -x, Y: -y},
+		TargetMaximum:        sim.Position{X: x, Y: y, Z: 2.5 * scale},
+	}
+}
 
 func (e *gameplayPeerSession) graviticMovementSpeedBuff() float32 {
 	if e.graviticSlowObjectID == 0 || e.graviticSlowObjectID != e.deployedObjectID {
@@ -57,8 +76,26 @@ func (e gameplayPendingRuntime) updateGraviticContactLocked(
 			stabilizers = append(stabilizers, stabilizer)
 		}
 	}
+	for _, sourceMember := range e.registry.sessions {
+		if sourceMember.zone != member.zone {
+			continue
+		}
+		for objectID, expiresAt := range sourceMember.campaignNPCDragShieldExpirations {
+			if !now.Before(expiresAt) {
+				continue
+			}
+			shield, isFound := member.zone.NPCs().NPC(objectID)
+			if isFound && !shield.IsDefeated && shield.HitPoint > 0 {
+				stabilizers = append(stabilizers, shield)
+			}
+		}
+	}
+	packets, err := e.updateGraviticProjectilesLocked(member, stabilizers, now)
+	if err != nil {
+		return nil, fmt.Errorf("graviticProjectiles: %w", err)
+	}
 	if len(stabilizers) == 0 && member.graviticSlowObjectID == 0 {
-		return nil, nil
+		return packets, nil
 	}
 	position := game.Vec3(member.playerPosition)
 	if member.playerMotion != nil {
@@ -72,19 +109,20 @@ func (e gameplayPendingRuntime) updateGraviticContactLocked(
 	if member.deployedObjectID != 0 && member.deployedHitPoint() > 0 &&
 		!member.isHeroSelectionPending &&
 		!e.damage.npc.isTargetDebuffImmuneLocked(member, member.deployedObjectID) {
-		for _, stabilizer := range stabilizers {
-			if stabilizer.Plan.Position.Sub(position).Length() <= zonenpc.GraviticFieldRadius {
-				nextObjectID = member.deployedObjectID
-				break
-			}
+		if graviticFieldSource(stabilizers, position) != 0 {
+			nextObjectID = member.deployedObjectID
 		}
 	}
 	previousObjectID := member.graviticSlowObjectID
 	if previousObjectID == nextObjectID && member.isGraviticSpeedPresented {
-		return nil, nil
+		return packets, nil
 	}
+	presentationPackets, err := e.updateGraviticPresentationLocked(member, nextObjectID)
+	if err != nil {
+		return nil, fmt.Errorf("graviticPresentation: %w", err)
+	}
+	packets = append(packets, presentationPackets...)
 	member.graviticSlowObjectID = nextObjectID
-	packets := make([][]byte, 0, 2)
 	// Also clear a switched-out hero, so returning to that squad slot cannot
 	// inherit a field it no longer occupies.
 	if previousObjectID != 0 && previousObjectID != member.deployedObjectID {
@@ -114,6 +152,70 @@ func (e gameplayPendingRuntime) updateGraviticContactLocked(
 	}
 	member.isGraviticSpeedPresented = true
 	return append(packets, currentPacket), nil
+}
+
+func (e gameplayPendingRuntime) updateGraviticPresentationLocked(
+	member *gameplayPeerSession, nextObjectID uint32,
+) ([][]byte, error) {
+	messages := make([]raknet.ApplicationMessage, 0, 2)
+	if member.graviticModifierID != 0 && member.graviticSlowObjectID != nextObjectID {
+		messages = append(messages, raknet.ModifierDeletedMessage{
+			TargetID: member.graviticSlowObjectID, InstanceID: member.graviticModifierID,
+		})
+		err := e.modifierPool.Release(member.graviticModifierID)
+		if err != nil {
+			return nil, fmt.Errorf("graviticHeroRelease: %w", err)
+		}
+		member.graviticModifierID = 0
+	}
+	if member.isGraviticEffectAttached && member.graviticSlowObjectID != nextObjectID {
+		messages = append(messages, raknet.AttachedEffectMessage{
+			ObjectID: member.graviticSlowObjectID, Slot: member.graviticEffectSlot,
+			IsRemovalRequested: true, IsHardStop: true,
+		})
+		isReleased := e.effectPool.Release(member.graviticSlowObjectID, member.graviticEffectSlot)
+		if !isReleased {
+			// Hero switching can already have released all of the old hero's slots.
+			e.logger.Printf("Gravitic effect slot already retired object=%d", member.graviticSlowObjectID)
+		}
+		member.isGraviticEffectAttached = false
+	}
+	if nextObjectID != 0 {
+		if member.graviticModifierID == 0 {
+			instanceID, err := e.modifierPool.Allocate()
+			if err != nil {
+				return nil, fmt.Errorf("graviticHeroAllocate: %w", err)
+			}
+			member.graviticModifierID = instanceID
+		}
+		messages = append(messages, raknet.ModifierCreatedMessage{
+			TargetID: nextObjectID, ModifierGUID: util.HashID("ZelemSlow"),
+			InstanceID: member.graviticModifierID, StackCount: 1, StartMilliseconds: 1,
+		})
+		if !member.isGraviticEffectAttached {
+			slot, isAllocated := e.effectPool.Allocate(nextObjectID)
+			if !isAllocated {
+				return nil, fmt.Errorf("graviticEffectSlot: exhausted for %d", nextObjectID)
+			}
+			member.graviticEffectSlot = slot
+			member.isGraviticEffectAttached = true
+		}
+		// ZelemSlow's authored statusFootEffect owns the entry and sustained
+		// snare presentation; removing the attachment stops its looping effect.
+		messages = append(messages, raknet.AttachedEffectMessage{
+			ObjectID: nextObjectID, Slot: member.graviticEffectSlot,
+			Asset: util.HashID("status_snared.ServerEventDef"), IsForceAttached: true,
+		})
+	}
+	packets := make([][]byte, 0, len(messages))
+	for _, message := range messages {
+		packet, err := raknet.MarshalApplication(message)
+		if err != nil {
+			return nil, fmt.Errorf("graviticEffectMarshal: %w", err)
+		}
+		packets = append(packets, packet)
+	}
+	return packets, nil
 }
 
 func marshalGraviticSpeed(member gameplayPeerSession) ([]byte, error) {

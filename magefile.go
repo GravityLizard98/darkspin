@@ -429,9 +429,17 @@ func prepareDarkSpinnerFrontend() error {
 	if err != nil {
 		return fmt.Errorf("changelogMkdir: %w", err)
 	}
-	err = copyFile("CHANGELOG.md", filepath.Join(publicPath, "changelog.md"))
+	changelog, err := os.ReadFile("CHANGELOG.md")
 	if err != nil {
-		return fmt.Errorf("changelogCopy: %w", err)
+		return fmt.Errorf("changelogRead: %w", err)
+	}
+	// Leave existing Markdown links and URL fragments alone.
+	issueReferences := regexp.MustCompile(`(^|[^[:alnum:]_/#\[])#([0-9]+)\b`)
+	changelog = issueReferences.ReplaceAll(changelog,
+		[]byte(`${1}[#${2}](https://github.com/darkspinnet/darkspin/issues/${2})`))
+	err = os.WriteFile(filepath.Join(publicPath, "changelog.md"), changelog, 0o644)
+	if err != nil {
+		return fmt.Errorf("changelogWrite: %w", err)
 	}
 	environment := map[string]string{"CI": "true"}
 	pnpmStorePath := filepath.Join(os.TempDir(), "darkspin-pnpm-store")

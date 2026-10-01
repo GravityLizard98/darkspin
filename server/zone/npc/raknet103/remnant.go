@@ -14,10 +14,10 @@ func Remnants(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 	packets := make([][]byte, 0)
 	for _, snapshot := range snapshots {
 		if !snapshot.IsPublished || !snapshot.IsDefeated ||
-			!zonenpc.IsGraviticRegulator(snapshot.Plan) {
+			!zonenpc.IsGraviticRemnant(snapshot.Plan) {
 			continue
 		}
-		spawnPackets, err := Spawn(snapshot.FacingSpawnPlan())
+		spawnPackets, err := spawn(snapshot.FacingSpawnPlan(), true)
 		if err != nil {
 			return nil, fmt.Errorf("remnantSpawn[%d]: %w", snapshot.Plan.ObjectID, err)
 		}

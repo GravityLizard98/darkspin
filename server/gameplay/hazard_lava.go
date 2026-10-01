@@ -25,8 +25,8 @@ const campaignLavaDamageFraction = float32(0.10)
 const campaignLavaDamageCooldown = 2 * time.Second
 const cryosLavaWarningDuration = 2 * time.Second
 const cryosLavaSpoutDuration = time.Second
-const cryosLavaMinimumRestDuration = 4 * time.Second
-const cryosLavaRestVariationCount = uint32(4)
+const cryosLavaMinimumRestDuration = 7 * time.Second
+const cryosLavaRestVariationCount = uint32(1)
 const cryosLavaSpoutEffectID = uint32(0xa6120b9c)
 const cryosLavaHitEffectID = uint32(0x78da313e)
 
@@ -46,6 +46,22 @@ type campaignLavaHazard struct {
 	cycle          uint64
 }
 
+func (e *gameplayPeerSession) pollCryosGeyserEffects(now time.Time) ([][]byte, error) {
+	packets := make([][]byte, 0)
+	for _, crack := range e.zone.DirectorDefinition().CryosLavaCracks() {
+		phase, cycle := campaignCryosLavaPhase(crack.MarkerID, now)
+		effects, err := e.campaignLavaPresentation(campaignLavaHazard{
+			sourceObjectID: crack.MarkerID, position: crack.Position,
+			phase: phase, cycle: cycle,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("geyserEffect: %w", err)
+		}
+		packets = append(packets, effects...)
+	}
+	return packets, nil
+}
+
 func (s *gameplayPeerSession) applyCampaignLavaContact(
 	position game.Vec3, timestamp uint64, now time.Time,
 ) ([][]byte, sporenet.PlayerStatDelta, error) {
@@ -54,6 +70,10 @@ func (s *gameplayPeerSession) applyCampaignLavaContact(
 		return nil, sporenet.PlayerStatDelta{}, nil
 	}
 	hazard, isContact := s.campaignLavaContact(position, now)
+	if (!isContact || hazard.phase != campaignLavaPhaseSpout) && now.Before(s.cryosBurnExpiresAt) {
+		hazard, isContact = s.cryosBurnHazard, true
+		hazard.phase = campaignLavaPhaseContinuous
+	}
 	if !isContact {
 		return nil, sporenet.PlayerStatDelta{}, nil
 	}
@@ -103,9 +123,11 @@ func (s *gameplayPeerSession) applyCampaignLavaContact(
 	}
 	damagePresentationPackets := [][]byte{eventPacket, textPacket, healthPacket}
 	if hazard.phase == campaignLavaPhaseSpout {
-		hitPacket, hitErr := raknet.MarshalApplication(raknet.ObjectEffectMessage{
-			Asset: cryosLavaHitEffectID, ObjectID: s.deployedObjectID,
-			AttackerID: hazard.sourceObjectID,
+		s.cryosBurnExpiresAt = now.Add(3 * time.Second)
+		s.cryosBurnHazard = hazard
+		hitEffectID := cryosLavaHitEffectID
+		hitPacket, hitErr := raknet.MarshalApplication(raknet.ServerEventContractMessage{
+			SimpleSwarmEffectID: &hitEffectID, ObjectID: &s.deployedObjectID,
 		})
 		if hitErr != nil {
 			return nil, sporenet.PlayerStatDelta{}, fmt.Errorf("lavaHit: %w", hitErr)
@@ -184,27 +206,34 @@ func (s *gameplayPeerSession) campaignLavaPresentation(
 	if hazard.phase != campaignLavaPhaseWarning && hazard.phase != campaignLavaPhaseSpout {
 		return nil, nil
 	}
-	presentationKey := uint64(hazard.sourceObjectID)<<32 | hazard.cycle&0xffffffff
 	assetID := cryosLavaSpoutEffectID
 	if hazard.phase == campaignLavaPhaseWarning {
-		if s.campaignLavaWarningKey == presentationKey {
+		if cycle, isFound := s.cryosGeyserWarnings[hazard.sourceObjectID]; isFound && cycle == hazard.cycle {
 			return nil, nil
 		}
-		s.campaignLavaWarningKey = presentationKey
+		if s.cryosGeyserWarnings == nil {
+			s.cryosGeyserWarnings = make(map[uint32]uint64)
+		}
+		s.cryosGeyserWarnings[hazard.sourceObjectID] = hazard.cycle
 		assetID = util.HashID("effect_Environment_Cryos_Geyser_Warning.ServerEventDef")
 	} else {
-		if s.campaignLavaSpoutKey == presentationKey {
+		if cycle, isFound := s.cryosGeyserSpouts[hazard.sourceObjectID]; isFound && cycle == hazard.cycle {
 			return nil, nil
 		}
-		s.campaignLavaSpoutKey = presentationKey
+		if s.cryosGeyserSpouts == nil {
+			s.cryosGeyserSpouts = make(map[uint32]uint64)
+		}
+		s.cryosGeyserSpouts[hazard.sourceObjectID] = hazard.cycle
 	}
-	packet, err := raknet.MarshalApplication(raknet.PositionedEffectMessage{
-		Asset: assetID,
-		Position: raknet.Vector3{
-			X: hazard.position.X, Y: hazard.position.Y, Z: hazard.position.Z,
-		},
-		Facing: raknet.Vector3{Z: 1},
-	})
+	position := raknet.Vector3(hazard.position)
+	facing := raknet.Vector3{Z: 1}
+	message := raknet.ServerEventContractMessage{Position: &position, Facing: &facing}
+	if hazard.phase == campaignLavaPhaseSpout {
+		message.SimpleSwarmEffectID = &assetID
+	} else {
+		message.Asset = &assetID
+	}
+	packet, err := raknet.MarshalApplication(message)
 	if err != nil {
 		return nil, fmt.Errorf("lavaEffect: %w", err)
 	}

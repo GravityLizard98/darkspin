@@ -256,7 +256,7 @@ func (r *BurstRun) Snapshots(now time.Time) []ProjectileSnapshot {
 		remainingDuration := time.Duration(0)
 		if r.ability.Speed > 0 && shot.RemainingDistance > 0 {
 			remainingDuration = time.Duration(
-				float64(shot.RemainingDistance) / float64(r.ability.Speed) *
+				float64(shot.RemainingDistance) / float64(r.ability.Speed*shot.SpeedScale) *
 					float64(time.Second),
 			)
 		}
@@ -270,7 +270,7 @@ func (r *BurstRun) Snapshots(now time.Time) []ProjectileSnapshot {
 			AbilityName: r.ability.Name, ProjectileNoun: r.ability.ProjectileNoun,
 			Position: shot.Position, TargetPosition: shot.TargetPosition,
 			Direction: shot.Direction,
-			Speed:     r.ability.Speed, RemainingDistance: shot.RemainingDistance,
+			Speed:     r.ability.Speed * shot.SpeedScale, RemainingDistance: shot.RemainingDistance,
 			RemainingFlightDuration: remainingDuration, IsActive: true,
 		})
 	}

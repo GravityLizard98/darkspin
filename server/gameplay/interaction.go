@@ -1855,6 +1855,9 @@ func (s *gameplayPeerSession) spawnCampaignNPCDNA(
 		reservation.Release()
 		return nil, 0, fmt.Errorf("dnaDecision: %w", err)
 	}
+	if zonenpc.IsGraviticRemnant(enemy.Plan) {
+		isDrop = draw < zoneloot.DNAChanceBasis*75/100
+	}
 	if !isDrop {
 		err = reservation.Commit()
 		if err != nil {
@@ -2061,6 +2064,17 @@ const campaignOrbLobDuration = 500 * time.Millisecond
 func (s *gameplayPeerSession) spawnCampaignHealthOrb(
 	invocation game.CampaignScriptInvocation, sourceTime uint64, now time.Time,
 ) ([][]byte, uint32, error) {
+	packets, objectID, err := s.spawnCampaignResourceOrb(invocation, sourceTime, now, true)
+	if err != nil {
+		return nil, 0, fmt.Errorf("healthOrb: %w", err)
+	}
+	return packets, objectID, nil
+}
+
+func (s *gameplayPeerSession) spawnCampaignResourceOrb(
+	invocation game.CampaignScriptInvocation, sourceTime uint64, now time.Time,
+	isResurrectionAllowed bool,
+) ([][]byte, uint32, error) {
 	if s == nil || s.squad == nil || invocation.Challenge <= 0 {
 		return nil, 0, errors.New("campaign orb unavailable")
 	}
@@ -2071,7 +2085,7 @@ func (s *gameplayPeerSession) spawnCampaignHealthOrb(
 		return nil, 0, errors.New("campaign orb registry unavailable")
 	}
 	roster := make([]sim.OrbResourceSample, 0, squad.Size)
-	isResurrectionEnabled := !strings.EqualFold(
+	isResurrectionEnabled := isResurrectionAllowed && !strings.EqualFold(
 		s.binding.Level, game.InitialChainLevel,
 	) && invocation.CallbackName != "InteractHealthObelisk"
 	isDeadSquadMemberFound := false
@@ -2172,12 +2186,18 @@ func (s *gameplayPeerSession) spawnCampaignNPCOrb(
 	if !isReserved {
 		return nil, 0, nil
 	}
-	packets, objectID, err := s.spawnCampaignHealthOrb(
+	isGraviticInstrument := zonenpc.IsGraviticRemnant(enemy.Plan)
+	sourceAmount := int32(campaignNPCOrbSourceAmount)
+	if isGraviticInstrument {
+		// Orb source amounts below 100 are percentage chances of one drop.
+		sourceAmount = 10
+	}
+	packets, objectID, err := s.spawnCampaignResourceOrb(
 		game.CampaignScriptInvocation{
 			Position:  enemy.Plan.Position,
-			Challenge: campaignNPCOrbSourceAmount,
+			Challenge: sourceAmount,
 		},
-		sourceTime, now,
+		sourceTime, now, !isGraviticInstrument,
 	)
 	if err != nil {
 		reservation.Release()
@@ -2819,6 +2839,9 @@ func (s *gameplayPeerSession) spawnCampaignNPCCrystal(
 ) ([][]byte, uint32, error) {
 	if s == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
 		return nil, 0, errors.New("campaign enemy crystal unavailable")
+	}
+	if enemy.Plan.IsFixture && !zonenpc.IsVerdanthTotem(enemy.Plan) {
+		return nil, 0, nil
 	}
 	reservation, isReserved := s.reserveCampaignNPCDrop(
 		enemy.Plan.ObjectID, zoneloot.NPCDropCrystal,

@@ -26,6 +26,16 @@ type levelDirectorStore interface {
 // into content.db. Its complete rows remain an emergency fallback, but imported
 // ClassAttributes always supply combat statistics when available.
 var build103CampaignNPCProfile = map[string]contentsqlite.NonPlayerNounProfile{
+	"dest_prefab_cryos_plants_shascope.noun": {
+		NounName: game.CryosFungusNoun, HitPoint: 5,
+		GraphicsScale: 1, FootprintRadius: 1, IsTargetable: true,
+	},
+	"dest_prefab_islands_instrument_scitech_7.noun": {
+		NounName: game.GraviticStabilizerNoun, HitPoint: 20,
+		// The shipped noun bounds are (-4,-5,0)..(4,5,2.5).
+		// Include the corners in radial melee reach and navigation clearance.
+		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 6.403125,
+	},
 	"dest_tota_headstatue_b.noun": {
 		NounName: "DEST_tota_headstatue_b.Noun", HitPoint: 50,
 		GraphicsScale: 1, FootprintRadius: 1.25, IsTargetable: true,

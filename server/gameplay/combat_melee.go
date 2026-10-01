@@ -341,7 +341,7 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 	if profile.AbilityName == "ZelemChargeupStandardAttack" && !isSilenced {
 		if chargeupState.isCharged {
 			profile = zonenpc.ZelemChargeupDischargeProfile()
-		} else if chargeupState.nextBuildTimestamp == 0 ||
+		} else if chargeupState.isStandardAttackPerformed &&
 			timestamp >= chargeupState.nextBuildTimestamp {
 			return r.produceZelemChargeupBuild(
 				packet, sessionKey, generation, objectID, timestamp,
@@ -472,6 +472,22 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 			r.registry.mutex.Unlock()
 		}
 		return nil, fmt.Errorf("enemyMeleeSchedule: %w", scheduleErr)
+	}
+	if profile.AbilityName == "ZelemChargeupStandardAttack" {
+		// Pursuit alone must not unlock another charge: commit the basic
+		// attack only once its hit and release have been scheduled.
+		r.registry.mutex.Lock()
+		latest, isLatestFound := r.registry.sessions[sessionKey]
+		if isLatestFound && latest.generation == generation {
+			if latest.campaignNPCChargeups == nil {
+				latest.campaignNPCChargeups = make(map[uint32]campaignNPCChargeupState)
+			}
+			latestState := latest.campaignNPCChargeups[objectID]
+			latestState.isStandardAttackPerformed = true
+			latest.campaignNPCChargeups[objectID] = latestState
+			r.registry.sessions[sessionKey] = latest
+		}
+		r.registry.mutex.Unlock()
 	}
 	return startPackets, nil
 }

@@ -315,6 +315,10 @@ func (e CampaignDirector) CryosCaveScenery() (
 		}
 		markerSetCount++
 		for _, marker := range markerSet.Markers {
+			if strings.EqualFold(marker.NounName, CryosFungusNoun) {
+				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				continue
+			}
 			if !isCampaignSceneryMarker(marker) {
 				continue
 			}

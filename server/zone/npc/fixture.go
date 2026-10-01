@@ -17,6 +17,11 @@ func IsGraviticStabilizer(plan SpawnPlan) bool {
 	return plan.IsFixture && strings.EqualFold(plan.NounName, game.GraviticStabilizerNoun)
 }
 
+// Both instruments retain their authored dead graphics and solid foundation.
+func IsGraviticRemnant(plan SpawnPlan) bool {
+	return IsGraviticRegulator(plan) || IsGraviticStabilizer(plan)
+}
+
 // Gravitic Regulators leave a solid base after their machinery is destroyed.
 func IsGraviticRegulator(plan SpawnPlan) bool {
 	return plan.IsFixture && strings.EqualFold(
@@ -85,6 +90,9 @@ func planMarkers(
 		}
 		if isFixture {
 			currentPlan.PlacementScale = currentMarker.Scale
+		}
+		if IsGraviticStabilizer(currentPlan) && currentMarker.Scale > 0 {
+			currentPlan.NPCProfile.FootprintRadius *= currentMarker.Scale
 		}
 		err := ValidateSpawnPlan(currentPlan, objectIDLimit)
 		if err != nil {
