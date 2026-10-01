@@ -21,6 +21,7 @@ type candidate struct {
 	markerSetName         string
 	markerOrdinal         int
 	positions             []game.Vec3
+	positionIDs           []uint32
 	rotations             []game.Vec3
 	radius                float32
 	provisionalCount      int
@@ -202,6 +203,7 @@ func newSession(
 					spikesBySection[section] = spike
 				}
 				spike.positions = append(spike.positions, marker.Position)
+				spike.positionIDs = append(spike.positionIDs, marker.MarkerID)
 				spike.rotations = append(spike.rotations, marker.Rotation)
 			}
 		}
@@ -284,8 +286,8 @@ func newSession(
 	}, nil
 }
 
-// PrimeOpening resolves ordinary map population before exploration. Horde marker
-// sets are excluded when candidates are built and remain encounter-triggered.
+// PrimeOpening resolves standing map population before exploration. Selected
+// first-clear spikes and horde marker sets remain encounter-triggered.
 func (e *Session) PrimeOpening(position game.Vec3) ([]Decision, error) {
 	if e == nil {
 		return nil, errors.New("populationPrime: nil session")
@@ -301,6 +303,9 @@ func (e *Session) PrimeOpening(position game.Vec3) ([]Decision, error) {
 	decisions := make([]Decision, 0, len(e.candidates))
 	for _, candidate := range e.candidates {
 		if e.resolvedDirectorPointIDs[candidate.locusID] {
+			continue
+		}
+		if candidate.kind == sim.DirectorLocusSpike && candidate.isAmbush {
 			continue
 		}
 		decision, err := e.resolveCandidate(candidate, true)
@@ -502,6 +507,20 @@ func assignNavigationComponents(
 const CampaignFloorPopulationTarget = 15
 
 var initialChainOpeningAnchor = game.Vec3{
+	// The authored path4579 node sits beside the opening SpikeA set.
+	X: -173.15, Y: -46.05, Z: 0.088,
+}
+
+var initialChainEntryAnchor = game.Vec3{
+	X: -123.8707, Y: -151.64705, Z: 10.037109,
+}
+
+var initialChainSecondEncounterAnchor = game.Vec3{
+	// Visual reference for selecting the nearest authored WandererA point.
+	X: -172.795, Y: -63.524, Z: 0.088,
+}
+
+var initialChainBeamAnchor = game.Vec3{
 	X: -152.01, Y: -28.20, Z: 0.088,
 }
 
@@ -564,6 +583,16 @@ func applyInitialChainPopulationPlan(
 				sectionCandidate = append(sectionCandidate, candidate)
 			}
 		}
+		if isFirstClear && section == sim.DirectorRouteSectionA {
+			floorPlan, err := planInitialChainFirstClearOpening(
+				sectionCandidate, firstTimeTheme, random,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("openingFloor: %w", err)
+			}
+			planned = append(planned, floorPlan...)
+			continue
+		}
 		theme := firstTimeTheme
 		if !isFirstClear {
 			theme = initialChainRepairTheme
@@ -578,12 +607,17 @@ func applyInitialChainPopulationPlan(
 			}
 		}
 		var openingAnchor *game.Vec3
+		eliteTarget := 2
 		if section == sim.DirectorRouteSectionA {
 			openingAnchor = &initialChainOpeningAnchor
+			// A spans the opening SpikeA/SpikeA2 sets and the later SpikeA3
+			// platform. Keep an anchor in each area under the same floor budget.
+			eliteTarget = 3
 		}
 		floorPlan, err := planCampaignFloor(
 			sectionCandidate, theme, random,
-			CampaignFloorPopulationTarget, openingAnchor,
+			CampaignFloorPopulationTarget, eliteTarget, openingAnchor,
+			isFirstClear && section == sim.DirectorRouteSectionA,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("floor[%d]: %w", section, err)
@@ -599,6 +633,104 @@ func applyInitialChainPopulationPlan(
 		planned = append(planned, candidate)
 	}
 	return planned, nil
+}
+
+// planInitialChainFirstClearOpening fixes the two encounters visible at the
+// entrance to authored points. Later A encounters still use the first-time
+// roster and the local floor budget.
+func planInitialChainFirstClearOpening(
+	candidates []candidate, theme campaignPopulationTheme,
+	random *sim.SimulatorRandom,
+) ([]candidate, error) {
+	wanderers := make([]candidate, 0)
+	var openingSpike candidate
+	for _, candidate := range candidates {
+		if candidate.kind == sim.DirectorLocusWanderer && len(candidate.positions) == 1 {
+			wanderers = append(wanderers, candidate)
+		}
+		if strings.EqualFold(candidate.markerSetName, "zelems_1_AI_SpikeA.Markerset") {
+			openingSpike = candidate
+		}
+	}
+	if len(wanderers) < 4 || len(openingSpike.positions) == 0 {
+		return nil, errors.New("opening candidates incomplete")
+	}
+	repairNoun, err := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicRepair")
+	if err != nil {
+		return nil, fmt.Errorf("openingRepair: %w", err)
+	}
+	hybridNoun, err := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicHybrid")
+	if err != nil {
+		return nil, fmt.Errorf("openingHybrid: %w", err)
+	}
+	eliteNoun, err := initialChainFirstClearNoun(theme.lieutenantNouns, "NomadWithDrone")
+	if err != nil {
+		return nil, fmt.Errorf("openingElite: %w", err)
+	}
+	beamNoun, err := initialChainFirstClearNoun(theme.lieutenantNouns, "ZelemSpecialHaster")
+	if err != nil {
+		return nil, fmt.Errorf("openingBeam: %w", err)
+	}
+	firstMob, remaining := nearestCampaignCandidates(wanderers, initialChainEntryAnchor, 1)
+	firstMob[0].provisionalCount = 1
+	firstMob[0].provisionalNounNames = []string{repairNoun}
+	elite, remaining := nearestCampaignCandidates(
+		remaining, initialChainSecondEncounterAnchor, 1,
+	)
+	elite[0].provisionalCount = 1
+	elite[0].isProvisionalCaptain = true
+	elite[0].provisionalNounNames = []string{eliteNoun}
+	nearby, remaining := nearestCampaignCandidates(remaining, elite[0].positions[0], 2)
+	for index := range nearby {
+		nearby[index].provisionalCount = 1
+		nearby[index].provisionalNounNames = []string{hybridNoun}
+	}
+	beamPosition := nearestCampaignPosition(openingSpike.positions, initialChainBeamAnchor)
+	beam, isFound := campaignSpikeAt(candidates, beamPosition)
+	if !isFound {
+		return nil, errors.New("opening beam point missing")
+	}
+	beam.provisionalCount = 1
+	beam.isProvisionalCaptain = true
+	beam.isAmbush = true
+	beam.provisionalNounNames = []string{beamNoun}
+	usedIDs := make(map[uint32]bool, 2+len(nearby))
+	usedIDs[firstMob[0].locusID] = true
+	usedIDs[elite[0].locusID] = true
+	for _, candidate := range nearby {
+		usedIDs[candidate.locusID] = true
+	}
+	laterCandidates := make([]candidate, 0, len(candidates)-len(usedIDs)-1)
+	for _, candidate := range candidates {
+		if usedIDs[candidate.locusID] ||
+			strings.EqualFold(candidate.markerSetName, openingSpike.markerSetName) {
+			continue
+		}
+		laterCandidates = append(laterCandidates, candidate)
+	}
+	laterPlan, err := planCampaignFloor(
+		laterCandidates, theme, random, 10, 2, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("openingLaterFloor: %w", err)
+	}
+	plans := make([]candidate, 0, 1+1+len(nearby)+1+len(laterPlan))
+	plans = append(plans, firstMob[0], elite[0])
+	plans = append(plans, nearby...)
+	plans = append(plans, beam)
+	plans = append(plans, laterPlan...)
+	return plans, nil
+}
+
+func initialChainFirstClearNoun(nouns []string, baseName string) (string, error) {
+	baseName = strings.ToLower(baseName)
+	for _, noun := range nouns {
+		name := strings.TrimSuffix(strings.ToLower(noun), ".noun")
+		if name == baseName || strings.HasPrefix(name, baseName+"_") {
+			return noun, nil
+		}
+	}
+	return "", fmt.Errorf("roster noun %s missing", baseName)
 }
 
 var secondChainQuantumTheme = campaignPopulationTheme{
@@ -790,7 +922,7 @@ func applyCampaignPopulationThemes(
 		}
 		floorPlan, err := planCampaignFloor(
 			sectionCandidate, theme, random,
-			CampaignFloorPopulationTarget, nil,
+			CampaignFloorPopulationTarget, 2, nil, false,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("floor[%d]: %w", section, err)
@@ -902,8 +1034,8 @@ func canPlanCampaignFloorPopulation(candidates []candidate) bool {
 
 func planCampaignFloor(
 	candidates []candidate, theme campaignPopulationTheme,
-	random *sim.SimulatorRandom, populationTarget int,
-	openingAnchor *game.Vec3,
+	random *sim.SimulatorRandom, populationTarget, eliteTarget int,
+	openingAnchor *game.Vec3, isOpeningFirstClear bool,
 ) ([]candidate, error) {
 	minionCandidate := make([]candidate, 0)
 	elitePosition := make([]game.Vec3, 0)
@@ -936,9 +1068,9 @@ func planCampaignFloor(
 		firstElite = elitePosition[firstEliteIndex]
 	}
 	selectedElite := []game.Vec3{firstElite}
-	if len(elitePosition) > 1 {
-		selectedElite = append(
-			selectedElite, furthestCampaignPosition(elitePosition, firstElite),
+	for len(selectedElite) < min(eliteTarget, len(elitePosition)) {
+		selectedElite = append(selectedElite,
+			furthestCampaignPositionFromGroup(elitePosition, selectedElite),
 		)
 	}
 	available := append([]candidate(nil), minionCandidate...)
@@ -964,6 +1096,26 @@ func planCampaignFloor(
 		lieutenantIndex, lieutenantErr := random.Index(uint32(len(theme.lieutenantNouns)))
 		if lieutenantErr != nil {
 			return nil, fmt.Errorf("lieutenant[%d]: %w", eliteIndex, lieutenantErr)
+		}
+		if isOpeningFirstClear {
+			spike, isFound := campaignSpikeAt(candidates, position)
+			if !isFound {
+				return nil, fmt.Errorf("openingSpike[%d]: missing", eliteIndex)
+			}
+			spike.provisionalCount = 1
+			spike.isProvisionalCaptain = true
+			spike.isAmbush = true
+			spike.provisionalNounNames = []string{theme.lieutenantNouns[lieutenantIndex]}
+			plans = append(plans, spike)
+			for index, candidate := range nearby {
+				candidate.provisionalCount = 1
+				candidate.provisionalNounNames = []string{
+					theme.minionNouns[index%len(theme.minionNouns)],
+				}
+				plans = append(plans, candidate)
+			}
+			spawnedCount += 1 + len(nearby)
+			continue
 		}
 		positions := make([]game.Vec3, 0, 1+len(nearby))
 		positions = append(positions, position)
@@ -996,6 +1148,30 @@ func planCampaignFloor(
 		spawnedCount++
 	}
 	return plans, nil
+}
+
+func campaignSpikeAt(candidates []candidate, position game.Vec3) (candidate, bool) {
+	for _, candidate := range candidates {
+		if candidate.kind != sim.DirectorLocusSpike {
+			continue
+		}
+		for index, markerPosition := range candidate.positions {
+			if markerPosition != position {
+				continue
+			}
+			candidate.positions = []game.Vec3{position}
+			candidate.markerOrdinal += index
+			if index < len(candidate.positionIDs) {
+				candidate.locusID = candidate.positionIDs[index]
+				candidate.positionIDs = []uint32{candidate.locusID}
+			}
+			if index < len(candidate.rotations) {
+				candidate.rotations = []game.Vec3{candidate.rotations[index]}
+			}
+			return candidate, true
+		}
+	}
+	return candidate{}, false
 }
 
 func initialChainClusterCandidate(
@@ -1031,17 +1207,23 @@ func nearestCampaignCandidates(
 	return ordered[:count], ordered[count:]
 }
 
-func furthestCampaignPosition(positions []game.Vec3, origin game.Vec3) game.Vec3 {
+func furthestCampaignPositionFromGroup(
+	positions, origins []game.Vec3,
+) game.Vec3 {
 	selected := positions[0]
 	selectedDistance := float32(-1)
 	for _, position := range positions {
-		deltaX := position.X - origin.X
-		deltaY := position.Y - origin.Y
-		deltaZ := position.Z - origin.Z
-		distance := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
-		if distance > selectedDistance {
+		nearestDistance := float32(math.MaxFloat32)
+		for _, origin := range origins {
+			deltaX := position.X - origin.X
+			deltaY := position.Y - origin.Y
+			deltaZ := position.Z - origin.Z
+			distance := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
+			nearestDistance = min(nearestDistance, distance)
+		}
+		if nearestDistance > selectedDistance {
 			selected = position
-			selectedDistance = distance
+			selectedDistance = nearestDistance
 		}
 	}
 	return selected

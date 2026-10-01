@@ -333,6 +333,9 @@ func (e campaignProjectileStep) produceContact(
 	livePlan zoneability.BasicPlan, collision sim.ProjectileBoxCollision,
 ) ([][]byte, error) {
 	schedule := e.schedule
+	if schedule.definition.Name == "MissileTempestBasic" {
+		return e.produceMissileExplosion(peerSession, collision.Position)
+	}
 	err := schedule.run.SetImpactTarget(liveNPC.Plan.ObjectID, sim.Position(liveNPC.Plan.Position))
 	if err != nil {
 		schedule.runtime.registry.mutex.Unlock()

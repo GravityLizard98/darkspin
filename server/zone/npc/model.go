@@ -107,6 +107,7 @@ type Target struct {
 }
 
 type Snapshot struct {
+	recentDamages                   []recentDamage
 	Plan                            SpawnPlan
 	Origin                          game.Vec3
 	Facing                          game.Vec3

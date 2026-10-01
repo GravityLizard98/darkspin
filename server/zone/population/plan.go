@@ -133,6 +133,10 @@ func (s *Session) planSpawns(
 
 func applySpawnIntroductions(plans []zonenpc.SpawnPlan, decision Decision) {
 	for index := range plans {
+		if decision.Kind == sim.DirectorLocusSpike && decision.IsAmbush {
+			plans[index].Introduction = zonenpc.SpawnIntroductionFloorWarp
+			continue
+		}
 		// Ordinary map population is already present, including groups whose
 		// authored pre-aggro pose keeps them dormant until approached.
 		plans[index].Introduction = zonenpc.SpawnIntroductionDormant
@@ -315,7 +319,9 @@ func appendAuthoredPlans(
 			return nil, nextObjectID,
 				fmt.Errorf("spawnPlanFixtureNoun[%d]: %s", index, nounName)
 		}
-		isCaptain := strings.EqualFold(configKind, "captain")
+		isCaptain := strings.EqualFold(configKind, "captain") ||
+			(director.IsFirstClear && decision.IsProvisionalCaptain &&
+				strings.EqualFold(configKind, "special"))
 		profile := selectedEntry.NPCProfile
 		bossIdentity := zonenpc.BossIdentity{}
 		if isCaptain {

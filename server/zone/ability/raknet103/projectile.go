@@ -453,7 +453,7 @@ func (r *ProjectileRun) Retarget(
 	r.motionMutex.Lock()
 	isAlreadyTargeted := r.retargetID == targetObjectID
 	r.motionMutex.Unlock()
-	if isAlreadyTargeted {
+	if isAlreadyTargeted && targetObjectID == 0 {
 		return nil, nil
 	}
 	snapshot := r.Snapshot(now)
@@ -503,6 +503,11 @@ func (r *ProjectileRun) Retarget(
 	r.motionRemaining = remainingDistance
 	projectileSpeed := r.speed
 	r.motionMutex.Unlock()
+	// The client follows its target object automatically. Keep authoritative
+	// collision motion aimed at that moving object without repeating wire updates.
+	if isAlreadyTargeted {
+		return nil, nil
+	}
 	target := raknet.Vector3{
 		X: targetPosition.X, Y: targetPosition.Y, Z: targetPosition.Z,
 	}

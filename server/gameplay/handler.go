@@ -190,7 +190,7 @@ func (r gameplayMovementRuntime) stop(
 	var targetingPacket []byte
 	if isCurrent {
 		targetingPacket, err = peerSession.startMissileTargetingPresentation(
-			peerSession.deployedCreatureIndex,
+			peerSession.deployedCreatureIndex, r.campaign.damage.effectPool,
 		)
 		if err == nil {
 			r.campaign.registry.sessions[packet.Address.String()] = peerSession
@@ -693,7 +693,7 @@ func (r gameplaySimpleActionRuntime) cancel(
 ) ([][]byte, error) {
 	if isSessionFound {
 		pursuit, interruptedBasic, heroDrain, healingChannel, isCanceled := r.action.cancel(
-			packet.Address.String(), command.Common.ObjectID,
+			packet.Address.String(), command.Common.ObjectID, r.now(),
 		)
 		if !isCanceled {
 			return nil, nil
@@ -2446,6 +2446,15 @@ func (r gameplayPendingRuntime) poll(
 		}
 		if peerSession.zone != nil && peerSession.stage.IsDungeon() &&
 			!peerSession.isZoneTerminal() && peerSession.dungeonSetup.IsCommitted() {
+			voicePackets, voiceErr := peerSession.pollMissionVoice(r.now())
+			if voiceErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("missionVoicePoll: %w", voiceErr)
+			}
+			if len(voicePackets) != 0 {
+				r.logger.Printf("RakNet HELIX mission introduction sent user=%d level=%q after arrival", peerSession.binding.UserID, peerSession.binding.Level)
+			}
+			rootHazardPackets = append(rootHazardPackets, voicePackets...)
 			geyserPackets, geyserErr := peerSession.pollCryosGeyserEffects(r.now())
 			if geyserErr != nil {
 				r.registry.mutex.Unlock()
@@ -4503,6 +4512,7 @@ func resetGameplayPeerRuntime(
 	peerSession.passiveReductionStack = [squad.Size]uint32{}
 	peerSession.passiveReductionExpiresAt = [squad.Size]time.Time{}
 	peerSession.isMissileTargetingPresented = [squad.Size]bool{}
+	peerSession.missileTargetingEffectSlots = [squad.Size]uint8{}
 	peerSession.fireRavagerBasicCount = [squad.Size]uint32{}
 	peerSession.tcShieldAmount = [squad.Size]float32{}
 	peerSession.tcShieldReadyAt = [squad.Size]time.Time{}
@@ -4931,13 +4941,13 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignRemnants: %w", err)
 	}
 	response = append(response, remnantPackets...)
-	// The objective update owns the mission's authored HELIX introduction.
-	// Publish it only after the hero and level fixtures exist so the client
-	// cannot discard the cue while it is still constructing the campaign scene.
-	openingVoiceover := zonepreview.CampaignMissionVoice(peerSession.binding.Level)
+	// Initialize objectives now, but defer HELIX until after setup commits and
+	// the arrival window ends. Packet order alone still delivers this on frame 1.
+	peerSession.missionVoiceID = zonepreview.CampaignMissionVoice(peerSession.binding.Level)
+	peerSession.missionVoiceReadyAt = time.Time{}
 	objectiveMessages, err := campaignObjectiveMessages(
 		peerSession.zone.Objective().State(), uint8(peerSession.binding.Slot),
-		openingVoiceover,
+		0,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("pingCampaignObjective: %w", err)

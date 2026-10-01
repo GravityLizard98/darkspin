@@ -51,6 +51,14 @@ func (e campaignProjectileStep) produceFlight(
 			Minimum: geometry.TargetMinimum, Maximum: geometry.TargetMaximum,
 		})
 	}
+	if schedule.definition.Name == "MissileTempestBasic" {
+		homingPackets, homingErr := schedule.trackMissileTarget(peerSession, now)
+		if homingErr != nil {
+			schedule.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("missileHoming: %w", homingErr)
+		}
+		packets = append(packets, homingPackets...)
+	}
 	snapshot, segments := schedule.run.SampleCollisionMotion(now)
 	result, err := schedule.flight.AdvanceMotion(
 		e.deadline-schedule.projectile.HitDelay, segments,
@@ -78,6 +86,13 @@ func (e campaignProjectileStep) produceFlight(
 		return packets, nil
 	}
 	if result.TargetObjectID == 0 {
+		if schedule.definition.Name == "MissileTempestBasic" {
+			impactPackets, impactErr := e.produceMissileExplosion(peerSession, result.Position)
+			if impactErr != nil {
+				return nil, fmt.Errorf("missileExpiry: %w", impactErr)
+			}
+			return append(packets, impactPackets...), nil
+		}
 		impactPackets, resolveErr := schedule.run.ResolveCollision(
 			context.Background(), e.deadline, false, false, 0,
 			schedule.plan.Damage.Maximum, false, result.Position, sim.Position(schedule.facing),

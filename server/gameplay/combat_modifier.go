@@ -244,6 +244,9 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 				!targetSession.extendEnemyRoot(plan.TargetObjectID, expiresAt) {
 				continue
 			}
+			// Stop queued approach callbacks as well as the current route; they
+			// otherwise restart movement toward an attack or trap on their next tick.
+			targetSession.campaignPlayerPursuitSession().Cancel()
 			rootPosition := targetSession.playerPosition
 			if targetSession.playerMotion != nil {
 				stoppedPosition, stopErr := targetSession.playerMotion.Stop(r.now())
@@ -264,6 +267,7 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 					)
 				}
 			}
+			targetSession.playerMovementGoal = rootPosition
 			stopPackets, stopErr := marshalZonePlayerStop(
 				plan.TargetObjectID, rootPosition,
 			)

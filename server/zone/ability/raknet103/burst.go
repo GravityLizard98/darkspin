@@ -216,6 +216,16 @@ func (r *BurstRun) ResetActorAnimation(ctx context.Context) ([][]byte, error) {
 	return r.outbox.Drain(), nil
 }
 
+func (e *BurstRun) StopLaunching() {
+	if e != nil && e.behavior != nil {
+		e.behavior.StopLaunching()
+	}
+}
+
+func (e *BurstRun) IsShotLaunched(index int) bool {
+	return e != nil && e.behavior != nil && e.behavior.IsShotLaunched(index)
+}
+
 func (r *BurstRun) AdvanceClock(deadline time.Duration) error {
 	if r == nil || r.simulator == nil {
 		return errors.New("nil projectile burst run")

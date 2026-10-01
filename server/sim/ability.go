@@ -160,6 +160,7 @@ type LightningSecondaryAbilityDefinition struct {
 // AbilityDefinition is the rank-one authored projection of a packaged Lua
 // ability registration. It contains content data, not runtime combat state.
 type AbilityDefinition struct {
+	TimeLapse                       *TimeLapseDefinition
 	IsFacingSuppressed              bool
 	IsFacingPolicyKnown             bool
 	Name                            string
@@ -762,10 +763,9 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 		if err != nil {
 			return AbilityDefinition{}, fmt.Errorf("pointBlankRadius: %w", err)
 		}
-		definition.ImpactEffectName, err = luaAbilityString(table, "debuffEffect")
-		if err != nil {
-			return AbilityDefinition{}, fmt.Errorf("pointBlankDebuffEffect: %w", err)
-		}
+		// debuffEffect is the modifier's statusHeadEffect, not a hit effect.
+		// DeathsEmbraceDebuff owns its lifetime; a separate event here would
+		// leave an untracked Terrified visual after expiry or target death.
 		statusDuration, statusDurationErr := luaAbilityRankNumber(table, "debuffDuration", 1)
 		if statusDurationErr != nil {
 			return AbilityDefinition{}, fmt.Errorf("pointBlankDebuffDuration: %w", statusDurationErr)
@@ -816,6 +816,9 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 	if hitEffect.kind == luaString {
 		definition.Kind = AbilityKindMelee
 		definition.HitEffectName = hitEffect.text
+		if definition.Name == "TimeRavagerActive" {
+			return loadTimeLapse(definition, table)
+		}
 		return definition, nil
 	}
 	if isMelee {

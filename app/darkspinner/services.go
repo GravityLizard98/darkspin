@@ -374,12 +374,12 @@ func waitForServerListener(ctx context.Context, address string, serverDone <-cha
 }
 
 func (a *App) preparePatch(ctx context.Context, gamePath, configPath string) error {
-	isRestarting, err := a.prepareLauncherUpdate(ctx)
+	release, err := availableLauncherUpdate(ctx)
 	if err != nil {
-		a.log("Launcher update skipped: " + err.Error())
-		a.setSubsystem("Patch", "Pending", false)
+		a.log("Launcher update check skipped: " + err.Error())
 	}
-	if isRestarting {
+	if release != nil {
+		a.setSubsystem("Patch", "Update available", false)
 		return nil
 	}
 	plan, err := buildModPatchPlan(ctx, gamePath)

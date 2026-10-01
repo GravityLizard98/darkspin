@@ -49,13 +49,14 @@ type projectileBurstShot struct {
 }
 
 type ProjectileBurstBehavior struct {
-	simulator  *Simulator
-	scope      CancelScope
-	input      ProjectileBurstInput
-	shots      []projectileBurstShot
-	tasks      []TaskID
-	isReleased bool
-	isCanceled bool
+	simulator          *Simulator
+	scope              CancelScope
+	input              ProjectileBurstInput
+	shots              []projectileBurstShot
+	tasks              []TaskID
+	isReleased         bool
+	isCanceled         bool
+	areLaunchesStopped bool
 }
 
 // ProjectileBurstShotSnapshot is one active burst projectile projected at a
@@ -209,6 +210,9 @@ func (b *ProjectileBurstBehavior) PrepareLaunch(
 }
 
 func (b *ProjectileBurstBehavior) launch(index int) error {
+	if b.areLaunchesStopped {
+		return nil
+	}
 	shot := &b.shots[index]
 	launchPosition := addPosition(shot.actorPosition,
 		scalePosition(shot.actorFacing, b.input.FootprintRadius))
@@ -338,8 +342,22 @@ func (b *ProjectileBurstBehavior) ResolveCollision(
 }
 
 func (b *ProjectileBurstBehavior) release() error {
+	if b.areLaunchesStopped {
+		return nil
+	}
 	b.isReleased = true
 	return b.emit(AbilityReleaseIntent{Role: b.input.ActorRole, AbilityName: b.input.AbilityName})
+}
+
+// StopLaunching preserves already launched projectiles and their collisions.
+func (e *ProjectileBurstBehavior) StopLaunching() {
+	if e != nil {
+		e.areLaunchesStopped = true
+	}
+}
+
+func (e *ProjectileBurstBehavior) IsShotLaunched(index int) bool {
+	return e != nil && index >= 0 && index < len(e.shots) && e.shots[index].isLaunched
 }
 
 // ResetActorAnimation releases presentation without canceling projectiles that

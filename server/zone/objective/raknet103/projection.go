@@ -59,11 +59,14 @@ func UpdatePackets(update []zoneobjective.Update) ([][]byte, error) {
 		if current.IsObeliskAccessed {
 			voiceover = util.HashID(obeliskAccessedVoiceName)
 		}
+		// Build 103's handler at 0x536DA0 gates notification and voice playback
+		// on IsShown; a voice ID alone only updates the objective's state.
 		encoded, err := raknet.MarshalApplication(raknet.ObjectiveUpdatedMessage{
 			ObjectiveID: current.ObjectiveID,
 			PlayerIndex: current.PlayerIndex,
 			Medal:       current.Medal,
 			Voiceover:   voiceover,
+			IsShown:     current.IsObeliskAccessed,
 			Token:       current.Token,
 		})
 		if err != nil {

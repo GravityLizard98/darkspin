@@ -1065,6 +1065,9 @@ func (s *Session) damage(
 		}
 	}
 	npc.HitPoint = max(0, previousHealth-appliedDamage)
+	if !meta.isForcedDefeat && appliedDamage > 0 {
+		npc.recordRecentDamage(now, appliedDamage)
+	}
 	npc.IsDefeated = npc.HitPoint == 0
 	if appliedDamage > 0 && !npc.IsDefeated &&
 		species == "cryoselementalspecialthree" {

@@ -15,6 +15,10 @@ func (e campaignAbilityCommandRuntime) pursueTrapLocked(
 	req campaignCharacterAbilityRequest, peerSession gameplayPeerSession,
 	sessionKey string, position raknet.Vector3, castRange float32,
 ) ([][]byte, error) {
+	if peerSession.isEnemyRootActive(req.startTime) {
+		e.registry.mutex.Unlock()
+		return req.reject("cannot pursue trap placement while rooted")
+	}
 	command := req.command
 	ability := *command.Ability
 	command.Ability = &ability

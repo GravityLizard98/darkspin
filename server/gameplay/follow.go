@@ -75,7 +75,7 @@ func (e *gameplaySessionRegistry) updatePlayerFollowersLocked(
 			follower.binding.UserID != target.binding.UserID &&
 			follower.stage.IsDungeon() && follower.dungeonSetup.IsCommitted() &&
 			follower.deployedObjectID != 0 && follower.deployedHitPoint() > 0 && !follower.isZoneTerminal()
-		if !isFollowing || follower.isEnemyFearActive(now) ||
+		if !isFollowing || follower.isEnemyFearActive(now) || follower.isEnemyRootActive(now) ||
 			now.Sub(follower.followUpdatedAt) < playerFollowInterval {
 			continue
 		}
@@ -170,6 +170,10 @@ func (r gameplayPendingRuntime) activatePlayerFollow(
 	if follower.isOperativeCaged(r.now()) {
 		r.registry.mutex.Unlock()
 		return nil, false, errors.New("follow unavailable while trapped by an Operative")
+	}
+	if follower.isEnemyRootActive(r.now()) {
+		r.registry.mutex.Unlock()
+		return nil, false, errors.New("follow unavailable while rooted")
 	}
 	target := gameplayPeerSession{}
 	isTargetFound := false

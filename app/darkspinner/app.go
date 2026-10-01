@@ -372,6 +372,13 @@ func (a *App) runPatch(ctx context.Context) (err error) {
 	defer func() {
 		a.finishPatchOperation(err)
 	}()
+	isRestarting, err := a.prepareLauncherUpdate(ctx)
+	if err != nil {
+		return fmt.Errorf("launcherUpdate: %w", err)
+	}
+	if isRestarting {
+		return nil
+	}
 	err = a.verifyGameIntegrity(ctx, a.gameDirectory(), "checking")
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

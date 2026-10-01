@@ -93,7 +93,17 @@ func freezeHostileProjectilesLocked(
 			run.Thaw(now.Add(duration))
 			return nil, fmt.Errorf("projectileFreezeSchedule[%d]: %w", projectileObjectID, err)
 		}
+		freezePacket, freezeErr := freezeChronoObjectLocked(
+			runtime, packet, sessionKey, generation,
+			peerSession.zone, projectileObjectID, duration,
+		)
+		if freezeErr != nil {
+			return nil, fmt.Errorf("projectileFreezeState: %w", freezeErr)
+		}
 		packets = append(packets, created)
+		if len(freezePacket) > 0 {
+			packets = append(packets, freezePacket)
+		}
 	}
 	return packets, nil
 }

@@ -229,6 +229,8 @@ type zoneEffectPresentation struct {
 // zonePresentationRuntime owns connection-local scheduling and transfers.
 // Authoritative world state remains on Zone.
 type zonePresentationRuntime struct {
+	missionVoiceID         uint32
+	missionVoiceReadyAt    time.Time
 	cryosFungusExpirations map[uint32]time.Time
 	cryosGeyserWarnings    map[uint32]uint64
 	cryosGeyserSpouts      map[uint32]uint64
@@ -326,6 +328,7 @@ type controlledHeroState struct {
 	passiveReductionExpiresAt     [squad.Size]time.Time
 	passiveStationarySince        [squad.Size]time.Time
 	isMissileTargetingPresented   [squad.Size]bool
+	missileTargetingEffectSlots   [squad.Size]uint8
 	fireRavagerBasicCount         [squad.Size]uint32
 	tcShieldAmount                [squad.Size]float32
 	tcShieldReadyAt               [squad.Size]time.Time
@@ -482,6 +485,7 @@ type controlledHeroPresentation struct {
 	basicAttackSyncStamp         uint8
 	sageAttacks                  map[uint32]*abilityraknet.ProjectileRun
 	heroBurstAttacks             map[uint32]*abilityraknet.BurstRun
+	rocketBarrage                *rocketBarrageChannel
 	heroTraps                    map[uint32]*heroTrapRun
 	heroDrain                    *heroDrainRun
 	heroTimedArea                *heroTimedAreaRun
@@ -1300,6 +1304,11 @@ func (e *gameplayPeerSession) advancePlayerMovementMode(
 func (e *gameplayPeerSession) advancePlayerPosition(
 	now time.Time, reportedPosition raknet.Vector3,
 ) error {
+	if e.isEnemyRootActive(now) {
+		// Attacks also report a predicted client pose. Rooted heroes keep the
+		// authoritative position captured when their movement was stopped.
+		return nil
+	}
 	if e.playerMotion == nil {
 		if isReportedZonePosition(reportedPosition) {
 			e.playerPosition = reportedPosition
@@ -1659,6 +1668,7 @@ func (s *gameplayPeerSession) resetInterruptibleActionAdmission() *abilityraknet
 	if s == nil {
 		return nil
 	}
+	s.interruptRocketBarrage(time.Now())
 	run := s.resetSharedActionAdmission()
 	if s.heroDrain != nil {
 		s.heroDrain.Stop()
@@ -1837,6 +1847,7 @@ type gameplaySessionRegistry struct {
 	activeRequest        int
 	requestIdle          chan struct{}
 	sessions             map[string]gameplayPeerSession
+	chronoFreezes        map[chronoFreezeKey]time.Time
 	retainedSessions     map[gameplayMemberKey]*gameplayRetainedSession
 	memberTransports     map[gameplayMemberKey]uint64
 	memberEndpoints      map[gameplayMemberKey]string
@@ -2911,7 +2922,7 @@ func (e campaignActionAuthority) expirePursuit(
 }
 
 func (e campaignActionAuthority) cancel(
-	sessionKey string, objectID uint32,
+	sessionKey string, objectID uint32, now time.Time,
 ) (zoneaction.PursuitSnapshot, *abilityraknet.MeleeRun, *heroDrainRun, *heroHealingTicksRun, bool) {
 	e.registry.mutex.Lock()
 	defer e.registry.mutex.Unlock()
@@ -2922,6 +2933,18 @@ func (e campaignActionAuthority) cancel(
 		return zoneaction.PursuitSnapshot{}, nil, nil, nil, false
 	}
 	pursuit := peerSession.campaignPlayerPursuitSession().Snapshot()
+	// Releasing held input ends repetition, not the accepted attack's recovery.
+	// Projectile attacks have no basicAttack run to protect below; retain their
+	// release gate and pose until the authored animation release deadline.
+	if peerSession.attackPose.isActiveAt(now) && peerSession.heroDrain == nil &&
+		peerSession.heroHealingTicks == nil && peerSession.heroChannelArea == nil &&
+		peerSession.heroQuantumBlink == nil && peerSession.heroCharge == nil &&
+		peerSession.rocketBarrage == nil {
+		peerSession.basicSequenceSession().ReleaseHeld()
+		peerSession.campaignPlayerPursuitSession().Cancel()
+		e.registry.sessions[sessionKey] = peerSession
+		return pursuit, nil, nil, nil, true
+	}
 	basicAttack := peerSession.basicAttack
 	basicSyncStamp := peerSession.basicAttackSyncStamp
 	heroDrain := peerSession.heroDrain
@@ -4092,7 +4115,7 @@ func (r gameplaySwitchRuntime) handle(
 	previousCreatureIndex := peerSession.deployedCreatureIndex
 	peerSession.resetPassiveDamageReduction(previousCreatureIndex)
 	missileTargetingStopPacket, targetingStopErr :=
-		peerSession.stopMissileTargetingPresentation(previousCreatureIndex)
+		peerSession.stopMissileTargetingPresentation(previousCreatureIndex, r.effectPool)
 	if targetingStopErr != nil {
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("switchMissileTargetingStop: %w", targetingStopErr)

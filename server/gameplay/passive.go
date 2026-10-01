@@ -23,11 +23,10 @@ const (
 	missileTargetingDamagePerStack       = 0.05
 	missileTargetingOverdrivePerStack    = 0.12
 	missileTargetingMaximumStack         = uint32(5)
-	missileTargetingEffectSlot           = uint8(31)
 )
 
 func (e *gameplayPeerSession) startMissileTargetingPresentation(
-	creatureIndex uint32,
+	creatureIndex uint32, pool *attachedEffectPool,
 ) ([]byte, error) {
 	if e == nil || creatureIndex >= uint32(len(e.binding.Creatures)) ||
 		creatureIndex >= uint32(len(e.isMissileTargetingPresented)) ||
@@ -36,31 +35,44 @@ func (e *gameplayPeerSession) startMissileTargetingPresentation(
 			util.HashID("MissileTempestPassive") {
 		return nil, nil
 	}
+	slot, isAllocated := pool.Allocate(e.deployedObjectID)
+	if !isAllocated {
+		return nil, nil
+	}
 	packet, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
-		Slot: missileTargetingEffectSlot, IsForceAttached: true,
+		Slot: slot, IsForceAttached: true,
 		Asset: util.HashID(missileTargetingEffectName), ObjectID: e.deployedObjectID,
 	})
 	if err != nil {
+		if !pool.Release(e.deployedObjectID, slot) {
+			return nil, fmt.Errorf("missileTargetingSlotRelease: %w", err)
+		}
 		return nil, fmt.Errorf("missileTargetingMarshal: %w", err)
 	}
+	e.missileTargetingEffectSlots[creatureIndex] = slot
 	e.isMissileTargetingPresented[creatureIndex] = true
 	return packet, nil
 }
 
 func (e *gameplayPeerSession) stopMissileTargetingPresentation(
-	creatureIndex uint32,
+	creatureIndex uint32, pool *attachedEffectPool,
 ) ([]byte, error) {
 	if e == nil || creatureIndex >= uint32(len(e.isMissileTargetingPresented)) ||
 		!e.isMissileTargetingPresented[creatureIndex] {
 		return nil, nil
 	}
 	packet, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
-		Slot: missileTargetingEffectSlot, IsRemovalRequested: true,
+		Slot: e.missileTargetingEffectSlots[creatureIndex], IsRemovalRequested: true,
 		IsHardStop: true, ObjectID: e.deployedObjectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("missileTargetingStopMarshal: %w", err)
 	}
+	if !pool.Release(e.deployedObjectID, e.missileTargetingEffectSlots[creatureIndex]) {
+		// Object teardown may have released its slots already; still send the
+		// removal so the client drops any presentation it retained.
+	}
+	e.missileTargetingEffectSlots[creatureIndex] = 0
 	e.isMissileTargetingPresented[creatureIndex] = false
 	return packet, nil
 }
@@ -485,22 +497,6 @@ func (s gameplayPeerSession) projectPassiveCreature(
 	}
 	creature.DamageProfile.DamageBuff += damagePerStack * float32(stackCount)
 	return creature
-}
-
-func (s gameplayPeerSession) isMissileTempestHoming(
-	creatureIndex uint32, now time.Time,
-) bool {
-	if now.IsZero() || creatureIndex >= uint32(len(s.binding.Creatures)) ||
-		creatureIndex >= uint32(len(s.passiveStationarySince)) {
-		return false
-	}
-	creature := s.binding.Creatures[creatureIndex]
-	if creature.PassiveAbility != util.HashID("MissileTempestPassive") {
-		return false
-	}
-	stationarySince := s.passiveStationarySince[creatureIndex]
-	return !stationarySince.IsZero() && !now.Before(stationarySince) &&
-		now.Sub(stationarySince) >= 5*time.Second
 }
 
 func (e *gameplaySessionRegistry) projectPassiveCreature(

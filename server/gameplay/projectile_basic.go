@@ -172,13 +172,6 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 	projectileRuns := make([]*abilityraknet.ProjectileRun, 0, len(projectileOffsets))
 	projectileSchedules := make([]campaignProjectileSchedule, 0, len(projectileOffsets))
 	immediatePackets := make([][]byte, 0, len(projectileOffsets)*2)
-	isMissileTempestHoming := isEnemyFound && peerSession.isMissileTempestHoming(
-		peerSession.deployedCreatureIndex, abilityStartTime,
-	)
-	missileTempestHomingDelay := time.Duration(0)
-	if isMissileTempestHoming {
-		missileTempestHomingDelay = time.Millisecond
-	}
 	for projectileIndex, projectileOffset := range projectileOffsets {
 		projectileObjectID := firstProjectileObjectID + uint32(projectileIndex)
 		projectileSource := campaignHeroProjectileSource(
@@ -194,7 +187,7 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 			launchPosition, game.Vec3(projectileTarget),
 		)
 		var flight *sim.ProjectileFlight
-		if !isElectronSphereRequest && !isMissileTempestHoming {
+		if !isElectronSphereRequest {
 			travelDistance = projectileDefinition.Distance
 			flight, err = sim.NewProjectileFlight(sim.ProjectileFlightInput{
 				Position: sim.Position(launchPosition),
@@ -260,7 +253,6 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 				},
 				FootprintRadius: actorFootprint,
 				CollisionDelay:  collisionDelay, IsDirectHit: isEnemyFound,
-				HomingDelay: missileTempestHomingDelay, IsHoming: isMissileTempestHoming,
 				IsCollisionExternallyDriven: true, Damage: projectilePlan.Damage.Maximum,
 				IsCollisionSampled: flight != nil,
 				TargetHitPoint:     targetHitPoint, ActorTeam: 1, SourceTime: packet.SourceTime,

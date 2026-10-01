@@ -871,6 +871,10 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 			definition.Kind == sim.AbilityKindMelee && definition.IsShouldPursue &&
 			targetFootprint > 0
 		if isPursuit {
+			if peerSession.isEnemyRootActive(abilityStartTime) {
+				r.registry.mutex.Unlock()
+				return request.reject("cannot pursue while rooted")
+			}
 			targetEnemy, isTargetEnemyFound := peerSession.zone.NPCs().NPC(
 				targetObjectID,
 			)
@@ -1481,6 +1485,9 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 	}
 	var plan zoneability.AreaPlan
 	var err error
+	if e.definition.TimeLapse != nil {
+		e.sourcePosition = game.Vec3(current.playerPosition)
+	}
 	if e.definition.Kind == sim.AbilityKindCone {
 		plan, err = zoneability.PlanCone(
 			current.zone.NPCs(), e.command.Common.ObjectID,
@@ -1508,6 +1515,11 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("campaignAreaBasicLivePlan: %w", err)
+	}
+	err = zoneability.ApplyTimeLapse(&plan, current.zone.NPCs(), e.creature, e.runtime.now())
+	if err != nil {
+		e.runtime.registry.mutex.Unlock()
+		return nil, fmt.Errorf("campaignTimeLapsePlan: %w", err)
 	}
 	results, err := zoneability.CommitArea(
 		current.zone.Population().Random(), current.zone.NPCs(),
@@ -1580,6 +1592,18 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 				return nil, fmt.Errorf("campaignTeleportAreaSilence: %w", err)
 			}
 			if e.definition.Name == "TimeRavagerSupport" {
+				freezePacket, freezeErr := freezeChronoObjectLocked(
+					e.runtime, e.packet, e.sessionKey, e.generation,
+					current.zone, result.Damage.ObjectID,
+					e.definition.StatusDuration,
+				)
+				if freezeErr != nil {
+					e.runtime.registry.mutex.Unlock()
+					return nil, fmt.Errorf("campaignTeleportFreeze: %w", freezeErr)
+				}
+				if len(freezePacket) > 0 {
+					projectilePackets = append(projectilePackets, freezePacket)
+				}
 				stopPackets, stopErr := npcraknet.MovementStop(
 					result.Damage.ObjectID, result.Snapshot.Plan.Position,
 				)
@@ -1622,6 +1646,8 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 			}
 			prefix = append(prefix, effectPacket)
 		}
+	} else if plan.Definition.TimeLapse != nil {
+		effect = marshalTimeLapseImpact
 	} else if plan.Definition.ImpactEffectName != "" {
 		impact := campaignPointBlankImpact{
 			assetName:            plan.Definition.ImpactEffectName,
@@ -2223,16 +2249,35 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	}
 	currentCreature := current.binding.Creatures[current.deployedCreatureIndex]
 	livePlan := schedule.plan
+	livePlan.SourcePosition = game.Vec3{
+		X: current.playerPosition.X, Y: current.playerPosition.Y,
+		Z: current.playerPosition.Z,
+	}
 	var err error
 	livePlan.Definition.AnimationName = schedule.selection.AnimationName
 	livePlan.Definition.HitDelay = e.delay
 	livePlan.Definition.ReleaseDelay = schedule.selection.ReleaseDelay
 	livePlan.Definition.HitEffectName = schedule.selected.HitEffectName
 	liveNPC, isLiveNPCFound := current.zone.NPCs().NPC(schedule.targetObjectID)
+	isInRange := false
+	if isLiveNPCFound {
+		maximumRange := heroAbilityAdmissionRange(currentCreature, schedule.definition)
+		targetFootprint := liveNPC.Plan.NPCProfile.FootprintRadius
+		if targetFootprint > 0 {
+			actorFootprint, footprintErr := runtime.program.FootprintRadiusByNoun(currentCreature.Noun)
+			if footprintErr != nil {
+				runtime.registry.mutex.Unlock()
+				return nil, fmt.Errorf("meleeImpactFootprint: %w", footprintErr)
+			}
+			maximumRange += actorFootprint + targetFootprint
+		}
+		isInRange = zonegeometry.Distance(livePlan.SourcePosition, liveNPC.Plan.Position) <= maximumRange
+	}
 	// A target can die between accepting the swing and its impact frame.
-	// Finish that frame as a miss so the scheduled release still runs.
+	// It can also leave melee reach. Finish either case as a miss so the
+	// scheduled release still runs, without applying pursuit retry tolerance.
 	if schedule.targetObjectID == 0 || !isLiveNPCFound ||
-		liveNPC.IsDefeated || liveNPC.HitPoint <= 0 {
+		liveNPC.IsDefeated || liveNPC.HitPoint <= 0 || !isInRange {
 		position := toSimPosition(current.playerPosition)
 		err = schedule.run.PrepareHitAt(
 			e.index, false, 0, schedule.plan.Damage.Maximum, false,

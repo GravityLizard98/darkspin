@@ -20,6 +20,7 @@ import (
 const missileTempestScatterRadius = float32(6)
 
 type heroBurstSchedule struct {
+	channel                    *rocketBarrageChannel
 	runtime                    campaignAbilityCommandRuntime
 	packet                     raknet.Packet
 	sessionKey                 string
@@ -129,7 +130,8 @@ func (e heroBurstStep) produceLaunch() ([][]byte, error) {
 	schedule := e.schedule
 	schedule.runtime.registry.mutex.Lock()
 	peerSession, isFound := schedule.runtime.registry.sessions[schedule.sessionKey]
-	if !schedule.isCurrent(peerSession, isFound) {
+	if !schedule.isCurrent(peerSession, isFound) ||
+		schedule.channel != nil && schedule.channel.isInterrupted {
 		schedule.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
@@ -239,7 +241,8 @@ func (e heroBurstStep) produceImpact() ([][]byte, error) {
 	schedule := e.schedule
 	schedule.runtime.registry.mutex.Lock()
 	peerSession, isFound := schedule.runtime.registry.sessions[schedule.sessionKey]
-	if !schedule.isCurrent(peerSession, isFound) {
+	if !schedule.isCurrent(peerSession, isFound) ||
+		schedule.channel != nil && schedule.channel.isInterrupted && !schedule.run.IsShotLaunched(e.index) {
 		schedule.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
@@ -844,20 +847,25 @@ func (e heroBurstStep) produceRadialImpact(
 }
 
 func (e heroBurstSchedule) produceRelease() ([][]byte, error) {
-	e.runtime.registry.mutex.RLock()
+	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
-	if !isCurrent {
-		e.runtime.registry.mutex.RUnlock()
+	if !isCurrent || e.channel != nil && e.channel.isInterrupted {
+		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
+	if e.channel != nil && peerSession.rocketBarrage == e.channel {
+		peerSession.rocketBarrage = nil
+		e.runtime.registry.sessions[e.sessionKey] = peerSession
+	}
 	packets, err := e.run.Advance(context.Background(), e.definition.ReleaseDelay)
-	e.runtime.registry.mutex.RUnlock()
+	e.runtime.registry.mutex.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("heroBurstReleaseAdvance: %w", err)
 	}
 	if e.definition.Name == "LightningTempest_Active" ||
-		e.definition.Name == "PlasmaRandom_WebbedLightning" {
+		e.definition.Name == "PlasmaRandom_WebbedLightning" ||
+		e.definition.Name == "MissileTempestActive" {
 		resetPackets, resetErr := e.run.ResetActorAnimation(context.Background())
 		if resetErr != nil {
 			return nil, fmt.Errorf("heroBurstReleaseReset: %w", resetErr)
@@ -898,6 +906,9 @@ func (e heroBurstSchedule) fail(scheduleErr error) {
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
 	if isCurrent {
+		if e.channel != nil && peerSession.rocketBarrage == e.channel {
+			peerSession.interruptRocketBarrage(e.runtime.now())
+		}
 		delete(peerSession.heroBurstAttacks, e.firstProjectileObjectID)
 		peerSession.restoreCampaignProjectileID(e.previousProjectileObjectID)
 		peerSession.abilityCooldownSession().Rollback(e.cooldownReservation)
@@ -1162,11 +1173,17 @@ func (r campaignAbilityCommandRuntime) handleHeroProjectileBurst(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("heroBurstRun: %w", err)
 	}
+	commitTimestamp := packet.SourceTime
+	if definition.Name == "MissileTempestActive" {
+		// Build 103 uses start/commit as the channel HUD interval and the
+		// window during which releasing the button cancels the cast.
+		commitTimestamp += uint64(definition.ReleaseDelay / time.Millisecond)
+	}
 	ackPacket, err := abilityraknet.Acknowledge(abilityraknet.AcknowledgeRequest{
 		SyncStamp: command.Common.Unknown[0], ResponseType: raknet.ActionResponseAccepted,
 		ObjectID: activeAbilityID, AbilityIndex: command.Ability.Index,
 		SourceStartMilliseconds:  packet.SourceTime,
-		SourceCommitMilliseconds: packet.SourceTime,
+		SourceCommitMilliseconds: commitTimestamp,
 		SourceEndMilliseconds: packet.SourceTime +
 			uint64(definition.ReleaseDelay/time.Millisecond),
 	})
@@ -1267,11 +1284,20 @@ func (r campaignAbilityCommandRuntime) handleHeroProjectileBurst(
 		return nil, fmt.Errorf("heroBurstSoulPresentation: %w", soulErr)
 	}
 	immediatePackets = append(immediatePackets, soulPackets...)
+	var channel *rocketBarrageChannel
+	if definition.Name == "MissileTempestActive" {
+		channel = &rocketBarrageChannel{
+			run: run, startedAt: abilityStartTime, sourceTime: packet.SourceTime,
+			objectID: command.Common.ObjectID, releasePacket: releaseResponse,
+		}
+		peerSession.rocketBarrage = channel
+	}
 	binding := peerSession.binding
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
 
 	schedule := heroBurstSchedule{
+		channel: channel,
 		runtime: r, packet: packet, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: command.Common.ObjectID,
 		targetObjectID:             targetObjectID,

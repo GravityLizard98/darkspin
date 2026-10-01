@@ -2,8 +2,20 @@
 
 ### 2026-10-01
 
-- Restore authored targetable destructibles across missions 1-1 through 6-4 with matching scenery layouts and shared destruction state.
-- Move mission 1-1's first-clear population from synthetic formations to authored spawn candidates and roster pools, including horde and boss adds; preserve marker sections and weighted alternatives.
+- #43 Restore Vex's Time Lapse from a single-target melee hit to a nearby area attack that repeats each enemy's last 10 seconds of damage up to its Dexterity-scaled cap, with the authored hit effects.
+- #43 Recheck melee reach at impact for Protonic Sword and other melee basics, preventing damage to targets that have moved out of reach and using the hero's current position for cleave selection.
+- #43 Restore Rocket Barrage's cast-duration bar and animation cleanup, allow cancellation throughout the cast, and stop further launches without discarding rockets already in flight.
+- #43 Restore SRS-42's rocket proximity homing without a stationary prerequisite and apply the authored 3-meter explosion radius, including area-radius bonuses, instead of single-target damage.
+- #43 Keep Rooted heroes at their authoritative position, stop existing pursuit, and block attack pursuit, distant trap placement, and following until the root expires while preserving attacks already in range.
+- #43 Send Chrono Blink's Frozen state to enemies and projectiles so their client animations and flight pause until the freeze expires, preserving overlapping freeze durations.
+- #43 Move SRS-42's Targeting Computer radar from invalid attachment slot 31 to an allocated client-supported slot, allowing movement and hero switching to remove it without stacking scans.
+- #43 Preserve ranged attack animation recovery when held fire is released, preventing a following movement command from clearing the current attack's release timer.
+- #43 Remove Death's Embrace's duplicate, untracked Terrified visual so its status modifier alone controls cleanup on expiry and enemy death.
+- #43 Enable the client notification flag required to play HELIX's blue-obelisk access and mission-introduction voice cues; keep health obelisks and silent objective updates excluded.
+-#42 Defer HELIX's mission introduction until dungeon setup commits and hero arrival finishes, instead of sending it in the first gameplay frame; log delivery for playback diagnosis.
+- Run launcher self-updates first through the Patch button and Auto Patch; startup only checks availability, and an update restarts the launcher before game patching begins.
+- #41 Restore authored targetable destructibles across missions 1-1 through 6-4 with matching scenery layouts and shared destruction state.
+- #42 Move mission 1-1's first-clear population from synthetic formations to authored spawn candidates and roster pools, including horde and boss adds; preserve marker sections and weighted alternatives, restore its first standing repair mob and nearby elite group, and beam in a separate opening special at an authored spike point.
 - #37 Update content verification from 2,288 to all 2,408 shipped loot definitions, including the 120 restored weapons.
 - #37 Allow shipped loot definitions with empty level ranges such as 999..100 through content parsing and database storage, rebuild older content schemas, and exclude these items from generated drops and nearest-level fallback.
 - #40 Expand hordes from Outer Rings onward to three independently spawned waves with a final Mutation Agent that promotes nearby enemies to elites; close authored arena gates, publish horde state through completion and reconnect, and move HELIX's Zelem reinfection cue to mission 2-3.

@@ -6002,7 +6002,7 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 				continue
 			}
 		}
-		if plan.IsFixture || plan.Kind != sim.DirectorLocusHorde {
+		if plan.IsFixture || plan.Introduction != zonenpc.SpawnIntroductionFloorWarp {
 			continue
 		}
 		npc, isNPCFound := npcSession.NPC(plan.ObjectID)
@@ -6117,7 +6117,7 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 		}
 		action.ActionGeneration = npc.ActionGeneration
 		isFloorWarpIntroduction :=
-			plan.Kind == sim.DirectorLocusHorde
+			plan.Introduction == zonenpc.SpawnIntroductionFloorWarp
 		firstAggroDelay := time.Duration(0)
 		if isFirstAction && !isFloorWarpIntroduction &&
 			action.Profile.IsFirstAggroDurationKnown {

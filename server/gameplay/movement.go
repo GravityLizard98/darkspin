@@ -394,6 +394,11 @@ func (e campaignActionAuthority) interruptMovement(
 		return campaignMovementInterruption{}
 	}
 	isHealingChannel := peerSession.heroHealingTicks != nil && peerSession.heroHealingTicks.isChanneled
+	if peerSession.rocketBarrage != nil {
+		peerSession.interruptRocketBarrage(now)
+		e.registry.sessions[sessionKey] = peerSession
+		return campaignMovementInterruption{playerPosition: peerSession.playerPosition}
+	}
 	if peerSession.heroDrain != nil || isHealingChannel {
 		interruption := campaignMovementInterruption{
 			heroDrain:      peerSession.heroDrain,
@@ -495,7 +500,9 @@ func (r campaignMovementCommandRuntime) handle(
 		return response, nil
 	}
 	if commandSession.isEnemyRootActive(r.now()) {
-		response, marshalErr := marshalZonePlayerMove(
+		// A correction must be a stop, not a new route. The stop adapter also
+		// preserves this response instead of substituting the reported position.
+		response, marshalErr := marshalZonePlayerStop(
 			command.Common.ObjectID, commandSession.playerPosition,
 		)
 		if marshalErr != nil {
@@ -720,7 +727,7 @@ func (r campaignMovementCommandRuntime) handle(
 		}
 		if !isStop {
 			targetingPacket, targetingErr := peerSession.stopMissileTargetingPresentation(
-				peerSession.deployedCreatureIndex,
+				peerSession.deployedCreatureIndex, r.damage.effectPool,
 			)
 			if targetingErr != nil {
 				r.registry.mutex.Unlock()
