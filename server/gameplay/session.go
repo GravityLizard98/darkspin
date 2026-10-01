@@ -1747,7 +1747,11 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 	}
 	e.heroStatusAreas = nil
 	for _, auraRun := range e.heroAuraAreas {
-		auraRun.Stop()
+		cleanupPackets, cleanupErr := auraRun.Stop()
+		if cleanupErr != nil {
+			log.Printf("RakNet hero aura reset cleanup failed: %v", cleanupErr)
+		}
+		e.queuePackets(cleanupPackets)
 	}
 	e.heroAuraAreas = nil
 	for _, projectileRun := range e.heroProjectileRuns {

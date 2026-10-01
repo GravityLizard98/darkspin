@@ -40,11 +40,12 @@ type heroAuraAreaRun struct {
 	objectID     uint32
 	cancel       raknet.CancelSchedule
 	isCleaned    bool
+	isTimeBubble bool
 }
 
-func (e *heroAuraAreaRun) Stop() {
+func (e *heroAuraAreaRun) Stop() ([][]byte, error) {
 	if e == nil {
-		return
+		return nil, nil
 	}
 	e.mutex.Lock()
 	cancel := e.cancel
@@ -53,7 +54,38 @@ func (e *heroAuraAreaRun) Stop() {
 	if cancel != nil {
 		cancel()
 	}
-	e.Cleanup()
+	packets, err := e.cleanupPackets()
+	if err != nil {
+		return nil, fmt.Errorf("auraStopCleanup: %w", err)
+	}
+	return packets, nil
+}
+
+func (e *heroAuraAreaRun) cleanupPackets() ([][]byte, error) {
+	deletes := e.Cleanup()
+	packets, err := marshalAuraAreaDeletes(deletes)
+	if err != nil {
+		return nil, fmt.Errorf("auraModifierCleanup: %w", err)
+	}
+	if e.objectID == 0 {
+		return packets, nil
+	}
+	if e.isTimeBubble {
+		packet, effectErr := raknet.MarshalApplication(raknet.AttachedEffectMessage{
+			Slot: 1, IsRemovalRequested: true, IsHardStop: true, ObjectID: e.objectID,
+		})
+		if effectErr != nil {
+			return nil, fmt.Errorf("auraEffectCleanup: %w", effectErr)
+		}
+		packets = append(packets, packet)
+	}
+	packet, deleteErr := raknet.MarshalApplication(raknet.ObjectDeleteMessage{
+		ObjectID: []uint32{e.objectID},
+	})
+	if deleteErr != nil {
+		return nil, fmt.Errorf("auraObjectCleanup: %w", deleteErr)
+	}
+	return append(packets, packet), nil
 }
 
 func (e *heroAuraAreaRun) Cleanup() []heroAuraAreaTargetDelete {
@@ -281,34 +313,11 @@ func (e heroAuraAreaSchedule) tick(
 		packets = append(packets, damagePackets...)
 	}
 	if isFinal {
-		deletes := e.run.Cleanup()
-		cleanupPackets, marshalErr := marshalAuraAreaDeletes(deletes)
+		cleanupPackets, marshalErr := e.run.cleanupPackets()
 		if marshalErr != nil {
-			return nil, marshalErr
+			return nil, fmt.Errorf("auraAreaFinalCleanup: %w", marshalErr)
 		}
 		packets = append(packets, cleanupPackets...)
-		if e.run.objectID != 0 {
-			if e.definition.Name == timeBubbleAbilityName &&
-				e.definition.ActivationEffectName != "" {
-				effectPacket, effectErr := raknet.MarshalApplication(
-					raknet.AttachedEffectMessage{
-						Slot: 1, IsRemovalRequested: true, IsHardStop: true,
-						ObjectID: e.run.objectID,
-					},
-				)
-				if effectErr != nil {
-					return nil, fmt.Errorf("auraAreaEffectRemove: %w", effectErr)
-				}
-				packets = append(packets, effectPacket)
-			}
-			deletePacket, deleteErr := raknet.MarshalApplication(
-				raknet.ObjectDeleteMessage{ObjectID: []uint32{e.run.objectID}},
-			)
-			if deleteErr != nil {
-				return nil, fmt.Errorf("auraAreaObjectDelete: %w", deleteErr)
-			}
-			packets = append(packets, deletePacket)
-		}
 	}
 	return packets, nil
 }
@@ -493,6 +502,11 @@ func (e heroAuraAreaSchedule) fail(scheduleErr error) {
 	isCurrent := e.isCurrent(peerSession, isFound)
 	if isCurrent {
 		delete(peerSession.heroAuraAreas, e.abilityID)
+		cleanupPackets, cleanupErr := e.run.Stop()
+		if cleanupErr != nil {
+			e.runtime.logger.Printf("RakNet hero aura cleanup failed: %v", cleanupErr)
+		}
+		peerSession.queuePackets(cleanupPackets)
 		_ = peerSession.setCampaignCharacterManaPoints(
 			e.creatureIndex, e.previousManaPoint,
 		)
@@ -504,7 +518,6 @@ func (e heroAuraAreaSchedule) fail(scheduleErr error) {
 	if !isCurrent {
 		return
 	}
-	e.run.Stop()
 	e.runtime.logger.Printf(
 		"RakNet hero aura area stopped after schedule failure for %s: %v",
 		e.sessionKey, scheduleErr,
@@ -680,7 +693,8 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		return nil, fmt.Errorf("auraAreaCommit: %w", err)
 	}
 	run := &heroAuraAreaRun{
-		npc: peerSession.zone.NPCs(), modifierPool: r.modifierPool,
+		isTimeBubble: definition.Name == timeBubbleAbilityName,
+		npc:          peerSession.zone.NPCs(), modifierPool: r.modifierPool,
 		targets: make(map[uint32]heroAuraAreaTarget), statusKind: projected.StatusKind,
 		projectiles: make(map[uint32]heroAuraAreaProjectile), objectID: objectID,
 	}

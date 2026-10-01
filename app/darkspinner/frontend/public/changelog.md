@@ -2,6 +2,7 @@
 
 ### 2026-10-01
 
+- [#43](https://github.com/darkspinnet/darkspin/issues/43)  Remove Vex's Time Bubble visual and affected-target modifiers when an aura is stopped by a reset or scheduling failure, using the same client cleanup as normal expiry.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43) Restore Vex's Time Lapse from a single-target melee hit to a nearby area attack that repeats each enemy's last 10 seconds of damage up to its Dexterity-scaled cap, with the authored hit effects.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43) Recheck melee reach at impact for Protonic Sword and other melee basics, preventing damage to targets that have moved out of reach and using the hero's current position for cleave selection.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43) Restore Rocket Barrage's cast-duration bar and animation cleanup, allow cancellation throughout the cast, and stop further launches without discarding rockets already in flight.
