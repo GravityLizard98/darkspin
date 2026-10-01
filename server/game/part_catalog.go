@@ -507,7 +507,8 @@ func (c *PartCatalog) generateCampaignPart(
 		}
 	}
 	for rigblockID, definition := range c.partsByRigblock {
-		if definition.IsUniqueFamily != isUniqueFamily || definition.SlotType != slotType ||
+		if definition.MinimumLevel > definition.MaximumLevel ||
+			definition.IsUniqueFamily != isUniqueFamily || definition.SlotType != slotType ||
 			!c.isPartSlotUnlocked(definition, accountLevel) {
 			continue
 		}
@@ -583,7 +584,7 @@ func (c *PartCatalog) campaignPartSlotTypes(
 			continue
 		}
 		for _, definition := range c.partsByRigblock {
-			if definition.SlotType != slotType ||
+			if definition.MinimumLevel > definition.MaximumLevel || definition.SlotType != slotType ||
 				!isCampaignPartCompatible(definition, classType, scienceType, creatureName) ||
 				definition.IsUniqueFamily != isUniqueFamily ||
 				!c.isPartSlotUnlocked(definition, accountLevel) {
@@ -607,7 +608,8 @@ func (c *PartCatalog) campaignWeaponCompatibility(
 ) int {
 	compatibility := campaignWeaponIncompatible
 	for _, definition := range c.partsByRigblock {
-		if definition.SlotType != "weapon" || definition.IsUniqueFamily != isUniqueFamily ||
+		if definition.MinimumLevel > definition.MaximumLevel ||
+			definition.SlotType != "weapon" || definition.IsUniqueFamily != isUniqueFamily ||
 			!c.isPartSlotUnlocked(definition, accountLevel) {
 			continue
 		}

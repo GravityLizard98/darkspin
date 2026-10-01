@@ -2,6 +2,7 @@
 
 ### 2026-10-01
 
+- #37 Allow shipped loot definitions with empty level ranges such as 999..100 to load during content preparation while excluding them from generated drops and nearest-level fallback.
 - #40 Expand hordes from Outer Rings onward to three independently spawned waves with a final Mutation Agent that promotes nearby enemies to elites; close authored arena gates, publish horde state through completion and reconnect, and move HELIX's Zelem reinfection cue to mission 2-3.
 - #38 Give Dimensionist shields the Gravitic Stabilizer's hero status and projectile slowing behavior for every nearby player, using each shield's own radius and lifetime.
 - #38 Make Frigid Caverns' Toxic Fungus attackable with its authored 5 HP and death graphics, poison-stalk explosion, and a short-lived cloud that poisons heroes on contact.

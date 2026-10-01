@@ -213,7 +213,10 @@ func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
 	rigblock.MinimumLevel = binary.LittleEndian.Uint32(payload[64:])
 	rigblock.MaximumLevel = binary.LittleEndian.Uint32(payload[68:])
 	rigblock.ContentFlags = payload[108]
-	if rigblock.MinimumLevel > rigblock.MaximumLevel || rigblock.MaximumLevel > 1000 {
+	// Authored disabled items can have an empty range (for example, unique
+	// rigblock 10200 uses 999..100). Keep their metadata and image references;
+	// loot selection excludes empty ranges rather than widening them.
+	if rigblock.MinimumLevel > 1000 || rigblock.MaximumLevel > 1000 {
 		return LootRigblock{}, false, fmt.Errorf("levels: %d..%d", rigblock.MinimumLevel, rigblock.MaximumLevel)
 	}
 	if (payload[104] != 0) != rigblock.IsUniqueFamily {
