@@ -11,6 +11,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/util"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
+	zoneeffect "github.com/darkspinnet/darkspin/server/zone/effect"
 	npcraknet "github.com/darkspinnet/darkspin/server/zone/npc/raknet103"
 )
 
@@ -434,6 +435,17 @@ func (s gameplayPeerSession) projectPassiveCreature(
 	creature := s.binding.Creatures[creatureIndex]
 	if creatureIndex != s.deployedCreatureIndex {
 		return creature
+	}
+	// Enemy modifiers live in the shared zone, including those applied by
+	// another peer's NPC simulation. Project them without changing base stats
+	// so removal immediately restores the next attack's normal timing.
+	if s.zone != nil && s.zone.Effect() != nil {
+		for _, modifier := range s.zone.Effect().Snapshot() {
+			if modifier.TargetObjectID == s.deployedObjectID &&
+				modifier.Kind == zoneeffect.ModifierKindDebuff && modifier.AttackSpeed < 0 {
+				creature.TimingProfile.AttackSpeed += modifier.AttackSpeed
+			}
+		}
 	}
 	if creature.PassiveAbility == util.HashID("LightningTempest_Passive") {
 		creature.CriticalRating += creature.CriticalRating * 0.50

@@ -17,6 +17,7 @@ const lobMovementType = uint8(4)
 
 type OrbDrop struct {
 	CreatePacket       []byte
+	InteractablePacket []byte
 	PresentationPacket []byte
 	LocomotionPacket   []byte
 }
@@ -84,6 +85,16 @@ func MarshalOrbDrop(request sim.OrbPickupRequest, pickupObjectID uint32) (OrbDro
 	if err != nil {
 		return OrbDrop{}, fmt.Errorf("createMarshal: %w", err)
 	}
+	var interactablePacket []byte
+	if request.Kind == sim.ResurrectionOrbDrop {
+		interactablePacket, err = raknet.MarshalApplication(raknet.InteractableDataUpdateMessage{
+			ObjectID: pickupObjectID, UsesAllowed: 1,
+			Ability: util.HashID("PickUpResurrectOrb"),
+		})
+		if err != nil {
+			return OrbDrop{}, fmt.Errorf("orbInteractable: %w", err)
+		}
+	}
 	presentationPacket, err := raknet.MarshalApplication(raknet.DropPresentationMessage{
 		Asset: util.HashID(request.EventName),
 		Position: raknet.Vector3{
@@ -106,7 +117,8 @@ func MarshalOrbDrop(request sim.OrbPickupRequest, pickupObjectID uint32) (OrbDro
 	}
 	return OrbDrop{
 		CreatePacket: createPacket, PresentationPacket: presentationPacket,
-		LocomotionPacket: locomotionPacket,
+		InteractablePacket: interactablePacket,
+		LocomotionPacket:   locomotionPacket,
 	}, nil
 }
 

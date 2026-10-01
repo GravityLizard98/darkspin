@@ -102,7 +102,7 @@ func (e campaignPursuitProgressProducer) produce() ([][]byte, error) {
 		return nil, nil
 	}
 	target, isTargetFound := peerSession.zone.NPCs().NPC(pursuit.TargetObjectID)
-	if !isTargetFound || target.IsDefeated || target.HitPoint <= 0 {
+	if !pursuit.IsGround && (!isTargetFound || target.IsDefeated || target.HitPoint <= 0) {
 		cancelPacket, err := abilityraknet.Acknowledge(
 			abilityraknet.AcknowledgeRequest{
 				SyncStamp: pursuit.SyncStamp, ResponseType: raknet.ActionResponseRejected,
@@ -144,6 +144,9 @@ func (e campaignPursuitProgressProducer) produce() ([][]byte, error) {
 		return append(packets, stopPackets...), nil
 	}
 	targetPosition := target.Plan.Position
+	if pursuit.IsGround {
+		targetPosition = pursuit.GroundPosition
+	}
 	_, playerPosition, err := peerSession.advancePlayerPursuitMovement(
 		now, raknet.Vector3{},
 		raknet.Vector3{
@@ -181,6 +184,9 @@ func (e campaignPursuitProgressProducer) produce() ([][]byte, error) {
 			X: targetPosition.X,
 			Y: targetPosition.Y,
 			Z: targetPosition.Z,
+		}
+		if pursuit.IsGround {
+			command.Ability.CursorPosition = command.Ability.TargetPosition
 		}
 		packet := e.packet
 		packet.SourceTime += uint64(now.Sub(e.startedAt) / time.Millisecond)
@@ -2222,7 +2228,11 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	livePlan.Definition.HitDelay = e.delay
 	livePlan.Definition.ReleaseDelay = schedule.selection.ReleaseDelay
 	livePlan.Definition.HitEffectName = schedule.selected.HitEffectName
-	if schedule.targetObjectID == 0 {
+	liveNPC, isLiveNPCFound := current.zone.NPCs().NPC(schedule.targetObjectID)
+	// A target can die between accepting the swing and its impact frame.
+	// Finish that frame as a miss so the scheduled release still runs.
+	if schedule.targetObjectID == 0 || !isLiveNPCFound ||
+		liveNPC.IsDefeated || liveNPC.HitPoint <= 0 {
 		position := toSimPosition(current.playerPosition)
 		err = schedule.run.PrepareHitAt(
 			e.index, false, 0, schedule.plan.Damage.Maximum, false,
@@ -2239,11 +2249,6 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 			return nil, fmt.Errorf("campaignBasicMissAdvance: %w", advanceErr)
 		}
 		return packets, nil
-	}
-	liveNPC, isLiveNPCFound := current.zone.NPCs().NPC(schedule.targetObjectID)
-	if !isLiveNPCFound {
-		runtime.registry.mutex.Unlock()
-		return nil, errors.New("campaign basic target unavailable")
 	}
 	result, err := zoneability.CommitBasic(
 		current.zone.Population().Random(), current.zone.NPCs(),

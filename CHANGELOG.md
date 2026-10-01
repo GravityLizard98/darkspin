@@ -2,6 +2,17 @@
 
 ### 2026-09-30
 
+- Let melee swings finish as misses when their target dies before impact, preserving the attack release instead of aborting the animation schedule.
+- Fix enemy projectiles subtracting damage twice from client world health, preventing false hero-death cues while the server and squad HUD still show surviving health.
+- Apply Decelerator's attack-speed debuff to authoritative hero attack timing and restore normal timing when the modifier is removed.
+- Fix Titan's Proximity Mine walking into range without placing the mine, retain the selected ground destination, and stop movement before playing its authored placement animation.
+- Make Toxicactus destructible across Verdanth by replacing scenery-only instances with damageable objects using its authored health and targetability.
+- Keep PvP available from level 1 with the first Arena squad automatically unlocked.
+- Retire health-drain channels before restarting enemy attacks and prevent stale channel callbacks from interrupting or restarting a newer attack.
+- Restore clickable resurrection capsules with their native pickup animation and timing, including after reconnecting, and share capsule removal and revived squad health with allies.
+- Fix Shade Drifter charges stopping at the hero by sending their authored destination beyond the target and preserving the charge animation and travel direction.
+- Restore Botanical Tunneler's underground digging animation and moving earth effect, clearing the effect on emergence or cancellation without changing its attack timing or damage.
+- Restore large and small Ancient Totems across Verdanth at their authored placements and sizes, play their destruction effect and sound, and restrict their loot to catalysts with a 75% base drop chance.
 - Fix mission 3-2 Frigid Caverns hanging on a black loading screen by loading its three authored cave scenery sets before mission initialization.
 - Change Ray Killer's single-target lightning shot to a seven-bolt forward fan with muzzle effects, and fix retreating from damage or nearby heroes before resuming ranged attacks, including captain variants.
 - Keep Reconstruct's channel bar visible for its default three-second healing window, independent of cooldown reduction, and stop healing and effects when the button is released or movement interrupts it.

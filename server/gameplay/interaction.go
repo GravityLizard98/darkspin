@@ -265,87 +265,7 @@ func (r campaignInteractionRuntime) handlePickup(
 		orbPickup, isOrbPickup = currentSession.zone.Orbs().Orb(command.Value)
 	}
 	if isOrbPickup && orbPickup.Request.Kind == sim.ResurrectionOrbDrop {
-		if !orbPickup.AvailableAt.IsZero() && r.now().Before(orbPickup.AvailableAt) {
-			r.registry.mutex.Unlock()
-			return r.rejectPickup(command, "resurrection capsule still moving")
-		}
-		maximumDistance := currentSession.campaignPickupMaximumDistance()
-		pickup, admission := currentSession.reserveCampaignPickup(command, maximumDistance)
-		if admission != zoneinteract.PickupAccepted {
-			r.registry.mutex.Unlock()
-			if admission == zoneinteract.PickupRejectedRange {
-				return r.pursuePickup(packet, sessionKey, command, pickup, maximumDistance)
-			}
-			return r.rejectPickup(command, campaignPickupRejectionReason(admission))
-		}
-		resurrections, resurrectionErr := currentSession.resurrectDeadZoneSquad()
-		if resurrectionErr != nil {
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return nil, fmt.Errorf("campaignResurrectionPickup: %w", resurrectionErr)
-		}
-		if len(resurrections) == 0 {
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return r.rejectPickup(command, "no defeated heroes")
-		}
-		movementPackets, movementErr := currentSession.stopCampaignPickup(r.now())
-		if movementErr != nil {
-			currentSession.rollbackZoneSquadResurrection(resurrections)
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return nil, fmt.Errorf("campaignResurrectionPose: %w", movementErr)
-		}
-		orbPackets, marshalErr := marshalCampaignOrbPickup(
-			orbPickup, currentSession.deployedObjectID, zoneResurrectionOrb, false,
-			currentSession.deployedHitPoint(), currentSession.deployedManaPoint(), 1,
-		)
-		if marshalErr != nil {
-			currentSession.rollbackZoneSquadResurrection(resurrections)
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return nil, fmt.Errorf("campaignResurrectionMarshal: %w", marshalErr)
-		}
-		acceptPacket, marshalErr := actionraknet.Accept(
-			command, "PickUpLoot", packet.SourceTime,
-			campaignEquipmentPickupCommitDelay, campaignEquipmentPickupDelay,
-		)
-		if marshalErr != nil {
-			currentSession.rollbackZoneSquadResurrection(resurrections)
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return nil, fmt.Errorf("campaignResurrectionAccept: %w", marshalErr)
-		}
-		releasePacket, marshalErr := abilityraknet.ReleaseResponse(
-			command.Common.Unknown[0], util.HashID("PickUpLoot"), abilityIndex,
-			packet.SourceTime, campaignEquipmentPickupCommitDelay,
-			campaignEquipmentPickupDelay,
-		)
-		if marshalErr != nil {
-			currentSession.rollbackZoneSquadResurrection(resurrections)
-			currentSession.zone.Pickups().Release(command.Value)
-			r.registry.mutex.Unlock()
-			return nil, fmt.Errorf("campaignResurrectionRelease: %w", marshalErr)
-		}
-		if !currentSession.zone.Pickups().Commit(command.Value) {
-			currentSession.rollbackZoneSquadResurrection(resurrections)
-			r.registry.mutex.Unlock()
-			return nil, errors.New("campaign resurrection capsule commit missing")
-		}
-		currentSession.zone.Orbs().Remove(command.Value)
-		r.registry.sessions[sessionKey] = currentSession
-		r.registry.mutex.Unlock()
-		response := append([][]byte{acceptPacket}, movementPackets...)
-		response = append(response, orbPackets...)
-		for _, resurrection := range resurrections {
-			response = append(response, resurrection.packet)
-		}
-		response = append(response, releasePacket)
-		r.logger.Printf(
-			"RakNet campaign resurrection capsule accepted source=%d target=%d heroes=%d",
-			command.Common.ObjectID, command.Value, len(resurrections),
-		)
-		return response, nil
+		return r.beginResurrectionPickupLocked(packet, command, sessionKey, currentSession, orbPickup)
 	}
 	equipmentPickup := zoneinteract.EquipmentPickup{}
 	isEquipmentPickup := false
@@ -2229,11 +2149,15 @@ func (s *gameplayPeerSession) spawnCampaignHealthOrb(
 		s.zone.Orbs().Remove(objectID)
 		return nil, 0, fmt.Errorf("orbRegister: %w", err)
 	}
-	return [][]byte{
-		components.CreatePacket,
+	packets := [][]byte{components.CreatePacket}
+	if components.InteractablePacket != nil {
+		packets = append(packets, components.InteractablePacket)
+	}
+	packets = append(packets,
 		components.PresentationPacket,
 		components.LocomotionPacket,
-	}, objectID, nil
+	)
+	return packets, objectID, nil
 }
 
 func (s *gameplayPeerSession) spawnCampaignNPCOrb(

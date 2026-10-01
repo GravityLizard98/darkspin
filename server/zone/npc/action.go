@@ -2366,7 +2366,7 @@ func VerdanthBasicHealerRootedHealProfile(
 func stagnantNovaAboveProfile(cooldown time.Duration) ActionProfile {
 	return ActionProfile{
 		Family: ActionCone, AbilityName: "StagnantNovaAbove",
-		AnimationName:          "burrow_idle",
+		AnimationName:          "burrow_tunnelling",
 		EmergeDelay:            1500 * time.Millisecond,
 		HitDelay:               2800 * time.Millisecond,
 		ReleaseDelay:           3400 * time.Millisecond,

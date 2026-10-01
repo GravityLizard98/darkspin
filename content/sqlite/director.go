@@ -262,6 +262,10 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_11.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_7.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_nocturna_herotree_yellow_1.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_tota_headstatue_b.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_tota_headstatue_c.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_tota_heroplant_p3_b.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_tota_heroplant_p3_b.Noun' COLLATE NOCASE
 		       OR level_marker_set.asset_name COLLATE NOCASE IN (
 		              'verdanth_3_Smart_Objects_1.Markerset',
 		              'verdanth_3_Smart_Objects_2.Markerset',

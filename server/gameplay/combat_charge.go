@@ -226,7 +226,8 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		)
 		return packets, nil
 	}
-	return append([][]byte{loopPacket}, packets...), nil
+	// Set locomotion first so its default pose cannot replace the charge loop.
+	return append(packets, loopPacket), nil
 }
 
 func isTemplateContactCharge(abilityName string) bool {

@@ -225,7 +225,10 @@ func destructibleDeathPresentation(
 		return "", destructibleLargeDeleteDelay
 	}
 	if zonenpc.IsVerdanthTotem(snapshot.Plan) {
-		return "", destructibleSmallDeleteDelay
+		// HeadstatueDeath emits the authored destruction event before leaving
+		// the dead graphics state in place; the event owns its breaking sound.
+		return "verdanth_headstatue_destruction_effect.ServerEventDef",
+			destructibleSmallDeleteDelay
 	}
 	footprint := max(snapshot.Plan.NPCProfile.FootprintRadius, physics.FootprintRadius)
 	halfWidth := max(
@@ -3146,6 +3149,7 @@ func (r campaignNPCActionRuntime) spawnLoot(
 		return nil, nil
 	}
 	isTutorial := peerSession.binding.Mode == game.ModeTutorial
+	isVerdanthTotem := zonenpc.IsVerdanthTotem(enemy.Plan)
 	equipmentPackets := make([][]byte, 0)
 	var equipmentErr error
 	if !isTutorial && !enemy.Plan.IsFixture {
@@ -3165,7 +3169,7 @@ func (r campaignNPCActionRuntime) spawnLoot(
 	orbPackets := make([][]byte, 0)
 	var orbObjectID uint32
 	var orbErr error
-	if !isTutorial || peerSession.isTutorialCapsuleDropUnlocked {
+	if !isVerdanthTotem && (!isTutorial || peerSession.isTutorialCapsuleDropUnlocked) {
 		orbPackets, orbObjectID, orbErr = peerSession.spawnCampaignNPCOrb(
 			enemy, sourceTime, r.now(),
 		)
@@ -3189,7 +3193,7 @@ func (r campaignNPCActionRuntime) spawnLoot(
 	}
 	dnaPackets := make([][]byte, 0)
 	var dnaErr error
-	if !isTutorial {
+	if !isTutorial && !isVerdanthTotem {
 		dnaPackets, _, dnaErr = peerSession.spawnCampaignNPCDNA(
 			enemy, sourceTime, r.now(),
 		)
@@ -6588,6 +6592,10 @@ func (s *gameplayPeerSession) stopCampaignNPCModifiers(pool *modifierPool) {
 	for objectID, run := range s.campaignNPCIntangibles {
 		if run.cancel != nil {
 			run.cancel()
+		}
+		stopPacket := run.releaseEffect()
+		if stopPacket != nil {
+			s.queuePackets([][]byte{stopPacket})
 		}
 		if len(run.revealPacket) > 0 {
 			s.queuePackets([][]byte{run.revealPacket})

@@ -373,7 +373,8 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 		},
 		"ClaymoreTrap": {
 			Name: "ClaymoreTrap", Kind: sim.AbilityKindTrap,
-			Cooldown: 12 * time.Second, Range: 2.5, Radius: 4,
+			AnimationName: "tc_random02_claymore",
+			Cooldown:      12 * time.Second, Range: 2.5, Radius: 4,
 			HitDelay: 200 * time.Millisecond, ReleaseDelay: 700 * time.Millisecond,
 			Duration: 15 * time.Second, TickDuration: 200 * time.Millisecond,
 			MinimumDamage: 15, MaximumDamage: 21, DamageCoefficient: 0.05,

@@ -451,6 +451,10 @@ func isCampaignPursuitMovement(
 		peerSession.zone.NPCs() == nil {
 		return false
 	}
+	if pursuit.IsGround {
+		return pursuit.GroundPosition.Sub(goal).Length() <=
+			pursuit.StopDistance+campaignPlayerPursuitGoalTolerance
+	}
 	target, isTargetFound := peerSession.zone.NPCs().NPC(pursuit.TargetObjectID)
 	if !isTargetFound || target.IsDefeated || target.HitPoint <= 0 {
 		return false

@@ -152,8 +152,11 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 	if plan.Profile.AbilityName == "Flee" {
 		return fleeMovement(plan.ObjectID, source, target)
 	}
-	if plan.Profile.AbilityName == "StealthAttack" {
-		// Stealth travel has a fixed destination, not a live hero-follow goal.
+	if plan.Profile.AbilityName == "StealthAttack" ||
+		plan.Profile.AbilityName == "NocturnaSpecialDriftCharge" ||
+		plan.Profile.AbilityName == "NoctGhostCharge" {
+		// These actions travel to a fixed point. Following the target object
+		// instead stops pass-through charges at the hero's collision footprint.
 		return marshalMessages([]raknet.ApplicationMessage{
 			raknet.ObjectPlayerMoveMessage{
 				ObjectID: plan.ObjectID, GoalFlags: 0x01, GoalPosition: target,
@@ -162,7 +165,7 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 			raknet.LocomotionUnreliableMessage{
 				ObjectID: plan.ObjectID, GoalPosition: target,
 			},
-		}, "stealthTravel")
+		}, "fixedTravel")
 	}
 	if plan.Profile.Family == zonenpc.ActionProjectile {
 		goal := pursuitGoal(source, target, plan.Profile.Range)
@@ -212,6 +215,26 @@ func BurrowTravel(plan zonenpc.AttackPlan, timestamp uint64) ([][]byte, error) {
 			Timestamp: timestamp, Scale: 1,
 		},
 	}, "burrowTravel")
+}
+
+// BurrowEffect follows the moving actor and is explicitly stopped on emergence.
+func BurrowEffect(objectID uint32, slot uint8, isRemovalRequested bool) ([]byte, error) {
+	if objectID == 0 {
+		return nil, errors.New("npc burrow effect invalid")
+	}
+	message := raknet.AttachedEffectMessage{
+		ObjectID: objectID, Slot: slot + 1,
+		IsRemovalRequested: isRemovalRequested, IsHardStop: isRemovalRequested,
+	}
+	if !isRemovalRequested {
+		message.Asset = util.HashID("burrower_tunnelling.ServerEventDef")
+		message.IsForceAttached = true
+	}
+	packet, err := raknet.MarshalApplication(message)
+	if err != nil {
+		return nil, fmt.Errorf("burrowEffectMarshal: %w", err)
+	}
+	return packet, nil
 }
 
 // BurrowArrival reconciles the moving client root with the authoritative

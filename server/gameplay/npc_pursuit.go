@@ -476,8 +476,9 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		return nil, fmt.Errorf("enemyPursuitAdvance: %w", err)
 	}
 	// Ordinary pursuit publishes 0x41 with a live target ID. Projectile
-	// pursuit and fleeing publish 0x01 and retain movement-derived heading.
-	if profile.Family != zonenpc.ActionProjectile && profile.AbilityName != "Flee" {
+	// pursuit, fleeing, and pass-through charges retain movement-derived heading.
+	if profile.Family != zonenpc.ActionProjectile && profile.AbilityName != "Flee" &&
+		profile.AbilityName != "NocturnaSpecialDriftCharge" && profile.AbilityName != "NoctGhostCharge" {
 		isFacingCommitted := npcSession.CommitFacing(zonenpc.AttackPlan{
 			SourceObjectID: objectID, TargetObjectID: resolvedTargetObjectID,
 			ActionGeneration: actionGeneration, SourcePosition: step.Position,

@@ -5734,8 +5734,11 @@ func (p campaignPreparation) initialize(
 		fixtureMarkers, fixtureErr = director.NocturnaFixtures()
 		if fixtureErr == nil {
 			var verdanthFixtureMarkers []game.CampaignDirectorMarker
-			verdanthFixtureMarkers, fixtureErr = director.VerdanthFixtures()
+			var verdanthDeleteObjectIDs []uint32
+			verdanthFixtureMarkers, verdanthDeleteObjectIDs, fixtureErr =
+				director.VerdanthFixtures(contentSelectionID)
 			fixtureMarkers = append(fixtureMarkers, verdanthFixtureMarkers...)
+			sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, verdanthDeleteObjectIDs...)
 		}
 	}
 	if fixtureErr != nil {

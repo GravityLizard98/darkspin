@@ -193,6 +193,16 @@ func (e campaignNPCDrainSchedule) endPacket(
 	if !isFirstEnd {
 		return packets, nil
 	}
+	runtime := e.request.runtime
+	runtime.registry.mutex.RLock()
+	peerSession, isFound := runtime.registry.sessions[e.request.sessionKey]
+	isCurrent := isFound && peerSession.isCampaignNPCSourceGenerationActive(
+		e.request.generation, e.request.objectID, e.plan.ActionGeneration,
+	)
+	runtime.registry.mutex.RUnlock()
+	if !isCurrent {
+		return packets, nil
+	}
 	packet, err := npcraknet.AnimationState(
 		e.plan.SourceObjectID, e.plan.Profile.EndAnimationName,
 		e.request.timestamp+uint64(deadline/time.Millisecond),
@@ -229,6 +239,9 @@ func (e campaignNPCDrainSchedule) tick(
 	current, isFound := runtime.registry.sessions[req.sessionKey]
 	isCurrent := isFound && current.isCampaignNPCAttackActiveAt(
 		req.generation, req.objectID, e.plan.TargetObjectID, runtime.now(),
+	)
+	isCurrent = isCurrent && current.isCampaignNPCSourceGenerationActive(
+		req.generation, req.objectID, e.plan.ActionGeneration,
 	)
 	if !isCurrent {
 		runtime.registry.mutex.Unlock()
@@ -359,9 +372,29 @@ func (e campaignNPCDrainSchedule) next() ([][]byte, error) {
 	profile := e.plan.Profile
 	finalTickDeadline := profile.HitDelay +
 		time.Duration(profile.NumberOfTicks-1)*profile.TickDuration
+	// Always retire this channel before starting another one, even when its
+	// last damage tick failed. A retained run otherwise rejects every restart.
+	cleanupPackets, err := e.endPacket(finalTickDeadline)
+	if err != nil {
+		return nil, fmt.Errorf("drainCleanup: %w", err)
+	}
+	runtime := e.request.runtime
+	runtime.registry.mutex.RLock()
+	peerSession, isFound := runtime.registry.sessions[e.request.sessionKey]
+	isCurrent := isFound && peerSession.isCampaignNPCSourceGenerationActive(
+		e.request.generation, e.request.objectID, e.plan.ActionGeneration,
+	)
+	runtime.registry.mutex.RUnlock()
+	if !isCurrent {
+		return cleanupPackets, nil
+	}
 	timestamp := e.request.timestamp +
 		uint64((finalTickDeadline+profile.EndAnimationDelay)/time.Millisecond)
-	return e.request.resume(timestamp)
+	packets, err := e.request.resume(timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("drainResume: %w", err)
+	}
+	return append(cleanupPackets, packets...), nil
 }
 
 func (r campaignNPCActionRuntime) produceHealthDrain(

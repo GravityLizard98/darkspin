@@ -324,6 +324,8 @@ func (s *DirectorSource) LoadCampaignDirector(
 // authored tutorial variants that share their base actor's class and physics.
 func campaignMarkerProfileKey(nounKey string) string {
 	switch nounKey {
+	case "dest_prefab_tota_heroplant_p3_b.noun":
+		return "dest_tota_heroplant_p3_b.noun"
 	case "tutorialbasicpoisonnoorbs.noun":
 		return "tutorialbasicpoison.noun"
 	case "tutorialspecialone_intro.noun":

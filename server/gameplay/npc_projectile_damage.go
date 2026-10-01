@@ -267,9 +267,12 @@ func (r campaignNPCActionRuntime) applyEnemyProjectileDamage(
 				fmt.Errorf("enemyProjectileEnergyVulnerability: %w", err)
 		}
 	}
+	// The projectile behavior subtracts damage when it publishes world HP.
+	// Passing committed HP here would apply the hit twice on the client while
+	// the squad HUD and server still retain the surviving hero's real health.
 	hitPackets, err := projectileRun.ResolveCollision(
 		context.Background(), deadline, true, true,
-		damage.HitPoint, result.Damage, result.IsCritical,
+		damage.PreviousHitPoint, result.Damage, result.IsCritical,
 		targetPosition, facing,
 	)
 	if err != nil {

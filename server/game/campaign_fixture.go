@@ -213,8 +213,8 @@ func (e CampaignDirector) VerdanthScenery() (
 			if !isCampaignSceneryMarker(marker) {
 				continue
 			}
-			if name == verdanthSceneryMarkerSet && isVerdanthTotemFixture(marker) {
-				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+			if isVerdanthCombatFixture(marker) {
+				// VerdanthFixtures replaces authored destructible IDs separately.
 				continue
 			}
 			if name == verdanthSceneryMarkerSet {
@@ -233,38 +233,64 @@ func (e CampaignDirector) VerdanthScenery() (
 	return selected, deletedObjectIDs, nil
 }
 
-// VerdanthFixtures promotes the selected layout's ancient stone totems from
-// passive scenery to authoritative destructibles while preserving their exact
-// authored placement and scale.
-func (e CampaignDirector) VerdanthFixtures() ([]CampaignDirectorMarker, error) {
-	if !strings.EqualFold(e.Level, verdanthCypressLevel) {
-		return nil, nil
+// VerdanthFixtures restores fixed and selected-layout destructibles at their
+// authored scales. Remove original IDs so another client layout cannot leave
+// duplicate or unbreakable scenery behind.
+func (e CampaignDirector) VerdanthFixtures(selectionID uint32) (
+	[]CampaignDirectorMarker, []uint32, error,
+) {
+	level := strings.ToLower(e.Level)
+	if !strings.HasPrefix(level, "verdanth_") {
+		return nil, nil, nil
+	}
+	selectedSet := fmt.Sprintf("%s_smart_objects_%d.markerset", level, selectionID%3+1)
+	if level == verdanthCypressLevel {
+		selectedSet = verdanthSceneryMarkerSet
 	}
 	fixtures := make([]CampaignDirectorMarker, 0)
+	deletedObjectIDs := make([]uint32, 0)
+	seenMarkerIDs := make(map[uint32]bool)
 	for _, markerSet := range e.MarkerSets {
-		if !strings.EqualFold(markerSet.Name, verdanthSceneryMarkerSet) {
-			continue
-		}
+		name := strings.ToLower(markerSet.Name)
+		isSelected := !strings.HasPrefix(name, level+"_smart_objects_") ||
+			name == selectedSet
 		for _, marker := range markerSet.Markers {
-			if !isVerdanthTotemFixture(marker) {
+			if !isVerdanthCombatFixture(marker) {
 				continue
 			}
-			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) ||
-				!marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 {
-				return nil, fmt.Errorf("verdanthTotem[%d]: invalid", marker.Ordinal)
+			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) {
+				return nil, nil, fmt.Errorf("fixtureMarker[%d]: invalid", marker.Ordinal)
 			}
+			deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+			if !isSelected || seenMarkerIDs[marker.MarkerID] {
+				continue
+			}
+			if !marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 ||
+				!isFiniteCampaignPosition(marker.Rotation) || marker.Scale <= 0 {
+				return nil, nil, fmt.Errorf("fixtureProfile[%d]: invalid", marker.MarkerID)
+			}
+			seenMarkerIDs[marker.MarkerID] = true
 			fixtures = append(fixtures, marker)
 		}
 	}
-	if len(fixtures) == 0 {
-		return nil, errors.New("verdanthTotem: empty")
-	}
-	return fixtures, nil
+	return fixtures, deletedObjectIDs, nil
 }
 
 func isVerdanthTotemFixture(marker CampaignDirectorMarker) bool {
 	switch strings.ToLower(strings.TrimSpace(marker.NounName)) {
 	case "dest_tota_headstatue_b.noun", "dest_tota_headstatue_c.noun":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVerdanthCombatFixture(marker CampaignDirectorMarker) bool {
+	if isVerdanthTotemFixture(marker) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(marker.NounName)) {
+	case "dest_tota_heroplant_p3_b.noun", "dest_prefab_tota_heroplant_p3_b.noun":
 		return true
 	default:
 		return false

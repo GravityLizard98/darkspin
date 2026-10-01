@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/raknet"
+	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/squad"
 	"github.com/darkspinnet/darkspin/server/util"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
@@ -604,8 +605,15 @@ func marshalGameplayRejoinPickup(
 		if !isFound {
 			return nil, errors.New("orb payload unavailable")
 		}
+		var data raknet.ApplicationMessage
+		if payload.Request.Kind == sim.ResurrectionOrbDrop {
+			data = raknet.InteractableDataUpdateMessage{
+				ObjectID: pickup.ObjectID, UsesAllowed: 1,
+				Ability: util.HashID("PickUpResurrectOrb"),
+			}
+		}
 		return marshalGameplayRejoinSimplePickup(
-			pickup.ObjectID, util.HashID(payload.Request.NounName), position, nil,
+			pickup.ObjectID, util.HashID(payload.Request.NounName), position, data,
 		)
 	default:
 		return nil, errors.New("pickup kind unsupported")
