@@ -75,6 +75,7 @@ func CampaignFallbackChallenge(levelName string) int32 {
 // CampaignDirectorPool preserves one authored structural pool boundary.
 type CampaignDirectorPool struct {
 	ConfigurationOrdinal int
+	ConfigurationName    string
 	ConfigKind           string
 	SpawnKind            string
 	Entries              []CampaignDirectorEntry
@@ -105,6 +106,9 @@ type CampaignDirectorMarker struct {
 	SpawnKind               uint32
 	PoolKind                string
 	IsSpawnKindKnown        bool
+	SpawnSectionType        uint32
+	IsSpawnSectionKnown     bool
+	IsSpikeActive           bool
 	Position                Vec3
 	Rotation                Vec3
 	Scale                   float32
@@ -148,11 +152,12 @@ type CampaignDirectorTrigger struct {
 
 // CampaignDirectorMarkerSet preserves one authored placement-set boundary.
 type CampaignDirectorMarkerSet struct {
-	Ordinal  int
-	Name     string
-	Weight   uint32
-	Markers  []CampaignDirectorMarker
-	Triggers []CampaignDirectorTrigger
+	Ordinal   int
+	Name      string
+	GroupName string
+	Weight    uint32
+	Markers   []CampaignDirectorMarker
+	Triggers  []CampaignDirectorTrigger
 }
 
 // CampaignScriptBinding identifies one imported callback attached to an
@@ -207,6 +212,7 @@ type CampaignScriptObject struct {
 // CampaignDirector is the immutable level input accepted by campaign setup.
 type CampaignDirector struct {
 	Level                 string
+	IsFirstClear          bool
 	EntryPositions        []Vec3
 	Pools                 []CampaignDirectorPool
 	StandaloneBossEntries []CampaignDirectorEntry
@@ -278,104 +284,90 @@ func (d CampaignDirector) TutorialActors() ([]CampaignDirectorMarker, error) {
 	return markers, nil
 }
 
-// InitialChainFixtures selects one of 1-1's three equal-weight authored
-// Gravitic Regulator variants. These are placed, killable world fixtures, not
-// director agents, and therefore must not participate in aggro or clear gates.
-func (d CampaignDirector) InitialChainFixtures(matchID uint32) ([]CampaignDirectorMarker, error) {
+// InitialChainDestructibles retains the fixed 1-1 instruments and one authored
+// smart-object layout. Every instrument marker is retired on the client before
+// its authoritative, damageable fixture is published.
+func (d CampaignDirector) InitialChainDestructibles(selectionID uint32) (
+	[]CampaignDirectorMarker, []uint32, error,
+) {
 	if !strings.EqualFold(d.Level, InitialChainLevel) {
-		return nil, fmt.Errorf("fixtureLevel: %q", d.Level)
+		return nil, nil, fmt.Errorf("fixtureLevel: %q", d.Level)
 	}
-	variantOrdinal := make([]int, 0, 3)
-	fixtureByOrdinal := make(map[int][]CampaignDirectorMarker, 3)
+	selectedSet := fmt.Sprintf("zelems_1_smart_objects_%d.markerset", selectionID%3+1)
+	fixtures := make([]CampaignDirectorMarker, 0)
+	deletedObjectIDs := make([]uint32, 0)
+	seenMarkerIDs := make(map[uint32]bool)
+	variantCount := 0
+	isDesignFound := false
+	isSelectedFound := false
 	var variantWeight uint32
 	for _, markerSet := range d.MarkerSets {
 		name := strings.ToLower(markerSet.Name)
+		isSelected := name == selectedSet
 		switch name {
+		case "zelems_1_design.markerset":
+			isDesignFound = true
+			isSelected = true
 		case "zelems_1_smart_objects_1.markerset",
 			"zelems_1_smart_objects_2.markerset",
 			"zelems_1_smart_objects_3.markerset":
+			variantCount++
+			if markerSet.Weight == 0 ||
+				(variantWeight != 0 && markerSet.Weight != variantWeight) {
+				return nil, nil, fmt.Errorf("fixtureWeight[%d]: %d", markerSet.Ordinal, markerSet.Weight)
+			}
+			variantWeight = markerSet.Weight
+			if isSelected {
+				isSelectedFound = true
+			}
 		default:
 			continue
 		}
-		fixtures := make([]CampaignDirectorMarker, 0, 5)
 		for _, marker := range markerSet.Markers {
-			if strings.EqualFold(marker.NounName, initialChainRegulatorNoun) {
-				fixtures = append(fixtures, marker)
+			if !IsGraviticRegulatorNoun(marker.NounName) &&
+				!IsGraviticStabilizerNoun(marker.NounName) {
+				continue
 			}
-		}
-		if len(fixtures) == 0 {
-			continue
-		}
-		if markerSet.Weight == 0 || (variantWeight != 0 && markerSet.Weight != variantWeight) {
-			return nil, fmt.Errorf("fixtureWeight[%d]: %d", markerSet.Ordinal, markerSet.Weight)
-		}
-		if len(fixtures) != 5 {
-			return nil, fmt.Errorf("fixtureComposition[%d]: %d", markerSet.Ordinal, len(fixtures))
-		}
-		for markerIndex, marker := range fixtures {
-			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) ||
-				!marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 {
-				return nil, fmt.Errorf("fixtureMarker[%d][%d]: invalid", markerSet.Ordinal, markerIndex)
+			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) {
+				return nil, nil, fmt.Errorf("fixtureMarker[%d][%d]: invalid", markerSet.Ordinal, marker.Ordinal)
 			}
+			if !seenMarkerIDs[marker.MarkerID] {
+				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				seenMarkerIDs[marker.MarkerID] = true
+			}
+			if !isSelected {
+				continue
+			}
+			if !marker.NPCProfile.IsKnown || !marker.NPCProfile.IsTargetable ||
+				marker.NPCProfile.HitPoint <= 0 {
+				return nil, nil, fmt.Errorf("fixtureProfile[%d]: unavailable", marker.MarkerID)
+			}
+			fixtures = append(fixtures, marker)
 		}
-		variantWeight = markerSet.Weight
-		variantOrdinal = append(variantOrdinal, markerSet.Ordinal)
-		fixtureByOrdinal[markerSet.Ordinal] = fixtures
 	}
-	if len(variantOrdinal) != 3 {
-		return nil, fmt.Errorf("fixtureVariantCount: got %d, want 3", len(variantOrdinal))
+	if variantCount != 3 || !isDesignFound || !isSelectedFound || len(fixtures) == 0 {
+		return nil, nil, fmt.Errorf("fixtureComposition: design=%t selected=%t variants=%d fixtures=%d",
+			isDesignFound, isSelectedFound, variantCount, len(fixtures))
 	}
-	slices.Sort(variantOrdinal)
-	selectedOrdinal := variantOrdinal[int(matchID%uint32(len(variantOrdinal)))]
-	return slices.Clone(fixtureByOrdinal[selectedOrdinal]), nil
+	return fixtures, deletedObjectIDs, nil
 }
 
-// InitialChainFirstClearFixtures materializes the introductory route's fixed
-// Gravitic Regulator census. The anchors are the ordered positions captured by
-// one complete first-clear 1-1 traversal; replay runs continue to use one of
-// the three authored five-object variants selected by InitialChainFixtures.
-func (d CampaignDirector) InitialChainFirstClearFixtures() ([]CampaignDirectorMarker, error) {
-	templates, err := d.InitialChainFixtures(0)
+func (d CampaignDirector) InitialChainFixtures(matchID uint32) ([]CampaignDirectorMarker, error) {
+	fixtures, deletedObjectIDs, err := d.InitialChainDestructibles(matchID)
 	if err != nil {
-		return nil, fmt.Errorf("firstClearTemplate: %w", err)
+		return nil, fmt.Errorf("initialFixtures: %w", err)
 	}
-	if len(templates) == 0 {
-		return nil, errors.New("firstClearTemplate: empty")
+	if len(deletedObjectIDs) == 0 {
+		return nil, errors.New("initialFixtures: no authored objects")
 	}
-	positions := []Vec3{
-		{X: -179.441, Y: -82.242, Z: 0.088},
-		{X: -183.618, Y: -43.611, Z: 0.088},
-		{X: -122.533, Y: -41.325, Z: 0.088},
-		{X: -156.339, Y: 56.590, Z: -0.012},
-		{X: 572.632, Y: -36.299, Z: 0.088},
-		{X: 543.003, Y: 32.458, Z: 5.088},
-		{X: 562.072, Y: 23.594, Z: 5.088},
-		{X: 595.715, Y: 38.376, Z: 10.088},
-		{X: 603.131, Y: -9.330, Z: 10.088},
-		{X: 645.209, Y: 1.915, Z: 15.095},
-		{X: 633.302, Y: -34.610, Z: 20.088},
-		{X: 604.313, Y: -73.930, Z: 25.088},
-		{X: 549.380, Y: 25.442, Z: 33.088},
-		{X: 524.844, Y: 13.362, Z: 33.088},
-		{X: 545.755, Y: 1.496, Z: 33.088},
-		{X: 206.631, Y: 727.820, Z: 0.088},
-		{X: 211.898, Y: 675.077, Z: 5.088},
-		{X: 191.557, Y: 657.295, Z: 5.088},
-		{X: 219.908, Y: 587.723, Z: 10.088},
-		{X: 255.014, Y: 666.813, Z: 10.088},
-		{X: 282.235, Y: 675.438, Z: 10.088},
-		{X: 203.116, Y: 628.193, Z: 5.088},
-	}
-	const firstClearMarkerID = uint32(0xf1100000)
-	fixtures := make([]CampaignDirectorMarker, 0, len(positions))
-	for positionIndex, position := range positions {
-		fixture := templates[positionIndex%len(templates)]
-		fixture.Ordinal = positionIndex
-		fixture.MarkerID = firstClearMarkerID + uint32(positionIndex) + 1
-		fixture.MarkerSetName = "zelems_1_first_clear_regulators.Markerset"
-		fixture.Name = fmt.Sprintf("FirstClearGraviticRegulator-%d", positionIndex+1)
-		fixture.Position = position
-		fixtures = append(fixtures, fixture)
+	return fixtures, nil
+}
+
+// First clear uses the first authored object layout, as its other content does.
+func (d CampaignDirector) InitialChainFirstClearFixtures() ([]CampaignDirectorMarker, error) {
+	fixtures, err := d.InitialChainFixtures(0)
+	if err != nil {
+		return nil, fmt.Errorf("firstClearFixtures: %w", err)
 	}
 	return fixtures, nil
 }
@@ -774,10 +766,14 @@ func (d CampaignDirector) EligibleEntries(
 		if !strings.EqualFold(d.Pools[index].ConfigKind, poolKindName) {
 			continue
 		}
-		if matchedPool != nil {
-			return nil, fmt.Errorf("eligible entries: duplicate pool %q", poolKindName)
+		pool := &d.Pools[index]
+		if d.IsFirstClear && strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
+			matchedPool = pool
+			break
 		}
-		matchedPool = &d.Pools[index]
+		if matchedPool == nil || strings.EqualFold(pool.ConfigurationName, "levelConfig") {
+			matchedPool = pool
+		}
 	}
 	if matchedPool == nil {
 		return nil, fmt.Errorf("eligible entries: pool %q missing", poolKindName)
@@ -834,6 +830,8 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 	if !isCampaignDirectorLevel(binding, director.Level) {
 		return CampaignDirector{}, fmt.Errorf("setupLevel: got %q, want %q", director.Level, binding.Level)
 	}
+	director.IsFirstClear = !binding.IsWarped && binding.ChainLevelIndex == 1 &&
+		binding.ChainProgression < 1 && strings.EqualFold(director.Level, InitialChainLevel)
 	if !binding.IsWarped && len(director.Pools) == 0 {
 		return CampaignDirector{}, errors.New("campaign setup: empty director pools")
 	}
@@ -857,7 +855,7 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 		if pool.ConfigKind == "" || strings.EqualFold(pool.ConfigKind, "unknown") {
 			continue
 		}
-		normalizedKind := strings.ToLower(pool.ConfigKind)
+		normalizedKind := strings.ToLower(pool.ConfigurationName + ":" + pool.ConfigKind)
 		_, isDuplicate := poolKind[normalizedKind]
 		if isDuplicate {
 			return CampaignDirector{}, fmt.Errorf("campaign setup: duplicate pool %q", pool.ConfigKind)
@@ -872,7 +870,17 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 			if marker.PoolKind == "" {
 				return CampaignDirector{}, fmt.Errorf("campaign setup: marker %d has empty pool kind", marker.MarkerID)
 			}
-			_, isPoolFound := poolKind[strings.ToLower(marker.PoolKind)]
+			_, isPoolFound := poolKind[strings.ToLower("levelConfig:"+marker.PoolKind)]
+			if !isPoolFound {
+				_, isPoolFound = poolKind[strings.ToLower("firstTimeConfig:"+marker.PoolKind)]
+			}
+			if !isPoolFound {
+				_, isPoolFound = poolKind[strings.ToLower(":"+marker.PoolKind)]
+			}
+			if !isPoolFound && strings.EqualFold(director.Level, InitialChainLevel) &&
+				strings.EqualFold(marker.PoolKind, "agent") {
+				_, isPoolFound = poolKind["firsttimeconfig:minion"]
+			}
 			if !isPoolFound {
 				return CampaignDirector{}, fmt.Errorf("campaign setup: marker %d pool %q missing",
 					marker.MarkerID, marker.PoolKind)

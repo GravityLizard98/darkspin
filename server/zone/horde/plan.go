@@ -177,7 +177,7 @@ func IsInitialDeferred(
 func eligibleAgents(
 	director game.CampaignDirector,
 ) []game.CampaignDirectorEntry {
-	agentEntry := zonepopulation.PoolEntries(director, "agent")
+	agentEntry := zonepopulation.HordeEntries(director)
 	eligibleEntry := make([]game.CampaignDirectorEntry, 0, len(agentEntry))
 	for _, entry := range agentEntry {
 		if !entry.IsHordeLegal || entry.NounName == "" ||

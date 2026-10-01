@@ -7,6 +7,23 @@ import (
 
 const GraviticStabilizerNoun = "DEST_prefab_islands_instrument_scitech_7.Noun"
 
+func IsGraviticRegulatorNoun(nounName string) bool {
+	switch strings.ToLower(nounName) {
+	case "dest_prefab_islands_instrument_scitech_2.noun",
+		"dest_prefab_islands_instrument_scitech_3.noun",
+		"dest_prefab_islands_instrument_scitech_11.noun",
+		"dest_prefab_islands_instrument_scitech_11_noshadow.noun":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsGraviticStabilizerNoun(nounName string) bool {
+	return strings.EqualFold(nounName, GraviticStabilizerNoun) ||
+		strings.EqualFold(nounName, "DEST_prefab_islands_instrument_scitech_7_noShadow.Noun")
+}
+
 // GraviticFixtures uses one authored smart-object variant plus the fixed
 // placements. Delete all authored fixture IDs before creating authoritative
 // actors so the client's independently selected variant cannot leave ghosts.
@@ -14,7 +31,7 @@ func (e CampaignDirector) GraviticFixtures(selectionID uint32) (
 	[]CampaignDirectorMarker, []uint32, error,
 ) {
 	level := strings.ToLower(e.Level)
-	if level != "zelems_2" && level != "zelems_4" {
+	if level != "zelems_2" && level != "zelems_3" && level != "zelems_4" {
 		return nil, nil, nil
 	}
 	selectedSet := fmt.Sprintf("%s_smart_objects_%d.markerset", level, selectionID%3+1)
@@ -28,8 +45,9 @@ func (e CampaignDirector) GraviticFixtures(selectionID uint32) (
 			strings.HasPrefix(name, level+"_obelisks_")
 		isSelected := !isVariant || name == selectedSet || name == selectedObeliskSet
 		for _, marker := range markerSet.Markers {
-			if !strings.EqualFold(marker.NounName, initialChainRegulatorNoun) &&
-				!strings.EqualFold(marker.NounName, GraviticStabilizerNoun) {
+			isInstrument := IsGraviticRegulatorNoun(marker.NounName) ||
+				IsGraviticStabilizerNoun(marker.NounName)
+			if !isInstrument {
 				continue
 			}
 			if marker.MarkerID == 0 || !isFiniteCampaignPosition(marker.Position) {
@@ -39,7 +57,8 @@ func (e CampaignDirector) GraviticFixtures(selectionID uint32) (
 			if !isSelected || seenMarkerIDs[marker.MarkerID] {
 				continue
 			}
-			if !marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 {
+			if !marker.NPCProfile.IsKnown || !marker.NPCProfile.IsTargetable ||
+				marker.NPCProfile.HitPoint <= 0 {
 				return nil, nil, fmt.Errorf("graviticProfile[%d]: unavailable", marker.MarkerID)
 			}
 			seenMarkerIDs[marker.MarkerID] = true

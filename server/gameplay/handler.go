@@ -5714,6 +5714,13 @@ func (p campaignPreparation) initialize(
 	}
 	sceneryMarkers = append(sceneryMarkers, cryosSceneryMarkers...)
 	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosDeleteObjectIDs...)
+	cryosOneSceneryMarkers, cryosOneDeleteObjectIDs, sceneryErr :=
+		director.CryosSmartScenery(contentSelectionID)
+	if sceneryErr != nil {
+		return fmt.Errorf("statusChainCryosOneScenery: %w", sceneryErr)
+	}
+	sceneryMarkers = append(sceneryMarkers, cryosOneSceneryMarkers...)
+	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosOneDeleteObjectIDs...)
 	nocturnaSceneryMarkers, nocturnaDeleteObjectIDs, sceneryErr :=
 		director.NocturnaScenery(contentSelectionID)
 	if sceneryErr != nil {
@@ -5732,6 +5739,13 @@ func (p campaignPreparation) initialize(
 	sceneryDeleteObjectIDs = append(
 		sceneryDeleteObjectIDs, infinityDeleteObjectIDs...,
 	)
+	scaldronSceneryMarkers, scaldronDeleteObjectIDs, sceneryErr :=
+		director.ScaldronScenery(contentSelectionID)
+	if sceneryErr != nil {
+		return fmt.Errorf("statusChainScaldronScenery: %w", sceneryErr)
+	}
+	sceneryMarkers = append(sceneryMarkers, scaldronSceneryMarkers...)
+	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, scaldronDeleteObjectIDs...)
 	sceneryPlans, sceneryErr := zoneobject.PlanScenery(sceneryMarkers)
 	if sceneryErr != nil {
 		return fmt.Errorf("statusChainSceneryPlans: %w", sceneryErr)
@@ -5779,13 +5793,19 @@ func (p campaignPreparation) initialize(
 	fixtureMarkers := make([]game.CampaignDirectorMarker, 0)
 	var fixtureErr error
 	if strings.EqualFold(binding.Level, game.InitialChainLevel) {
-		if zoneunlock.IsFirstClear(binding) {
-			fixtureMarkers, fixtureErr = director.InitialChainFirstClearFixtures()
-		} else {
-			fixtureMarkers, fixtureErr = director.InitialChainFixtures(contentSelectionID)
-		}
+		var initialDeleteObjectIDs []uint32
+		fixtureMarkers, initialDeleteObjectIDs, fixtureErr =
+			director.InitialChainDestructibles(contentSelectionID)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, initialDeleteObjectIDs...)
 	} else if binding.Mode == game.ModeChain {
-		fixtureMarkers, fixtureErr = director.NocturnaFixtures()
+		if strings.EqualFold(binding.Level, "nocturna_1") ||
+			strings.EqualFold(binding.Level, "nocturna_2") ||
+			strings.EqualFold(binding.Level, "nocturna_3") ||
+			strings.EqualFold(binding.Level, "nocturna_4") {
+			fixtureMarkers, fixtureErr = director.NocturnaSelectedFixtures(contentSelectionID)
+		} else {
+			fixtureMarkers, fixtureErr = director.NocturnaFixtures()
+		}
 		if fixtureErr == nil {
 			var verdanthFixtureMarkers []game.CampaignDirectorMarker
 			var verdanthDeleteObjectIDs []uint32
@@ -5806,8 +5826,72 @@ func (p campaignPreparation) initialize(
 		}
 		fixtureMarkers = append(fixtureMarkers, graviticMarkers...)
 		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, graviticDeleteObjectIDs...)
+		cryosFourMarkers, cryosFourDeleteObjectIDs, cryosFourErr :=
+			director.CryosFourFixtures(contentSelectionID)
+		if cryosFourErr != nil {
+			return fmt.Errorf("statusCryosFourFixtures: %w", cryosFourErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, cryosFourMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosFourDeleteObjectIDs...)
+		cryosOneMarkers, cryosOneDeleteObjectIDs, cryosOneErr :=
+			director.CryosOneFixtures(contentSelectionID)
+		if cryosOneErr != nil {
+			return fmt.Errorf("statusCryosOneFixtures: %w", cryosOneErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, cryosOneMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosOneDeleteObjectIDs...)
+		cryosTwoMarkers, cryosTwoDeleteObjectIDs, cryosTwoErr :=
+			director.CryosTwoFixtures(contentSelectionID)
+		if cryosTwoErr != nil {
+			return fmt.Errorf("statusCryosTwoFixtures: %w", cryosTwoErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, cryosTwoMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosTwoDeleteObjectIDs...)
+		infinityMarkers, infinityDeleteObjectIDs, infinityErr :=
+			director.InfinityFixtures(contentSelectionID)
+		if infinityErr != nil {
+			return fmt.Errorf("statusInfinityFixtures: %w", infinityErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, infinityMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityDeleteObjectIDs...)
+		infinityThreeMarkers, infinityThreeDeleteObjectIDs, infinityThreeErr :=
+			director.InfinityThreeFixtures(contentSelectionID)
+		if infinityThreeErr != nil {
+			return fmt.Errorf("statusInfinityThreeFixtures: %w", infinityThreeErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, infinityThreeMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityThreeDeleteObjectIDs...)
+		infinityOneMarkers, infinityOneDeleteObjectIDs, infinityOneErr :=
+			director.InfinityOneFixtures(contentSelectionID)
+		if infinityOneErr != nil {
+			return fmt.Errorf("statusInfinityOneFixtures: %w", infinityOneErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, infinityOneMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityOneDeleteObjectIDs...)
+		infinityFourMarkers, infinityFourDeleteObjectIDs, infinityFourErr :=
+			director.InfinityFourFixtures(contentSelectionID)
+		if infinityFourErr != nil {
+			return fmt.Errorf("statusInfinityFourFixtures: %w", infinityFourErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, infinityFourMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityFourDeleteObjectIDs...)
+		scaldronMarkers, scaldronDeleteObjectIDs, scaldronErr :=
+			director.ScaldronFixtures(contentSelectionID)
+		if scaldronErr != nil {
+			return fmt.Errorf("statusScaldronFixtures: %w", scaldronErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, scaldronMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, scaldronDeleteObjectIDs...)
 	}
-	fixtureMarkers = append(fixtureMarkers, director.CryosFungusFixtures()...)
+	if binding.Mode == game.ModeChain {
+		cryosCaveMarkers, cryosCaveDeleteObjectIDs, cryosCaveErr :=
+			director.CryosCaveFixtures()
+		if cryosCaveErr != nil {
+			return fmt.Errorf("statusCryosCaveFixtures: %w", cryosCaveErr)
+		}
+		fixtureMarkers = append(fixtureMarkers, cryosCaveMarkers...)
+		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosCaveDeleteObjectIDs...)
+	}
 	if len(fixtureMarkers) != 0 {
 		fixturePlans, nextObjectID, fixtureErr = zonenpc.PlanFixtures(
 			fixtureMarkers, nextObjectID, zoneobject.ProjectileIDStart,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -26,6 +27,7 @@ type LevelDirectorEntry struct {
 // entry-level spawn kind.
 type LevelDirectorPool struct {
 	ConfigurationOrdinal int
+	ConfigurationName    string
 	ConfigKind           string
 	SpawnKind            string
 	Entries              []LevelDirectorEntry
@@ -54,6 +56,9 @@ type LevelDirectorMarker struct {
 	SpawnKind               uint32
 	PoolKind                string
 	IsSpawnKindKnown        bool
+	SpawnSectionType        uint32
+	IsSpawnSectionKnown     bool
+	IsSpikeActive           bool
 	PositionX               float32
 	PositionY               float32
 	PositionZ               float32
@@ -84,11 +89,12 @@ type LevelDirectorTrigger struct {
 
 // LevelDirectorMarkerSet preserves one authored placement-set boundary.
 type LevelDirectorMarkerSet struct {
-	Ordinal  int
-	Name     string
-	Weight   uint32
-	Markers  []LevelDirectorMarker
-	Triggers []LevelDirectorTrigger
+	Ordinal   int
+	Name      string
+	GroupName string
+	Weight    uint32
+	Markers   []LevelDirectorMarker
+	Triggers  []LevelDirectorTrigger
 }
 
 // LevelScriptBinding links one authored level event to its imported Lua chunk.
@@ -187,7 +193,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 
 	rows, err = s.database.QueryContext(ctx, `
 		SELECT configuration_ordinal, configuration_entry_ordinal, ordinal,
-		       config_kind, spawn_kind, noun_name, minimum_difficulty,
+		       config_kind, configuration_name, spawn_kind, noun_name, minimum_difficulty,
 		       maximum_difficulty, is_horde_legal
 		FROM level_director_entry
 		WHERE level_id=?
@@ -198,11 +204,12 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 	for rows.Next() {
 		var configurationOrdinal int
 		var entry LevelDirectorEntry
+		var configurationName string
 		var minimumDifficulty int64
 		var maximumDifficulty int64
 		var isHordeLegal int
 		err = rows.Scan(&configurationOrdinal, &entry.ConfigurationEntryOrdinal, &entry.Ordinal,
-			&entry.ConfigKind, &entry.SpawnKind, &entry.NounName, &minimumDifficulty,
+			&entry.ConfigKind, &configurationName, &entry.SpawnKind, &entry.NounName, &minimumDifficulty,
 			&maximumDifficulty, &isHordeLegal)
 		if err != nil {
 			_ = rows.Close()
@@ -221,6 +228,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		if poolIndex < 0 || director.Pools[poolIndex].ConfigurationOrdinal != configurationOrdinal {
 			director.Pools = append(director.Pools, LevelDirectorPool{
 				ConfigurationOrdinal: configurationOrdinal,
+				ConfigurationName:    configurationName,
 				ConfigKind:           entry.ConfigKind,
 				SpawnKind:            entry.SpawnKind,
 			})
@@ -239,11 +247,11 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 
 	rows, err = s.database.QueryContext(ctx, `
 		SELECT level_marker_set.ordinal, marker.id, marker.ordinal, level_marker_set.asset_name,
-		       level_marker_set.weight, marker.marker_id, marker.marker_name,
+		       level_marker_set.group_name, level_marker_set.weight, marker.marker_id, marker.marker_name,
 		       marker.noun_name, marker.position_x, marker.position_y, marker.position_z,
 		       marker.rotation_x, marker.rotation_y, marker.rotation_z, marker.scale,
 		       marker.is_visible, marker.is_collision_enabled, marker.target_marker_id,
-		       marker.teleporter_trigger_radius,
+		       marker.teleporter_trigger_radius, marker.spawn_section_type, marker.is_spike_active,
 		       CASE WHEN marker.noun_name<>'TunnelTeleporter.Noun' COLLATE NOCASE
 		             AND marker.noun_name<>'Teleporter.Noun' COLLATE NOCASE
 		             AND marker.noun_name<>'SecurityTeleporter.Noun' COLLATE NOCASE
@@ -260,8 +268,25 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		  AND (marker.noun_name LIKE 'SpawnPoint_Director%.Noun' COLLATE NOCASE
 		       OR marker.noun_name LIKE 'Tutorial%.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_11.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_3.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_2.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_11_noShadow.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_7.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_islands_instrument_scitech_7_noShadow.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_cryos_ice_crack2.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_cryos_acunit_small.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_cryos_ACunit_small_animated.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_cryos_plants_shascope.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_cryos_ice_crack1.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_nocturna_herotree_yellow_1.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_nocturna_plant_expl.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_citadel_factoryvent_boss.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_citadel_factorypipe_plasma.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_citadel_factorypipe_smoke.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_citadel_factorypipe.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_scaldron_plant_large_1.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_scaldron_plant_small_3.Noun' COLLATE NOCASE
+		       OR marker.noun_name='DEST_prefab_scaldron_tem_column_statue.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_tota_headstatue_b.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_tota_headstatue_c.Noun' COLLATE NOCASE
 		       OR marker.noun_name='DEST_tota_heroplant_p3_b.Noun' COLLATE NOCASE
@@ -279,12 +304,66 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		              'nocturna_1_Smart_Object_1.Markerset',
 		              'nocturna_1_Smart_Object_2.Markerset',
 		              'nocturna_1_Smart_Object_3.Markerset',
+		              'nocturna_4_Smart_Objects_1.Markerset',
+		              'nocturna_4_Smart_Objects_2.Markerset',
+		              'nocturna_4_Smart_Objects_3.Markerset',
+		              'nocturna_3_Smart_Objects_1.Markerset',
+		              'nocturna_3_Smart_Objects_2.Markerset',
+		              'nocturna_3_Smart_Objects_3.Markerset',
+		              'nocturna_2_Smart_Objects_1.Markerset',
+		              'nocturna_2_Smart_Objects_2.Markerset',
+		              'nocturna_2_Smart_Objects_3.Markerset',
 		              'infinity_2_Obelisk_1.Markerset',
 		              'infinity_2_Obelisk_2.Markerset',
 		              'infinity_2_Obelisk_3.Markerset',
 		              'infinity_2_Smart_Object_1.Markerset',
 		              'infinity_2_Smart_Object_2.Markerset',
-		              'infinity_2_Smart_Object_3.Markerset')
+		              'infinity_2_Smart_Object_3.Markerset',
+		              'infinity_1_Obelisk_1.Markerset',
+		              'infinity_1_Obelisk_2.Markerset',
+		              'infinity_1_Obelisk_3.Markerset',
+		              'infinity_1_Smart_Objects_1.Markerset',
+		              'infinity_1_Smart_Objects_2.Markerset',
+		              'infinity_1_Smart_Objects_3.Markerset',
+		              'infinity_4_Obelisk_1.Markerset',
+		              'infinity_4_Obelisk_2.Markerset',
+		              'infinity_4_Obelisk_3.Markerset',
+		              'infinity_4_Smart_Objects_1.Markerset',
+		              'infinity_4_Smart_Objects_2.Markerset',
+		              'infinity_4_Smart_Objects_3.Markerset',
+		              'scaldron_2_Obelisk_1.Markerset',
+		              'scaldron_2_Obelisk_2.Markerset',
+		              'scaldron_2_Obelisk_3.Markerset',
+		              'scaldron_2_Smart_Objects_1.Markerset',
+		              'scaldron_2_Smart_Objects_2.Markerset',
+		              'scaldron_2_Smart_Objects_3.Markerset',
+		              'scaldron_1_Obelisk_1.Markerset',
+		              'scaldron_1_Obelisk_2.Markerset',
+		              'scaldron_1_Obelisk_3.Markerset',
+		              'scaldron_1_Smart_Object_1.Markerset',
+		              'scaldron_1_Smart_Object_2.Markerset',
+		              'scaldron_1_Smart_Object_3.Markerset',
+		              'scaldron_3_Obelisk_1.Markerset',
+		              'scaldron_3_Obelisk_2.Markerset',
+		              'scaldron_3_Obelisk_3.Markerset',
+		              'scaldron_3_Smart_Objects_1.Markerset',
+		              'scaldron_3_Smart_Objects_2.Markerset',
+		              'scaldron_3_Smart_Objects_3.Markerset',
+		              'scaldron_4_Obelisk_1.Markerset',
+		              'scaldron_4_Obelisk_2.Markerset',
+		              'scaldron_4_Obelisk_3.Markerset',
+		              'scaldron_4_Smart_Objects_1.Markerset',
+		              'scaldron_4_Smart_Objects_2.Markerset',
+		              'scaldron_4_Smart_Objects_3.Markerset',
+		              'infinity_3_Smart_Objects_1.Markerset',
+		              'infinity_3_Smart_Objects_2.Markerset',
+		              'infinity_3_Smart_Objects_3.Markerset',
+		              'cryos_1_Smart_Object_1.Markerset',
+		              'cryos_1_Smart_Object_2.Markerset',
+		              'cryos_1_Smart_Object_3.Markerset',
+		              'cryos_2_smart_objects_1.Markerset',
+		              'cryos_2_smart_objects_2.Markerset',
+		              'cryos_2_smart_objects_3.Markerset')
 		       OR marker.noun_name='HordeGateTeleporter.Noun' COLLATE NOCASE
 		       OR marker.noun_name='TestDoor_design_blockin_horde_open.Noun' COLLATE NOCASE
 		       OR marker.noun_name='Teleporter.Noun' COLLATE NOCASE
@@ -311,19 +390,22 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		var markerSetOrdinal int
 		var markerDatabaseID int64
 		var markerSetName string
+		var markerSetGroup string
 		var marker LevelDirectorMarker
 		var markerID int64
 		var targetMarkerID int64
 		var markerSetWeight int64
+		var spawnSectionType *int64
+		var isSpikeActive *int
 		var isTrigger int
 		var isVisible int
 		var isCollisionEnabled int
 		err = rows.Scan(&markerSetOrdinal, &markerDatabaseID, &marker.Ordinal, &markerSetName,
-			&markerSetWeight, &markerID, &marker.Name, &marker.NounName,
+			&markerSetGroup, &markerSetWeight, &markerID, &marker.Name, &marker.NounName,
 			&marker.PositionX, &marker.PositionY, &marker.PositionZ,
 			&marker.RotationX, &marker.RotationY, &marker.RotationZ, &marker.Scale,
 			&isVisible, &isCollisionEnabled, &targetMarkerID,
-			&marker.TeleporterTriggerRadius, &isTrigger)
+			&marker.TeleporterTriggerRadius, &spawnSectionType, &isSpikeActive, &isTrigger)
 		if err != nil {
 			_ = rows.Close()
 			return LevelDirector{}, fmt.Errorf("directorMarkerScan: %w", err)
@@ -338,11 +420,23 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		marker.TargetMarkerID = uint32(targetMarkerID)
 		marker.IsVisible = isVisible != 0
 		marker.IsCollisionEnabled = isCollisionEnabled != 0
+		if spawnSectionType != nil {
+			if *spawnSectionType < 0 || *spawnSectionType > 3 {
+				_ = rows.Close()
+				return LevelDirector{}, fmt.Errorf("directorSection[%d]: %d", marker.Ordinal, *spawnSectionType)
+			}
+			marker.SpawnSectionType = uint32(*spawnSectionType)
+			marker.IsSpawnSectionKnown = true
+		}
+		if isSpikeActive != nil {
+			marker.IsSpikeActive = *isSpikeActive != 0
+		}
 		marker.SpawnKind, marker.PoolKind, marker.IsSpawnKindKnown = classifyDirectorMarker(marker.NounName)
 		markerSetIndex := len(director.MarkerSets) - 1
 		if markerSetIndex < 0 || director.MarkerSets[markerSetIndex].Ordinal != markerSetOrdinal {
 			director.MarkerSets = append(director.MarkerSets, LevelDirectorMarkerSet{
-				Ordinal: markerSetOrdinal, Name: markerSetName, Weight: uint32(markerSetWeight),
+				Ordinal: markerSetOrdinal, Name: markerSetName, GroupName: markerSetGroup,
+				Weight: uint32(markerSetWeight),
 			})
 			markerSetIndex++
 		}
@@ -505,6 +599,40 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 	if closeErr != nil {
 		return LevelDirector{}, fmt.Errorf("directorScriptClose: %w", closeErr)
 	}
+	rows, err = s.database.QueryContext(ctx, `
+		SELECT ordinal, asset_name, group_name, weight FROM level_marker_set
+		WHERE level_id=? AND NOT EXISTS (
+			SELECT 1 FROM marker WHERE marker.level_marker_set_id=level_marker_set.id)
+		ORDER BY ordinal`, director.LevelID)
+	if err != nil {
+		return LevelDirector{}, fmt.Errorf("directorEmptySetQuery: %w", err)
+	}
+	for rows.Next() {
+		var markerSet LevelDirectorMarkerSet
+		var weight int64
+		err = rows.Scan(&markerSet.Ordinal, &markerSet.Name, &markerSet.GroupName, &weight)
+		if err != nil {
+			_ = rows.Close()
+			return LevelDirector{}, fmt.Errorf("directorEmptySetScan: %w", err)
+		}
+		if weight < 0 || weight > math.MaxUint32 {
+			_ = rows.Close()
+			return LevelDirector{}, fmt.Errorf("directorEmptySetWeight[%d]: %d", markerSet.Ordinal, weight)
+		}
+		markerSet.Weight = uint32(weight)
+		director.MarkerSets = append(director.MarkerSets, markerSet)
+	}
+	err = rows.Err()
+	closeErr = rows.Close()
+	if err != nil {
+		return LevelDirector{}, fmt.Errorf("directorEmptySetRows: %w", err)
+	}
+	if closeErr != nil {
+		return LevelDirector{}, fmt.Errorf("directorEmptySetClose: %w", closeErr)
+	}
+	sort.Slice(director.MarkerSets, func(left, right int) bool {
+		return director.MarkerSets[left].Ordinal < director.MarkerSets[right].Ordinal
+	})
 	return director, nil
 }
 

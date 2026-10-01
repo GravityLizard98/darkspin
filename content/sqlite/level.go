@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -53,6 +54,7 @@ type levelAsset struct {
 type levelDirectorAsset struct {
 	configurationOrdinal      int
 	configurationEntryOrdinal int
+	configurationName         string
 	configKind                string
 	nounName                  string
 	minimumDifficulty         uint32
@@ -81,6 +83,8 @@ type markerAsset struct {
 	componentStrings        []string
 	triggerProperties       map[string]markerTriggerProperty
 	interactable            *markerInteractableProperty
+	spawnSectionType        *uint32
+	isSpikeActive           *bool
 }
 
 type markerInteractableProperty struct {
@@ -274,8 +278,8 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 		 position_x, position_y, position_z, rotation_x, rotation_y, rotation_z, scale,
 		 dimension_x, dimension_y, dimension_z, is_visible, is_collision_enabled,
 		 asset_override_id, target_marker_id, teleporter_trigger_radius, interactable_ability,
-		 interactable_use_limit, interactable_challenge)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		 interactable_use_limit, interactable_challenge, spawn_section_type, is_spike_active)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = setStatement.Close()
 		_ = aliasStatement.Close()
@@ -296,10 +300,10 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 	}
 	directorStatement, err := transaction.PrepareContext(ctx, `
 		INSERT INTO level_director_entry
-		(id, level_id, config_kind, spawn_kind, configuration_ordinal,
+		(id, level_id, config_kind, configuration_name, spawn_kind, configuration_ordinal,
 		 configuration_entry_ordinal, ordinal, noun_name, minimum_difficulty,
 		 maximum_difficulty, is_horde_legal)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = eventStatement.Close()
 		_ = markerStatement.Close()
@@ -365,7 +369,7 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 			if configKind == "" {
 				configKind = "unknown"
 			}
-			_, err = directorStatement.ExecContext(ctx, directorID, levelID, configKind, "unknown",
+			_, err = directorStatement.ExecContext(ctx, directorID, levelID, configKind, director.configurationName, "unknown",
 				director.configurationOrdinal, director.configurationEntryOrdinal, ordinal,
 				director.nounName, director.minimumDifficulty, director.maximumDifficulty, director.isHordeLegal)
 			if err != nil {
@@ -412,6 +416,14 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 				var interactableAbility any
 				var interactableUseLimit any
 				var interactableChallenge any
+				var spawnSectionType any
+				var isSpikeActive any
+				if marker.spawnSectionType != nil {
+					spawnSectionType = *marker.spawnSectionType
+				}
+				if marker.isSpikeActive != nil {
+					isSpikeActive = *marker.isSpikeActive
+				}
 				if marker.interactable != nil {
 					interactableAbility = marker.interactable.ability
 					interactableUseLimit = marker.interactable.useLimit
@@ -423,7 +435,7 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 					marker.dimensionX, marker.dimensionY, marker.dimensionZ, marker.isVisible,
 					marker.isCollisionEnabled, "0x0", int64(marker.targetMarkerID),
 					marker.teleporterTriggerRadius, interactableAbility,
-					interactableUseLimit, interactableChallenge)
+					interactableUseLimit, interactableChallenge, spawnSectionType, isSpikeActive)
 				if err != nil {
 					return fmt.Errorf("markerInsert[%s:%d]: %w", markerSetName, markerOrdinal, err)
 				}
@@ -493,23 +505,78 @@ func decodeLevelAsset(ordinal int, entry dbpf.Entry, payload []byte) (levelAsset
 			level.planetConfig = field.text
 		}
 	}
-	level.directorEntries = decodeLevelDirectorEntries(payload, fields)
-	assignLevelDirectorKinds(level.name, level.directorEntries)
+	if strings.EqualFold(level.name, "zelems_1") {
+		entries, decodeErr := decodeInitialLevelDirectorEntries(payload)
+		if decodeErr != nil {
+			return levelAsset{}, fmt.Errorf("initialConfig: %w", decodeErr)
+		}
+		level.directorEntries = entries
+	} else {
+		level.directorEntries = decodeLevelDirectorEntries(payload, fields)
+	}
 	return level, nil
 }
 
-func assignLevelDirectorKinds(levelName string, entries []levelDirectorAsset) {
-	if !strings.EqualFold(levelName, "zelems_1") {
-		return
+func decodeInitialLevelDirectorEntries(payload []byte) ([]levelDirectorAsset, error) {
+	const anchor = "zelemsfootstep\x00"
+	anchorOffset := bytes.Index(payload, []byte(anchor))
+	if anchorOffset < 0 {
+		return nil, fmt.Errorf("configAnchor: missing")
 	}
-	kindByConfiguration := []string{"minion", "special", "agent", "captain"}
-	for index := range entries {
-		configurationOrdinal := entries[index].configurationOrdinal
-		if configurationOrdinal < 0 || configurationOrdinal >= len(kindByConfiguration) {
-			continue
+	cursor := anchorOffset + len(anchor)
+	configNames := []string{"levelConfig", "firstTimeConfig"}
+	roles := []string{"minion", "special", "boss", "agent", "captain"}
+	entries := make([]levelDirectorAsset, 0, 24)
+	for configIndex, configName := range configNames {
+		if cursor+40 > len(payload) {
+			return nil, fmt.Errorf("configHeader[%s]: truncated", configName)
 		}
-		entries[index].configKind = kindByConfiguration[configurationOrdinal]
+		counts := make([]uint32, len(roles))
+		for roleIndex := range roles {
+			counts[roleIndex] = binary.LittleEndian.Uint32(payload[cursor+20+roleIndex*4:])
+			if counts[roleIndex] > 1000 {
+				return nil, fmt.Errorf("configCount[%s:%s]: %d", configName, roles[roleIndex], counts[roleIndex])
+			}
+		}
+		cursor += 40
+		for roleIndex, role := range roles {
+			count := int(counts[roleIndex])
+			if cursor+count*16 > len(payload) {
+				return nil, fmt.Errorf("configRecords[%s:%s]: truncated", configName, role)
+			}
+			recordOffset := cursor
+			cursor += count * 16
+			for entryIndex := 0; entryIndex < count; entryIndex++ {
+				end := cursor
+				for end < len(payload) && payload[end] != 0 {
+					end++
+				}
+				if end == len(payload) || end == cursor {
+					return nil, fmt.Errorf("configNoun[%s:%s:%d]: missing", configName, role, entryIndex)
+				}
+				nounName := string(payload[cursor:end])
+				if !strings.HasSuffix(strings.ToLower(nounName), ".noun") {
+					return nil, fmt.Errorf("configNoun[%s:%s:%d]: %q", configName, role, entryIndex, nounName)
+				}
+				cursor = end + 1
+				offset := recordOffset + entryIndex*16
+				minimum := binary.LittleEndian.Uint32(payload[offset+4:])
+				maximum := binary.LittleEndian.Uint32(payload[offset+8:])
+				isHordeLegal := binary.LittleEndian.Uint32(payload[offset+12:])
+				if minimum > maximum || maximum > 1000 || isHordeLegal > 1 {
+					return nil, fmt.Errorf("configDifficulty[%s:%s:%d]: invalid", configName, role, entryIndex)
+				}
+				entries = append(entries, levelDirectorAsset{
+					configurationOrdinal:      configIndex*len(roles) + roleIndex,
+					configurationEntryOrdinal: entryIndex,
+					configurationName:         configName, configKind: role, nounName: nounName,
+					minimumDifficulty: minimum, maximumDifficulty: maximum,
+					isHordeLegal: isHordeLegal == 1,
+				})
+			}
+		}
 	}
+	return entries, nil
 }
 
 func decodeLevelDirectorEntries(payload []byte, fields []stringField) []levelDirectorAsset {
@@ -586,7 +653,7 @@ func decodeMarkerSetAsset(payload []byte) (markerSetAsset, error) {
 		return markerSetAsset{}, fmt.Errorf("markerBounds: %d markers in %d bytes", len(pairs), len(payload))
 	}
 	set := markerSetAsset{weight: math.Float32frombits(binary.LittleEndian.Uint32(payload[0x18:0x1c]))}
-	if len(fields) > 0 && strings.EqualFold(fields[len(fields)-1].text, "none") {
+	if len(fields) > 0 && hashID(fields[len(fields)-1].text) == binary.LittleEndian.Uint32(payload[8:12]) {
 		set.groupName = fields[len(fields)-1].text
 	}
 	for index, pair := range pairs {
@@ -594,6 +661,26 @@ func decodeMarkerSetAsset(payload []byte) (markerSetAsset, error) {
 		componentEnd := len(fields)
 		if index+1 < len(pairs) {
 			componentEnd = pairs[index+1].nameIndex
+		}
+		if index+1 == len(pairs) && set.groupName != "" && componentEnd > pair.nounIndex+1 {
+			componentEnd--
+		}
+		var spawnSectionType *uint32
+		var isSpikeActive *bool
+		if strings.EqualFold(fields[pair.nounIndex].text, "SpawnPoint_DirectorSpike.Noun") ||
+			strings.EqualFold(fields[pair.nounIndex].text, "SpawnPoint_DirectorWanderer.Noun") {
+			sectionOffset := fields[pair.nounIndex].offset + len(fields[pair.nounIndex].text) + 1
+			if sectionOffset+8 > len(payload) {
+				return markerSetAsset{}, fmt.Errorf("spawnPointBounds[%d]: truncated", index)
+			}
+			section := binary.LittleEndian.Uint32(payload[sectionOffset:])
+			active := binary.LittleEndian.Uint32(payload[sectionOffset+4:])
+			if section > 3 || active > 1 {
+				return markerSetAsset{}, fmt.Errorf("spawnPointDef[%d]: %d/%d", index, section, active)
+			}
+			spawnSectionType = &section
+			isActive := active == 1
+			isSpikeActive = &isActive
 		}
 		components := make([]string, 0, componentEnd-pair.nounIndex-1)
 		triggerProperties := make(map[string]markerTriggerProperty)
@@ -636,6 +723,8 @@ func decodeMarkerSetAsset(payload []byte) (markerSetAsset, error) {
 			componentStrings:  components,
 			triggerProperties: triggerProperties,
 			interactable:      interactable,
+			spawnSectionType:  spawnSectionType,
+			isSpikeActive:     isSpikeActive,
 		})
 	}
 	return set, nil

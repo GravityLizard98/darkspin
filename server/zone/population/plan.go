@@ -46,6 +46,9 @@ func (s *Session) planSpawns(
 	}
 	minionEntries := PoolEntries(director, "minion")
 	captainEntries := PoolEntries(director, "captain")
+	if director.IsFirstClear && strings.EqualFold(director.Level, game.InitialChainLevel) {
+		captainEntries = PoolEntries(director, "special")
+	}
 	requestedCount, err := requestedSpawnCount(decisions)
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("spawnCount: %w", err)
@@ -396,12 +399,39 @@ func decisionSpawnCount(decision Decision) (int, int, error) {
 func PoolEntries(
 	director game.CampaignDirector, configKind string,
 ) []game.CampaignDirectorEntry {
+	var selectedEntries []game.CampaignDirectorEntry
 	for _, pool := range director.Pools {
-		if strings.EqualFold(pool.ConfigKind, configKind) {
+		if !strings.EqualFold(pool.ConfigKind, configKind) {
+			continue
+		}
+		if director.IsFirstClear && strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
+			return pool.Entries
+		}
+		if selectedEntries == nil || strings.EqualFold(pool.ConfigurationName, "levelConfig") {
+			selectedEntries = pool.Entries
+		}
+	}
+	if director.IsFirstClear && strings.EqualFold(director.Level, game.InitialChainLevel) &&
+		(strings.EqualFold(configKind, "minion") || strings.EqualFold(configKind, "special")) {
+		return nil
+	}
+	return selectedEntries
+}
+
+// HordeEntries resolves the 1-1 horde and boss-add markers against the
+// authored minion roster; this level has no populated agent pool.
+func HordeEntries(director game.CampaignDirector) []game.CampaignDirectorEntry {
+	entries := PoolEntries(director, "agent")
+	if len(entries) != 0 || !strings.EqualFold(director.Level, game.InitialChainLevel) {
+		return entries
+	}
+	for _, pool := range director.Pools {
+		if strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") &&
+			strings.EqualFold(pool.ConfigKind, "minion") {
 			return pool.Entries
 		}
 	}
-	return nil
+	return PoolEntries(director, "minion")
 }
 
 func EntryByNoun(

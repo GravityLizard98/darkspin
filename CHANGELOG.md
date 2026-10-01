@@ -2,6 +2,8 @@
 
 ### 2026-10-01
 
+- Restore authored targetable destructibles across missions 1-1 through 6-4 with matching scenery layouts and shared destruction state.
+- Move mission 1-1's first-clear population from synthetic formations to authored spawn candidates and roster pools, including horde and boss adds; preserve marker sections and weighted alternatives.
 - #37 Update content verification from 2,288 to all 2,408 shipped loot definitions, including the 120 restored weapons.
 - #37 Allow shipped loot definitions with empty level ranges such as 999..100 through content parsing and database storage, rebuild older content schemas, and exclude these items from generated drops and nearest-level fallback.
 - #40 Expand hordes from Outer Rings onward to three independently spawned waves with a final Mutation Agent that promotes nearby enemies to elites; close authored arena gates, publish horde state through completion and reconnect, and move HELIX's Zelem reinfection cue to mission 2-3.

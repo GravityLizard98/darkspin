@@ -19,7 +19,7 @@ import (
 const (
 	SourceVersion  = "5.3.0.103"
 	SourceBuild    = 103
-	RecipeVersion  = 58
+	RecipeVersion  = 59
 	ContentRelease = "build-103-content"
 	RuntimeRole    = "runtime-content"
 )
@@ -1618,6 +1618,8 @@ func writeContentDatabase(
 			interactable_ability TEXT,
 			interactable_use_limit INTEGER,
 			interactable_challenge INTEGER,
+			spawn_section_type INTEGER,
+			is_spike_active INTEGER CHECK (is_spike_active IN (0, 1)),
 			UNIQUE (level_marker_set_id, ordinal)
 		);
 		CREATE TABLE level_event (
@@ -1638,6 +1640,7 @@ func writeContentDatabase(
 			id INTEGER PRIMARY KEY,
 			level_id INTEGER NOT NULL REFERENCES level(id) ON DELETE CASCADE,
 			config_kind TEXT NOT NULL,
+			configuration_name TEXT NOT NULL,
 			spawn_kind TEXT NOT NULL,
 			configuration_ordinal INTEGER NOT NULL CHECK (configuration_ordinal >= 0),
 			configuration_entry_ordinal INTEGER NOT NULL CHECK (configuration_entry_ordinal >= 0),

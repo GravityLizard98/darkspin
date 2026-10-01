@@ -49,9 +49,13 @@ type campaignLavaHazard struct {
 func (e *gameplayPeerSession) pollCryosGeyserEffects(now time.Time) ([][]byte, error) {
 	packets := make([][]byte, 0)
 	for _, crack := range e.zone.DirectorDefinition().CryosLavaCracks() {
+		sourceObjectID, isActive := e.cryosGeyserSourceObjectID(crack.MarkerID)
+		if !isActive {
+			continue
+		}
 		phase, cycle := campaignCryosLavaPhase(crack.MarkerID, now)
 		effects, err := e.campaignLavaPresentation(campaignLavaHazard{
-			sourceObjectID: crack.MarkerID, position: crack.Position,
+			sourceObjectID: sourceObjectID, position: crack.Position,
 			phase: phase, cycle: cycle,
 		})
 		if err != nil {
@@ -153,6 +157,10 @@ func (s *gameplayPeerSession) campaignLavaContact(
 	director := s.zone.DirectorDefinition()
 	cracks := director.CryosLavaCracks()
 	for _, crack := range cracks {
+		sourceObjectID, isActive := s.cryosGeyserSourceObjectID(crack.MarkerID)
+		if !isActive {
+			continue
+		}
 		deltaX := position.X - crack.Position.X
 		deltaY := position.Y - crack.Position.Y
 		deltaZ := float32(math.Abs(float64(position.Z - crack.Position.Z)))
@@ -160,7 +168,7 @@ func (s *gameplayPeerSession) campaignLavaContact(
 			deltaZ <= cryosLavaHeight {
 			phase, cycle := campaignCryosLavaPhase(crack.MarkerID, now)
 			return campaignLavaHazard{
-				sourceObjectID: crack.MarkerID, position: crack.Position,
+				sourceObjectID: sourceObjectID, position: crack.Position,
 				phase: phase, cycle: cycle,
 			}, true
 		}
@@ -181,6 +189,27 @@ func (s *gameplayPeerSession) campaignLavaContact(
 		},
 		phase: campaignLavaPhaseContinuous,
 	}, isContact
+}
+
+func (s *gameplayPeerSession) cryosGeyserSourceObjectID(markerID uint32) (uint32, bool) {
+	if s == nil || s.zone == nil {
+		return 0, false
+	}
+	levelName := s.zone.DirectorDefinition().Level
+	if !strings.EqualFold(levelName, "cryos_3") &&
+		!strings.EqualFold(levelName, "cryos_1") {
+		return markerID, true
+	}
+	if s.zone.NPCs() == nil {
+		return 0, false
+	}
+	for _, fixture := range s.zone.NPCs().Snapshots() {
+		if fixture.Plan.LocusID == markerID &&
+			strings.EqualFold(fixture.Plan.NounName, "DEST_prefab_cryos_ice_crack1.Noun") {
+			return fixture.Plan.ObjectID, !fixture.IsDefeated
+		}
+	}
+	return 0, false
 }
 
 func campaignCryosLavaPhase(markerID uint32, now time.Time) (campaignLavaPhase, uint64) {

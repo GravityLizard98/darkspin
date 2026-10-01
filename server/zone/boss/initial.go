@@ -281,7 +281,7 @@ func initialAddMarkers(
 func eligibleInitialAgents(
 	director game.CampaignDirector,
 ) []game.CampaignDirectorEntry {
-	authoredEntry := zonepopulation.PoolEntries(director, "agent")
+	authoredEntry := zonepopulation.HordeEntries(director)
 	eligibleEntry := make([]game.CampaignDirectorEntry, 0, len(authoredEntry))
 	for _, entry := range authoredEntry {
 		if !entry.IsHordeLegal || entry.NounName == "" ||

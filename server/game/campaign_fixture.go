@@ -29,7 +29,16 @@ func (e CampaignDirector) CampaignTreeObjects(
 		}
 		return objects, nil
 	}
-	vineMarkers, err := e.NightmareVineFixtures()
+	var vineMarkers []CampaignDirectorMarker
+	var err error
+	if strings.EqualFold(e.Level, "nocturna_1") ||
+		strings.EqualFold(e.Level, "nocturna_2") ||
+		strings.EqualFold(e.Level, "nocturna_3") ||
+		strings.EqualFold(e.Level, "nocturna_4") {
+		vineMarkers, err = e.NocturnaSelectedVines(selectionID)
+	} else {
+		vineMarkers, err = e.NightmareVineFixtures()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("treeVines: %w", err)
 	}
@@ -265,7 +274,8 @@ func (e CampaignDirector) VerdanthFixtures(selectionID uint32) (
 			if !isSelected || seenMarkerIDs[marker.MarkerID] {
 				continue
 			}
-			if !marker.NPCProfile.IsKnown || marker.NPCProfile.HitPoint <= 0 ||
+			if !marker.NPCProfile.IsKnown || !marker.NPCProfile.IsTargetable ||
+				marker.NPCProfile.HitPoint <= 0 ||
 				!isFiniteCampaignPosition(marker.Rotation) || marker.Scale <= 0 {
 				return nil, nil, fmt.Errorf("fixtureProfile[%d]: invalid", marker.MarkerID)
 			}
@@ -297,8 +307,8 @@ func isVerdanthCombatFixture(marker CampaignDirectorMarker) bool {
 	}
 }
 
-// CryosCaveScenery projects one complete authored cave layout for 3-2. The
-// third variant contains the lava-crack fixtures used by the cave hazards.
+// CryosCaveScenery projects one complete authored cave layout for 3-2. Combat
+// fixtures are projected separately from scenery.
 func (e CampaignDirector) CryosCaveScenery() (
 	[]CampaignDirectorMarker, []uint32, error,
 ) {
@@ -315,8 +325,7 @@ func (e CampaignDirector) CryosCaveScenery() (
 		}
 		markerSetCount++
 		for _, marker := range markerSet.Markers {
-			if strings.EqualFold(marker.NounName, CryosFungusNoun) {
-				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+			if isCryosCaveFixtureNoun(marker.NounName) {
 				continue
 			}
 			if !isCampaignSceneryMarker(marker) {
@@ -338,9 +347,8 @@ func (e CampaignDirector) CryosCaveScenery() (
 	return selected, deletedObjectIDs, nil
 }
 
-// NocturnaScenery selects one authored Obelisk layout and composes the level's
-// smart-object sets into their deduplicated union. The sets repeat shared
-// scenery while also contributing unique environment models.
+// NocturnaScenery selects one authored Obelisk layout. Nocturna 1-3 selects
+// one smart-object layout; other Nocturna levels retain their composed scenery.
 func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 	[]CampaignDirectorMarker, []uint32, error,
 ) {
@@ -350,6 +358,7 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 	levelName := strings.ToLower(strings.TrimSpace(e.Level))
 	variant := selectionID%3 + 1
 	selectedObeliskName := fmt.Sprintf("%s_obelisk_%d.markerset", levelName, variant)
+	selectedSmartObjectName := e.nocturnaSelectedMarkerSet(selectionID)
 	type sceneryIdentity struct {
 		nounName           string
 		position           Vec3
@@ -369,6 +378,14 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 	smartObjectMarkerSetCount := 0
 	for _, markerSet := range e.MarkerSets {
 		name := strings.ToLower(markerSet.Name)
+		if levelName == "nocturna_2" && name == "nocturna_2_design.markerset" {
+			for _, marker := range markerSet.Markers {
+				if marker.MarkerID != 0 && isNocturnaPlantFixture(marker) {
+					deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				}
+			}
+			continue
+		}
 		isObelisk := strings.HasPrefix(name, levelName+"_obelisk_")
 		isSmartObject := e.isNocturnaSmartObjectMarkerSet(name)
 		isPlantSet := e.isNocturnaPlantMarkerSet(name)
@@ -381,6 +398,21 @@ func (e CampaignDirector) NocturnaScenery(selectionID uint32) (
 		}
 		for _, marker := range markerSet.Markers {
 			_, isScriptMarker := scriptMarkerIDs[marker.MarkerID]
+			if (levelName == "nocturna_1" || levelName == "nocturna_2" ||
+				levelName == "nocturna_3" ||
+				levelName == "nocturna_4") && isSmartObject {
+				isCombatFixture := isNocturnaCombatFixture(marker)
+				isRoot := isNocturnaRootNoun(marker.NounName)
+				isScenery := isCampaignSceneryMarker(marker)
+				if marker.MarkerID != 0 && (isCombatFixture || isRoot || isScenery) {
+					deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+				}
+				if name == selectedSmartObjectName && isScenery &&
+					!isCombatFixture && !isRoot && !isScriptMarker {
+					selected = append(selected, marker)
+				}
+				continue
+			}
 			if marker.MarkerID != 0 && isNocturnaCombatFixture(marker) {
 				deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
 				continue
@@ -443,19 +475,32 @@ func isNocturnaPlantFixture(marker CampaignDirectorMarker) bool {
 	}
 }
 
-// InfinityScenery projects matching authored Obelisk and smart-object layouts
-// for 4-1. The shipped client can otherwise retain scenery from other variants,
+// InfinityScenery projects matching authored Obelisk and smart-object layouts.
+// The shipped client can otherwise retain scenery from other variants,
 // including large structures that do not exist in server navigation.
 func (e CampaignDirector) InfinityScenery(selectionID uint32) (
 	[]CampaignDirectorMarker, []uint32, error,
 ) {
-	if !strings.EqualFold(e.Level, infinityFoundryLevel) {
+	isFoundry := strings.EqualFold(e.Level, infinityFoundryLevel)
+	isFactory := strings.EqualFold(e.Level, "infinity_3")
+	isCitadelOne := strings.EqualFold(e.Level, "infinity_1")
+	isCitadelFour := strings.EqualFold(e.Level, "infinity_4")
+	if !isFoundry && !isFactory && !isCitadelOne && !isCitadelFour {
 		return nil, nil, nil
 	}
 	variant := selectionID%3 + 1
-	selectedNames := map[string]struct{}{
-		fmt.Sprintf("infinity_2_obelisk_%d.markerset", variant):      {},
-		fmt.Sprintf("infinity_2_smart_object_%d.markerset", variant): {},
+	selectedNames := make(map[string]struct{})
+	if isFoundry {
+		selectedNames[fmt.Sprintf("infinity_2_obelisk_%d.markerset", variant)] = struct{}{}
+		selectedNames[fmt.Sprintf("infinity_2_smart_object_%d.markerset", variant)] = struct{}{}
+	} else if isFactory {
+		selectedNames[fmt.Sprintf("infinity_3_smart_objects_%d.markerset", variant)] = struct{}{}
+	} else if isCitadelOne {
+		selectedNames[fmt.Sprintf("infinity_1_obelisk_%d.markerset", variant)] = struct{}{}
+		selectedNames[fmt.Sprintf("infinity_1_smart_objects_%d.markerset", variant)] = struct{}{}
+	} else {
+		selectedNames[fmt.Sprintf("infinity_4_obelisk_%d.markerset", variant)] = struct{}{}
+		selectedNames[fmt.Sprintf("infinity_4_smart_objects_%d.markerset", variant)] = struct{}{}
 	}
 	selected := make([]CampaignDirectorMarker, 0)
 	deletedObjectIDs := make([]uint32, 0)
@@ -466,14 +511,25 @@ func (e CampaignDirector) InfinityScenery(selectionID uint32) (
 	markerSetCount := 0
 	for _, markerSet := range e.MarkerSets {
 		name := strings.ToLower(markerSet.Name)
-		isObelisk := strings.HasPrefix(name, "infinity_2_obelisk_")
-		isSmartObject := strings.HasPrefix(name, "infinity_2_smart_object_")
-		if !isObelisk && !isSmartObject {
+		isFoundryVariant := isFoundry && (strings.HasPrefix(name, "infinity_2_obelisk_") ||
+			strings.HasPrefix(name, "infinity_2_smart_object_"))
+		isFactoryVariant := isFactory && strings.HasPrefix(name, "infinity_3_smart_objects_")
+		isCitadelOneVariant := isCitadelOne && (strings.HasPrefix(name, "infinity_1_obelisk_") ||
+			strings.HasPrefix(name, "infinity_1_smart_objects_"))
+		isCitadelFourVariant := isCitadelFour && (strings.HasPrefix(name, "infinity_4_obelisk_") ||
+			strings.HasPrefix(name, "infinity_4_smart_objects_"))
+		if !isFoundryVariant && !isFactoryVariant && !isCitadelOneVariant && !isCitadelFourVariant {
 			continue
 		}
 		markerSetCount++
 		for _, marker := range markerSet.Markers {
 			_, isScriptMarker := scriptMarkerIDs[marker.MarkerID]
+			if (isFoundry && isInfinityFixtureNoun(marker.NounName)) ||
+				(isFactory && isInfinityThreeFixtureNoun(marker.NounName)) ||
+				(isCitadelOne && isInfinityOneFixtureNoun(marker.NounName)) ||
+				(isCitadelFour && isInfinityFourFixtureNoun(marker.NounName)) {
+				continue
+			}
 			if isScriptMarker || !isCampaignSceneryMarker(marker) {
 				continue
 			}
@@ -485,11 +541,66 @@ func (e CampaignDirector) InfinityScenery(selectionID uint32) (
 			deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
 		}
 	}
-	if markerSetCount != 6 || len(selected) == 0 || len(deletedObjectIDs) == 0 {
+	expectedMarkerSetCount := 6
+	if isFactory {
+		expectedMarkerSetCount = 3
+	}
+	if markerSetCount != expectedMarkerSetCount || len(selected) == 0 || len(deletedObjectIDs) == 0 {
 		return nil, nil, fmt.Errorf(
 			"infinitySceneryComposition: sets=%d selected=%d deleted=%d",
 			markerSetCount, len(selected), len(deletedObjectIDs),
 		)
+	}
+	return selected, deletedObjectIDs, nil
+}
+
+// CryosSmartScenery projects a selected Cryos smart layout's noncombat markers.
+func (e CampaignDirector) CryosSmartScenery(selectionID uint32) (
+	[]CampaignDirectorMarker, []uint32, error,
+) {
+	markerSetPrefix := ""
+	isCryosOne := false
+	switch {
+	case strings.EqualFold(e.Level, cryosGeyserLevel):
+		markerSetPrefix = "cryos_1_smart_object_"
+		isCryosOne = true
+	case strings.EqualFold(e.Level, "cryos_2"):
+		markerSetPrefix = "cryos_2_smart_objects_"
+	default:
+		return nil, nil, nil
+	}
+	selectedSet := fmt.Sprintf("%s%d.markerset", markerSetPrefix, selectionID%3+1)
+	selected := make([]CampaignDirectorMarker, 0)
+	deletedObjectIDs := make([]uint32, 0)
+	scriptMarkerIDs := make(map[uint32]struct{}, len(e.Scripts))
+	for _, script := range e.Scripts {
+		scriptMarkerIDs[script.MarkerID] = struct{}{}
+	}
+	markerSetCount := 0
+	for _, markerSet := range e.MarkerSets {
+		name := strings.ToLower(markerSet.Name)
+		if !strings.HasPrefix(name, markerSetPrefix) {
+			continue
+		}
+		markerSetCount++
+		for _, marker := range markerSet.Markers {
+			_, isScriptMarker := scriptMarkerIDs[marker.MarkerID]
+			isCombatFixture := (isCryosOne && isCryosOneFixtureNoun(marker.NounName)) ||
+				(!isCryosOne && isCryosTwoFixtureNoun(marker.NounName))
+			if isScriptMarker || isCombatFixture ||
+				!isCampaignSceneryMarker(marker) {
+				continue
+			}
+			if name == selectedSet {
+				selected = append(selected, marker)
+				continue
+			}
+			deletedObjectIDs = append(deletedObjectIDs, marker.MarkerID)
+		}
+	}
+	if markerSetCount != 3 || len(selected) == 0 || len(deletedObjectIDs) == 0 {
+		return nil, nil, fmt.Errorf("cryosOneSceneryComposition: sets=%d selected=%d deleted=%d",
+			markerSetCount, len(selected), len(deletedObjectIDs))
 	}
 	return selected, deletedObjectIDs, nil
 }
@@ -507,7 +618,11 @@ func (e CampaignDirector) CryosLavaCracks() []CampaignDirectorMarker {
 	}
 	markers := make([]CampaignDirectorMarker, 0)
 	for _, markerSet := range e.MarkerSets {
-		if !strings.EqualFold(markerSet.Name, markerSetName) {
+		if !strings.EqualFold(markerSet.Name, markerSetName) &&
+			!(strings.EqualFold(e.Level, cryosGeyserLevel) &&
+				strings.HasPrefix(strings.ToLower(markerSet.Name), "cryos_1_smart_object_")) &&
+			!(strings.EqualFold(e.Level, cryosCaveLevel) &&
+				strings.EqualFold(markerSet.Name, "cryos_3_design.markerset")) {
 			continue
 		}
 		for _, marker := range markerSet.Markers {

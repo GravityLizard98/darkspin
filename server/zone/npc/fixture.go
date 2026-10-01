@@ -14,7 +14,7 @@ const GraviticMovementSpeedBuff = float32(-0.4)
 const GraviticFieldEffectName = "effect_zelem_instrument_slow_aura.ServerEventDef"
 
 func IsGraviticStabilizer(plan SpawnPlan) bool {
-	return plan.IsFixture && strings.EqualFold(plan.NounName, game.GraviticStabilizerNoun)
+	return plan.IsFixture && game.IsGraviticStabilizerNoun(plan.NounName)
 }
 
 // Both instruments retain their authored dead graphics and solid foundation.
@@ -24,9 +24,7 @@ func IsGraviticRemnant(plan SpawnPlan) bool {
 
 // Gravitic Regulators leave a solid base after their machinery is destroyed.
 func IsGraviticRegulator(plan SpawnPlan) bool {
-	return plan.IsFixture && strings.EqualFold(
-		plan.NounName, "DEST_prefab_islands_instrument_scitech_11.Noun",
-	)
+	return plan.IsFixture && game.IsGraviticRegulatorNoun(plan.NounName)
 }
 
 // IsVerdanthTotem identifies the ancient stone destructibles promoted from

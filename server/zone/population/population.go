@@ -131,22 +131,55 @@ func newSession(
 	if director.Level == "" {
 		return nil, errors.New("populationCreate: empty level")
 	}
+	director.IsFirstClear = isFirstClear
+	random := sim.NewSimulatorRandom(seed)
+	selectedSpikeSets := make(map[string]int)
+	groupWeights := make(map[string]uint32)
+	for _, markerSet := range director.MarkerSets {
+		if markerSet.GroupName == "" || strings.EqualFold(markerSet.GroupName, "none") ||
+			!strings.Contains(strings.ToLower(markerSet.Name), "_ai_spike") {
+			continue
+		}
+		groupWeights[strings.ToLower(markerSet.GroupName)] += markerSet.Weight
+	}
 	var candidates []candidate
 	for _, markerSet := range director.MarkerSets {
 		if strings.Contains(strings.ToLower(markerSet.Name), "_ai_horde_") {
 			continue
 		}
-		section := Section(markerSet.Name)
-		if section == 0 {
+		if markerSet.GroupName != "" && !strings.EqualFold(markerSet.GroupName, "none") &&
+			strings.Contains(strings.ToLower(markerSet.Name), "_ai_spike") {
+			groupName := strings.ToLower(markerSet.GroupName)
+			roll, isSelected := selectedSpikeSets[groupName]
+			if !isSelected {
+				weight := groupWeights[groupName]
+				if weight == 0 {
+					return nil, fmt.Errorf("populationGroupWeight[%s]: zero", groupName)
+				}
+				selection, err := random.Index(weight)
+				if err != nil {
+					return nil, fmt.Errorf("populationGroupRoll[%s]: %w", groupName, err)
+				}
+				roll = int(selection)
+			}
+			if uint32(roll) >= markerSet.Weight {
+				selectedSpikeSets[groupName] = roll - int(markerSet.Weight)
+				continue
+			}
+			selectedSpikeSets[groupName] = -1
+		}
+		fallbackSection := Section(markerSet.Name)
+		if fallbackSection == 0 {
 			continue
 		}
-		spikePositions := make([]game.Vec3, 0)
-		spikeRotations := make([]game.Vec3, 0)
-		spikeMarkerID := uint32(0)
-		spikeMarkerOrdinal := 0
+		spikesBySection := make(map[sim.DirectorRouteSection]*candidate)
 		for _, marker := range markerSet.Markers {
 			if !marker.IsSpawnKindKnown {
 				continue
+			}
+			section := fallbackSection
+			if marker.IsSpawnSectionKnown {
+				section = sim.DirectorRouteSection(marker.SpawnSectionType + 1)
 			}
 			switch marker.SpawnKind {
 			case 7:
@@ -159,35 +192,33 @@ func newSession(
 				}
 				candidates = append(candidates, candidate)
 			case 8:
-				if spikeMarkerID == 0 {
-					spikeMarkerID = marker.MarkerID
-					spikeMarkerOrdinal = marker.Ordinal
+				spike := spikesBySection[section]
+				if spike == nil {
+					spike = &candidate{
+						locusID: marker.MarkerID, kind: sim.DirectorLocusSpike, section: section,
+						markerSetOrdinal: markerSet.Ordinal, markerSetName: markerSet.Name,
+						markerOrdinal: marker.Ordinal, radius: sim.LocalSpikeRadius,
+					}
+					spikesBySection[section] = spike
 				}
-				spikePositions = append(spikePositions, marker.Position)
-				spikeRotations = append(spikeRotations, marker.Rotation)
+				spike.positions = append(spike.positions, marker.Position)
+				spike.rotations = append(spike.rotations, marker.Rotation)
 			}
 		}
-		if spikeMarkerID == 0 {
-			continue
+		for _, section := range []sim.DirectorRouteSection{
+			sim.DirectorRouteSectionA, sim.DirectorRouteSectionB,
+			sim.DirectorRouteSectionC, sim.DirectorRouteSectionAny,
+		} {
+			if spike := spikesBySection[section]; spike != nil {
+				candidates = append(candidates, *spike)
+			}
 		}
-		candidate := candidate{
-			locusID: spikeMarkerID, kind: sim.DirectorLocusSpike, section: section,
-			markerSetOrdinal: markerSet.Ordinal, markerSetName: markerSet.Name,
-			markerOrdinal: spikeMarkerOrdinal, positions: spikePositions,
-			rotations: spikeRotations,
-			radius:    sim.LocalSpikeRadius,
-		}
-		candidates = append(candidates, candidate)
 	}
-	random := sim.NewSimulatorRandom(seed)
 	if strings.EqualFold(director.Level, game.InitialChainLevel) {
 		var planErr error
-		candidates, planErr = applyInitialChainPopulationPlan(candidates, random)
+		candidates, planErr = applyInitialChainPopulationPlan(candidates, director, isFirstClear, random)
 		if planErr != nil {
 			return nil, fmt.Errorf("populationInitialPlan: %w", planErr)
-		}
-		if isFirstClear {
-			candidates = applyInitialChainFirstClearPopulation(candidates)
 		}
 	} else if strings.EqualFold(director.Level, "zelems_3") &&
 		hasSecondChainBaseRoster(director) {
@@ -251,153 +282,6 @@ func newSession(
 		floorComponentCount:      floorComponentCount,
 		policy:                   policy, spikeHistory: sim.NewLocalSpikeHistory(), random: random,
 	}, nil
-}
-
-type initialChainFirstClearGroup struct {
-	section   sim.DirectorRouteSection
-	anchor    game.Vec3
-	positions []game.Vec3
-	nounNames []string
-}
-
-func applyInitialChainFirstClearPopulation(candidates []candidate) []candidate {
-	groups := []initialChainFirstClearGroup{
-		{
-			section: sim.DirectorRouteSectionA,
-			anchor:  game.Vec3{X: -172.795, Y: -63.524, Z: 0.088},
-			positions: []game.Vec3{
-				{X: -172.795, Y: -63.524, Z: 0.088},
-				{X: -176.795, Y: -59.524, Z: 0.088},
-				{X: -168.795, Y: -59.524, Z: 0.088},
-				{X: -178.795, Y: -67.524, Z: 0.088},
-				{X: -166.795, Y: -67.524, Z: 0.088},
-				{X: -172.795, Y: -71.524, Z: 0.088},
-			},
-			nounNames: []string{
-				"ZelemBasicRepair.Noun",
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-				"NomadWithDrone.Noun",
-			},
-		},
-		{
-			section: sim.DirectorRouteSectionB,
-			anchor:  game.Vec3{X: 559.614, Y: -11.579, Z: 33.090},
-			positions: []game.Vec3{
-				{X: 559.614, Y: -11.579, Z: 33.090},
-				{X: 576.708, Y: -19.188, Z: 31.088},
-				{X: 563.614, Y: -8.579, Z: 33.090},
-				{X: 559.614, Y: -17.579, Z: 33.090},
-			},
-			nounNames: []string{
-				"ZelemSpecialHaster.Noun", "ZelemBasicRanged.Noun",
-				"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun",
-			},
-		},
-		{
-			section: sim.DirectorRouteSectionB,
-			anchor:  game.Vec3{X: 589.621, Y: -32.123, Z: 29.339},
-			positions: []game.Vec3{
-				{X: 595.149, Y: -46.874, Z: 27.242},
-				{X: 593.388, Y: -30.777, Z: 30.084},
-				{X: 580.325, Y: -18.718, Z: 30.690},
-			},
-			nounNames: []string{
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-			},
-		},
-		{
-			section: sim.DirectorRouteSectionB,
-			anchor:  game.Vec3{X: 663.868, Y: -35.423, Z: 20.088},
-			positions: []game.Vec3{
-				{X: 660.868, Y: -37.423, Z: 20.088},
-				{X: 666.868, Y: -37.423, Z: 20.088},
-				{X: 660.868, Y: -33.423, Z: 20.088},
-				{X: 666.868, Y: -33.423, Z: 20.088},
-			},
-			nounNames: []string{
-				"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun",
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-			},
-		},
-		{
-			section: sim.DirectorRouteSectionB,
-			anchor:  game.Vec3{X: 620.540, Y: -60.157, Z: 24.673},
-			positions: []game.Vec3{
-				{X: 618.540, Y: -60.157, Z: 24.673},
-				{X: 622.540, Y: -60.157, Z: 24.673},
-			},
-			nounNames: []string{"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun"},
-		},
-		{
-			section: sim.DirectorRouteSectionC,
-			anchor:  game.Vec3{X: -592.733, Y: 630.616, Z: 0.088},
-			positions: []game.Vec3{
-				{X: -592.733, Y: 630.616, Z: 0.088},
-			},
-			nounNames: []string{"ZelemBasicRanged.Noun"},
-		},
-		{
-			section: sim.DirectorRouteSectionC,
-			anchor:  game.Vec3{X: 255.014, Y: 666.813, Z: 10.088},
-			positions: []game.Vec3{
-				{X: 255.014, Y: 666.813, Z: 10.088},
-				{X: 249.014, Y: 662.813, Z: 10.088},
-				{X: 261.014, Y: 662.813, Z: 10.088},
-				{X: 247.014, Y: 668.813, Z: 10.088},
-				{X: 263.014, Y: 668.813, Z: 10.088},
-				{X: 249.014, Y: 674.813, Z: 10.088},
-				{X: 261.014, Y: 674.813, Z: 10.088},
-				{X: 255.014, Y: 678.813, Z: 10.088},
-				{X: 255.014, Y: 658.813, Z: 10.088},
-			},
-			nounNames: []string{
-				"ZelemSpecialHaster.Noun",
-				"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun",
-				"ZelemBasicRepair.Noun", "ZelemBasicRepair.Noun",
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-				"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun",
-			},
-		},
-		{
-			section: sim.DirectorRouteSectionC,
-			anchor:  game.Vec3{X: 187.032, Y: 659.184, Z: 5.088},
-			positions: []game.Vec3{
-				{X: 185.032, Y: 659.184, Z: 5.088},
-				{X: 189.032, Y: 659.184, Z: 5.088},
-			},
-			nounNames: []string{"ZelemBasicHybrid.Noun", "ZelemBasicHybrid.Noun"},
-		},
-	}
-	selectedIndexes := make(map[int]bool, len(groups))
-	for _, group := range groups {
-		selectedIndex := -1
-		selectedDistance := float32(math.MaxFloat32)
-		for candidateIndex, currentCandidate := range candidates {
-			if selectedIndexes[candidateIndex] || currentCandidate.section != group.section ||
-				currentCandidate.kind != sim.DirectorLocusWanderer {
-				continue
-			}
-			distance := candidateDistanceSquared(currentCandidate, group.anchor)
-			if distance >= selectedDistance {
-				continue
-			}
-			selectedIndex = candidateIndex
-			selectedDistance = distance
-		}
-		if selectedIndex < 0 {
-			continue
-		}
-		selectedIndexes[selectedIndex] = true
-		candidates[selectedIndex].positions = append([]game.Vec3(nil), group.positions...)
-		candidates[selectedIndex].provisionalCount = len(group.positions)
-		candidates[selectedIndex].isProvisionalCaptain = false
-		candidates[selectedIndex].isAmbush = false
-		candidates[selectedIndex].provisionalNounNames = append(
-			[]string(nil), group.nounNames...,
-		)
-	}
-	return candidates
 }
 
 // PrimeOpening resolves ordinary map population before exploration. Horde marker
@@ -622,32 +506,50 @@ var initialChainOpeningAnchor = game.Vec3{
 }
 
 type campaignPopulationTheme struct {
-	minionPair      [2]string
+	minionNouns     []string
 	lieutenantNouns []string
 }
 
 var initialChainRepairTheme = campaignPopulationTheme{
-	minionPair:      [2]string{"ZelemBasicRepair.Noun", "ZelemBasicHybrid.Noun"},
+	minionNouns:     []string{"ZelemBasicRepair.Noun", "ZelemBasicHybrid.Noun"},
 	lieutenantNouns: []string{"NomadWithDrone.Noun"},
 }
 
 var initialChainBarracudaTheme = campaignPopulationTheme{
-	minionPair:      [2]string{"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun"},
+	minionNouns:     []string{"ZelemBasicRanged.Noun", "ZelemBasicRanged.Noun"},
 	lieutenantNouns: []string{"ZelemSpecialHaster.Noun", "NomadSnipe.Noun"},
 }
 
-// applyInitialChainPopulationPlan replaces the dense authored control cloud
-// with two lieutenant-centered traversal clusters and a bounded minion fill on
-// each route floor. Floor A always uses the walkthrough's
-// Cannonator/Reparatron/Invincitron theme. Floors B and C independently choose
-// that theme or the Space Barracuda/Haster/Decelerator theme.
+// applyInitialChainPopulationPlan selects locations from authored spawn points.
+// The roster is authored on first clear; budgets and occupied locations remain
+// a local approximation until the native director policy is recovered.
 func applyInitialChainPopulationPlan(
-	candidates []candidate, random *sim.SimulatorRandom,
+	candidates []candidate, director game.CampaignDirector, isFirstClear bool,
+	random *sim.SimulatorRandom,
 ) ([]candidate, error) {
 	if random == nil {
 		return nil, errors.New("nil initial population random")
 	}
+	firstTimeTheme := campaignPopulationTheme{}
+	if isFirstClear {
+		minionEntries := PoolEntries(director, "minion")
+		specialEntries := PoolEntries(director, "special")
+		if len(minionEntries) == 0 || len(specialEntries) == 0 {
+			return nil, errors.New("first-time roster incomplete")
+		}
+		firstTimeTheme.minionNouns = make([]string, 0, len(minionEntries))
+		for _, entry := range minionEntries {
+			firstTimeTheme.minionNouns = append(firstTimeTheme.minionNouns, entry.NounName)
+		}
+		firstTimeTheme.lieutenantNouns = make([]string, 0, len(specialEntries))
+		for _, entry := range specialEntries {
+			firstTimeTheme.lieutenantNouns = append(firstTimeTheme.lieutenantNouns, entry.NounName)
+		}
+	}
 	if !canPlanCampaignFloorPopulation(candidates) {
+		if isFirstClear {
+			return nil, errors.New("first-time spawn points incomplete")
+		}
 		return candidates, nil
 	}
 	planned := make([]candidate, 0, 12)
@@ -662,8 +564,11 @@ func applyInitialChainPopulationPlan(
 				sectionCandidate = append(sectionCandidate, candidate)
 			}
 		}
-		theme := initialChainRepairTheme
-		if section != sim.DirectorRouteSectionA {
+		theme := firstTimeTheme
+		if !isFirstClear {
+			theme = initialChainRepairTheme
+		}
+		if !isFirstClear && section != sim.DirectorRouteSectionA {
 			themeIndex, err := random.Index(2)
 			if err != nil {
 				return nil, fmt.Errorf("theme[%d]: %w", section, err)
@@ -697,7 +602,7 @@ func applyInitialChainPopulationPlan(
 }
 
 var secondChainQuantumTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"ZelemBasicMelee.Noun", "ZelemBasicRangedHoming.Noun",
 	},
 	lieutenantNouns: []string{
@@ -706,14 +611,14 @@ var secondChainQuantumTheme = campaignPopulationTheme{
 }
 
 var secondChainBioTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"VerdanthBasicPlunge.Noun", "VerdanthBasicPlunge.Noun",
 	},
 	lieutenantNouns: []string{"NomadSpecialThree.Noun"},
 }
 
 var thirdChainNecroTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"NocturnaBasicHealthDrain.Noun", "NoctBasicFlyer.Noun",
 	},
 	lieutenantNouns: []string{
@@ -722,14 +627,14 @@ var thirdChainNecroTheme = campaignPopulationTheme{
 }
 
 var thirdChainPlasmaTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"CitadelBasicMelee.Noun", "CitadelBasicMelee.Noun",
 	},
 	lieutenantNouns: []string{"Boomer.Noun"},
 }
 
 var seventhChainQuantumTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"ZelemBasicChargeup.Noun", "ZelemBasicFlyingMelee.Noun",
 	},
 	lieutenantNouns: []string{
@@ -738,14 +643,14 @@ var seventhChainQuantumTheme = campaignPopulationTheme{
 }
 
 var seventhChainCyberTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"CitadelSpecificThree.Noun", "CitadelSpecificThree.Noun",
 	},
 	lieutenantNouns: []string{"ZelemSpecialThree.Noun"},
 }
 
 var eighthChainQuantumTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"ZelemBasicPackfly.Noun", "VerdanthBasicMelee.Noun",
 	},
 	lieutenantNouns: []string{
@@ -754,7 +659,7 @@ var eighthChainQuantumTheme = campaignPopulationTheme{
 }
 
 var eighthChainNecroTheme = campaignPopulationTheme{
-	minionPair: [2]string{
+	minionNouns: []string{
 		"Shooter.Noun", "Shooter.Noun",
 	},
 	lieutenantNouns: []string{"NocturnaSpecialHomer.Noun"},
@@ -783,7 +688,7 @@ func campaignPopulationPoolTheme(
 		return campaignPopulationTheme{}, false, fmt.Errorf("secondMinion: %w", err)
 	}
 	theme := campaignPopulationTheme{
-		minionPair: [2]string{
+		minionNouns: []string{
 			minionEntries[firstMinionIndex].NounName,
 			minionEntries[secondMinionIndex].NounName,
 		},
@@ -1066,7 +971,7 @@ func planCampaignFloor(
 		nounNames = append(nounNames, theme.lieutenantNouns[lieutenantIndex])
 		for index, candidate := range nearby {
 			positions = append(positions, candidate.positions[0])
-			nounNames = append(nounNames, theme.minionPair[index%len(theme.minionPair)])
+			nounNames = append(nounNames, theme.minionNouns[index%len(theme.minionNouns)])
 		}
 		plans = append(plans, initialChainClusterCandidate(
 			nearby[0], positions, nounNames,
@@ -1085,7 +990,7 @@ func planCampaignFloor(
 		candidate.isProvisionalCaptain = false
 		candidate.isAmbush = false
 		candidate.provisionalNounNames = []string{
-			theme.minionPair[spawnedCount%len(theme.minionPair)],
+			theme.minionNouns[spawnedCount%len(theme.minionNouns)],
 		}
 		plans = append(plans, candidate)
 		spawnedCount++
@@ -1161,17 +1066,23 @@ func nearestCampaignPosition(positions []game.Vec3, origin game.Vec3) game.Vec3 
 func Section(markerSetName string) sim.DirectorRouteSection {
 	name := strings.ToLower(markerSetName)
 	directorKindIndex := strings.Index(name, "wanderer")
+	kindLength := len("wanderer")
 	if directorKindIndex < 0 {
 		directorKindIndex = strings.Index(name, "wander")
+		kindLength = len("wander")
 	}
 	if directorKindIndex < 0 {
 		directorKindIndex = strings.Index(name, "spike")
+		kindLength = len("spike")
 	}
 	if directorKindIndex < 0 {
 		return 0
 	}
-	stem := strings.TrimSuffix(name, ".markerset")
-	switch stem[len(stem)-1] {
+	sectionIndex := directorKindIndex + kindLength
+	if sectionIndex >= len(name) {
+		return 0
+	}
+	switch name[sectionIndex] {
 	case 'a':
 		return sim.DirectorRouteSectionA
 	case 'b':
@@ -1179,7 +1090,7 @@ func Section(markerSetName string) sim.DirectorRouteSection {
 	case 'c':
 		return sim.DirectorRouteSectionC
 	}
-	return sim.DirectorRouteSectionA
+	return 0
 }
 
 func candidateDistanceSquared(

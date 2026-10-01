@@ -35,18 +35,27 @@ var build103CampaignNPCProfile = map[string]contentsqlite.NonPlayerNounProfile{
 		// The shipped noun bounds are (-4,-5,0)..(4,5,2.5).
 		// Include the corners in radial melee reach and navigation clearance.
 		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 6.403125,
+		IsTargetable: true,
+	},
+	"dest_prefab_islands_instrument_scitech_3.noun": {
+		NounName: "DEST_prefab_islands_instrument_scitech_3.Noun", HitPoint: 1,
+		// The shipped noun bounds are (-1.4,-1.5,0)..(1.4,1.9,5).
+		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 2.36,
+		IsTargetable: true,
 	},
 	"dest_tota_headstatue_b.noun": {
-		NounName: "DEST_tota_headstatue_b.Noun", HitPoint: 50,
+		NounName: "DEST_tota_headstatue_b.Noun", HitPoint: 10,
 		GraphicsScale: 1, FootprintRadius: 1.25, IsTargetable: true,
 	},
 	"dest_tota_headstatue_c.noun": {
-		NounName: "DEST_tota_headstatue_c.Noun", HitPoint: 50,
+		NounName: "DEST_tota_headstatue_c.Noun", HitPoint: 10,
 		GraphicsScale: 1, FootprintRadius: 1.25, IsTargetable: true,
 	},
 	"dest_prefab_islands_instrument_scitech_11.noun": {
 		NounName: "DEST_prefab_islands_instrument_scitech_11.Noun", HitPoint: 1,
-		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 1,
+		// The shipped noun bounds are (-1,-1.25,0)..(1,1.35,5).
+		CriticalRating: 5, GraphicsScale: 1, FootprintRadius: 1.68,
+		IsTargetable: true,
 	},
 	"zelembasicranged.noun": {
 		NounName: "ZelemBasicRanged.Noun", HitPoint: 20, PowerPoint: 75,
@@ -186,6 +195,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 		)
 		mapped := game.CampaignDirectorPool{
 			ConfigurationOrdinal: pool.ConfigurationOrdinal,
+			ConfigurationName:    pool.ConfigurationName,
 			ConfigKind:           configKind,
 			SpawnKind:            pool.SpawnKind,
 			Entries:              make([]game.CampaignDirectorEntry, 0, len(pool.Entries)),
@@ -237,7 +247,8 @@ func (s *DirectorSource) LoadCampaignDirector(
 	}
 	for _, markerSet := range director.MarkerSets {
 		mapped := game.CampaignDirectorMarkerSet{
-			Ordinal: markerSet.Ordinal, Name: markerSet.Name, Weight: markerSet.Weight,
+			Ordinal: markerSet.Ordinal, Name: markerSet.Name,
+			GroupName: markerSet.GroupName, Weight: markerSet.Weight,
 			Markers:  make([]game.CampaignDirectorMarker, 0, len(markerSet.Markers)),
 			Triggers: make([]game.CampaignDirectorTrigger, 0, len(markerSet.Triggers)),
 		}
@@ -246,10 +257,13 @@ func (s *DirectorSource) LoadCampaignDirector(
 				Ordinal: marker.Ordinal, MarkerID: marker.MarkerID, MarkerSetName: markerSet.Name,
 				Name:     marker.Name,
 				NounName: marker.NounName, SpawnKind: marker.SpawnKind, PoolKind: marker.PoolKind,
-				IsSpawnKindKnown: marker.IsSpawnKindKnown,
-				Position:         game.Vec3{X: marker.PositionX, Y: marker.PositionY, Z: marker.PositionZ},
-				Rotation:         game.Vec3{X: marker.RotationX, Y: marker.RotationY, Z: marker.RotationZ},
-				Scale:            marker.Scale, IsVisible: marker.IsVisible,
+				IsSpawnKindKnown:    marker.IsSpawnKindKnown,
+				SpawnSectionType:    marker.SpawnSectionType,
+				IsSpawnSectionKnown: marker.IsSpawnSectionKnown,
+				IsSpikeActive:       marker.IsSpikeActive,
+				Position:            game.Vec3{X: marker.PositionX, Y: marker.PositionY, Z: marker.PositionZ},
+				Rotation:            game.Vec3{X: marker.RotationX, Y: marker.RotationY, Z: marker.RotationZ},
+				Scale:               marker.Scale, IsVisible: marker.IsVisible,
 				IsCollisionEnabled:      marker.IsCollisionEnabled,
 				TargetMarkerID:          marker.TargetMarkerID,
 				TeleporterTriggerRadius: marker.TeleporterTriggerRadius,
@@ -331,10 +345,15 @@ func (s *DirectorSource) LoadCampaignDirector(
 }
 
 // campaignMarkerProfileKey preserves the placed noun identity while resolving
-// authored tutorial variants that share their base actor's class and physics.
+// authored variants whose packaged class references the base attributes.
 func campaignMarkerProfileKey(nounKey string) string {
 	switch nounKey {
+	case "dest_prefab_islands_instrument_scitech_11_noshadow.noun":
+		return "dest_prefab_islands_instrument_scitech_11.noun"
+	case "dest_prefab_islands_instrument_scitech_7_noshadow.noun":
+		return "dest_prefab_islands_instrument_scitech_7.noun"
 	case "dest_prefab_tota_heroplant_p3_b.noun":
+		// Its own NonPlayerClass references DEST_tota_HeroPlant_P3_b.ClassAttributes.
 		return "dest_tota_heroplant_p3_b.noun"
 	case "tutorialbasicpoisonnoorbs.noun":
 		return "tutorialbasicpoison.noun"
