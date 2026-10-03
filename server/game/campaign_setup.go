@@ -1010,9 +1010,16 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 			if !isPoolFound {
 				_, isPoolFound = poolKind[strings.ToLower(":"+marker.PoolKind)]
 			}
-			if !isPoolFound && strings.EqualFold(director.Level, InitialChainLevel) &&
-				strings.EqualFold(marker.PoolKind, "agent") {
+			// Horde and boss-add markers use the mission's minion roster
+			// when no separate agent pool is authored, beyond 1-1 as well.
+			if !isPoolFound && strings.EqualFold(marker.PoolKind, "agent") {
 				_, isPoolFound = poolKind["firsttimeconfig:minion"]
+				if !isPoolFound {
+					_, isPoolFound = poolKind["levelconfig:minion"]
+				}
+				if !isPoolFound {
+					_, isPoolFound = poolKind[":minion"]
+				}
 			}
 			if !isPoolFound {
 				return CampaignDirector{}, fmt.Errorf("campaign setup: marker %d pool %q missing",

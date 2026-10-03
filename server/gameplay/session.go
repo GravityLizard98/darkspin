@@ -802,8 +802,9 @@ func (s *gameplayPeerSession) pendingPackets() ([][]byte, uint64) {
 	var batchID uint64
 	for _, batch := range s.pendingPacketBatches {
 		// A connected peer may still be loading its scene. Keep world packets
-		// queued until its dungeon setup, and retain their original ordering.
-		if batch.isCampaignPresentation && !s.dungeonSetup.IsCommitted() {
+		// queued until its dungeon setup and reconnect baseline commit, retaining
+		// their original ordering so removals cannot precede baseline creates.
+		if batch.isCampaignPresentation && (!s.dungeonSetup.IsCommitted() || s.isRejoinPending) {
 			break
 		}
 		packets = append(packets, batch.packets...)
@@ -1415,6 +1416,7 @@ func (e *gameplayPeerSession) teleportPlayer(
 	}
 	if e.playerMotion == nil {
 		e.playerPosition = destination
+		e.playerMovementGoal = destination
 		if e.deployedCreatureIndex < uint32(len(e.passiveStationarySince)) {
 			e.passiveStationarySince[e.deployedCreatureIndex] = now
 		}
@@ -1425,6 +1427,7 @@ func (e *gameplayPeerSession) teleportPlayer(
 		return fmt.Errorf("movementTeleport: %w", err)
 	}
 	e.playerPosition = destination
+	e.playerMovementGoal = destination
 	if e.deployedCreatureIndex < uint32(len(e.passiveStationarySince)) {
 		e.passiveStationarySince[e.deployedCreatureIndex] = now
 	}
@@ -1778,7 +1781,11 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 	_, _ = e.stopFieldMedicDrone()
 	_, _ = e.stopBeastPet()
 	_, _ = e.stopHeroSummons()
-	_, _ = e.stopCampaignTreeOfLife()
+	treePackets, treeErr := e.stopCampaignTreeOfLife()
+	if treeErr != nil {
+		log.Printf("RakNet Tree of Life action reset cleanup failed user=%d: %v", e.binding.UserID, treeErr)
+	}
+	e.queueCampaignPackets(treePackets)
 	_, _ = e.stopTrapperStealth()
 	if e.enrageRun != nil {
 		e.enrageRun.Cancel()
@@ -2148,6 +2155,7 @@ func (e gameplaySessionLifecycle) discardGame(
 		if peerSession.binding.GameID != gameID {
 			continue
 		}
+		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
 		for key, lease := range e.registry.actionLeases {
@@ -2223,6 +2231,7 @@ func (e gameplaySessionLifecycle) discardMember(
 		if gameplaySessionMemberKey(peerSession) != memberKey {
 			continue
 		}
+		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
 		for key, lease := range e.registry.actionLeases {
@@ -2314,6 +2323,7 @@ func (e gameplaySessionLifecycle) cleanup(
 	retainedSessions := make([]gameplayPeerSession, 0, len(e.registry.retainedSessions))
 	arenaCancels := make([]func(), 0, len(e.registry.arenaMatches))
 	for sessionKey, peerSession := range e.registry.sessions {
+		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
 	}
@@ -2408,6 +2418,7 @@ func (e gameplaySessionLifecycle) recoverStaleTransport(
 	currentTransport := e.registry.memberTransports[key]
 	currentEndpoint := e.registry.memberEndpoints[key]
 	e.registry.clearActionLeasesLocked(sessionKey, transportGeneration)
+	e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 	if currentTransport == 0 || currentEndpoint != sessionKey {
 		delete(e.registry.sessions, sessionKey)
 		e.registry.mutex.Unlock()
@@ -2471,6 +2482,7 @@ func (e gameplaySessionLifecycle) disconnectMember(
 		e.registry.mutex.Unlock()
 		return
 	}
+	e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 	delete(e.registry.sessions, sessionKey)
 	e.registry.clearActionLeasesLocked(sessionKey, 0)
 	key := gameplaySessionMemberKey(peerSession)
@@ -2506,7 +2518,7 @@ func (e gameplaySessionLifecycle) disconnectMember(
 		peerSession.binding.UserID, peerSession.generation,
 	)
 	if !isDisconnected {
-		stopGameplayPeerRuntime(peerSession, modifierInstancePool, effectPool)
+		stopGameplayPeerRuntime(&peerSession, modifierInstancePool, effectPool)
 		if e.registry.logger != nil {
 			e.registry.logger.Printf(
 				"RakNet duplicate or stale gameplay disconnect quiesced game=%d user=%d generation=%d",
@@ -2524,7 +2536,7 @@ func (e gameplaySessionLifecycle) disconnectMember(
 			}
 		}
 	}
-	stopGameplayPeerRuntime(peerSession, modifierInstancePool, effectPool)
+	stopGameplayPeerRuntime(&peerSession, modifierInstancePool, effectPool)
 	for _, companion := range retainedCompanions {
 		err := peerSession.zone.Companion().Put(companion)
 		if err != nil && e.registry.logger != nil {
@@ -5047,26 +5059,6 @@ func (s *gameplayPeerSession) finishCampaignDamage(
 	packets [][]byte, statDelta sporenet.PlayerStatDelta,
 ) ([][]byte, sporenet.PlayerStatDelta, error) {
 	return packets, statDelta, nil
-}
-
-func (s *gameplayPeerSession) stopCampaignTreeOfLife() ([][]byte, error) {
-	if s == nil || s.treeOfLifeRun == nil {
-		return nil, nil
-	}
-	s.treeOfLifeRun.Stop()
-	objectID := s.treeOfLifeObjectID
-	s.treeOfLifeRun = nil
-	s.treeOfLifeObjectID = 0
-	if objectID == 0 {
-		return nil, nil
-	}
-	packet, err := raknet.MarshalApplication(raknet.ObjectDeleteMessage{
-		ObjectID: []uint32{objectID},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("treeDeleteMarshal: %w", err)
-	}
-	return [][]byte{packet}, nil
 }
 
 func (s *gameplayPeerSession) stopCampaignSagePassive() ([][]byte, error) {

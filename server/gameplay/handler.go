@@ -2135,6 +2135,9 @@ func (r gameplayJoinRuntime) handle(
 		return nil, errors.New("gameplay registry closed")
 	}
 	previousSession, isPreviousFound := r.registry.sessions[sessionKey]
+	if isPreviousFound {
+		r.registry.retireCampaignTreeOfLifeLocked(&previousSession)
+	}
 	r.registry.sessions[sessionKey] = nextSession
 	r.registry.memberTransports[memberKey] = transportGeneration
 	r.registry.memberEndpoints[memberKey] = sessionKey
@@ -3110,6 +3113,7 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 		currentSession.securityTransfer = nil
 	}
 	if command.Name == "reset" {
+		r.registry.retireCampaignTreeOfLifeLocked(&currentSession)
 		r.registry.clearActionLeasesLocked(
 			packet.Address.String(), currentSession.transportGeneration,
 		)
@@ -4287,7 +4291,7 @@ func stopGameplayPeerSession(
 	effectPool *attachedEffectPool,
 ) {
 	leaveGameplayPeerMembership(peerSession)
-	stopGameplayPeerRuntime(peerSession, modifierInstancePool, effectPool)
+	stopGameplayPeerRuntime(&peerSession, modifierInstancePool, effectPool)
 }
 
 func leaveGameplayPeerMembership(peerSession gameplayPeerSession) {
@@ -4304,9 +4308,12 @@ func leaveGameplayPeerMembership(peerSession gameplayPeerSession) {
 // this boundary until Continue, Cash Out, or connection teardown ends the
 // membership.
 func stopGameplayPeerRuntime(
-	peerSession gameplayPeerSession, modifierInstancePool *modifierPool,
+	peerSession *gameplayPeerSession, modifierInstancePool *modifierPool,
 	effectPool *attachedEffectPool,
 ) {
+	if peerSession == nil {
+		return
+	}
 	for objectID, projectile := range peerSession.graviticProjectiles {
 		projectile.setSpeed(time.Now(), 1)
 		err := modifierInstancePool.Release(projectile.instanceID)
@@ -4433,9 +4440,11 @@ func stopGameplayPeerRuntime(
 	_, _ = peerSession.stopFireTempestActive()
 	_, _ = peerSession.stopPlasmaSentinelActive()
 	_, _ = peerSession.stopTrapperStealth()
-	if peerSession.treeOfLifeRun != nil {
-		peerSession.treeOfLifeRun.Stop()
+	treePackets, treeErr := peerSession.stopCampaignTreeOfLife()
+	if treeErr != nil {
+		log.Printf("RakNet Tree of Life runtime cleanup failed user=%d: %v", peerSession.binding.UserID, treeErr)
 	}
+	peerSession.queueCampaignPackets(treePackets)
 	if peerSession.enrageRun != nil {
 		peerSession.enrageRun.Cancel()
 		peerSession.enrageRun.ReleaseEffect()
@@ -4496,7 +4505,7 @@ func resetGameplayPeerRuntime(
 	if peerSession == nil {
 		return
 	}
-	stopGameplayPeerRuntime(*peerSession, modifierInstancePool, effectPool)
+	stopGameplayPeerRuntime(peerSession, modifierInstancePool, effectPool)
 	peerSession.zoneEffectPresentation = zoneEffectPresentation{}
 	peerSession.zonePresentationRuntime = zonePresentationRuntime{}
 	peerSession.controlledHeroPresentation = controlledHeroPresentation{}
@@ -4721,6 +4730,32 @@ func (e campaignPopulationRuntime) activateOpening(
 			decision.NavigationComponentID, decision.IsFloorIntroduction,
 			decision.IsAmbush, spawnCount,
 		)
+	}
+	sectionsByLocusID := make(map[uint32]sim.DirectorRouteSection, len(result.decisions))
+	for _, decision := range result.decisions {
+		sectionsByLocusID[decision.LocusID] = decision.Section
+	}
+	plannedBySection := make(map[sim.DirectorRouteSection]int)
+	createdBySection := make(map[sim.DirectorRouteSection]int)
+	for _, plan := range result.spawnPlans {
+		if plan.IsFixture {
+			continue
+		}
+		section := sectionsByLocusID[plan.LocusID]
+		plannedBySection[section]++
+		_, isCreated := peerSession.zone.NPCs().NPC(plan.ObjectID)
+		if isCreated {
+			createdBySection[section]++
+		}
+	}
+	for _, audit := range peerSession.zone.Population().SectionAudits() {
+		e.logger.Printf("RakNet population opening level=%q section=%s planned_enemies=%d created_enemies=%d pending_encounters=%d fixtures=separate",
+			peerSession.binding.Level, zonepopulation.SectionLabel(audit.Section),
+			plannedBySection[audit.Section], createdBySection[audit.Section], audit.PendingEncounterLoci)
+	}
+	if plannedBySection[0] != 0 {
+		e.logger.Printf("RakNet population opening level=%q section=unassigned planned_enemies=%d created_enemies=%d",
+			peerSession.binding.Level, plannedBySection[0], createdBySection[0])
 	}
 	isFirstRunLevel := peerSession.binding.IsFirstRunLevel()
 	e.logger.Printf(
@@ -4947,6 +4982,16 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignFixtures: %w", err)
 	}
 	response = append(response, fixturePackets...)
+	activeFixtureCount := 0
+	for _, snapshot := range peerSession.zone.NPCs().Snapshots() {
+		if snapshot.Plan.IsFixture && !snapshot.IsDefeated {
+			activeFixtureCount++
+		}
+	}
+	r.logger.Printf("RakNet fixture takeover delivery game=%d level=%q rejoin=%t checkpoint=%t deleted_static=%d fixture_packets=%d planned_fixtures=%d active_server_fixtures=%d order=delete-before-create client_snapshot=unverified",
+		peerSession.binding.GameID, peerSession.binding.Level, peerSession.isRejoinPending,
+		isCheckpointBaseline, len(peerSession.zone.SceneryDeleteObjectIDs()),
+		len(fixturePackets), len(fixturePlans), activeFixtureCount)
 	remnantPackets, err := npcraknet.Remnants(peerSession.zone.NPCs().Snapshots())
 	if err != nil {
 		return nil, false, fmt.Errorf("pingCampaignRemnants: %w", err)
@@ -5716,6 +5761,24 @@ func (p campaignPreparation) initialize(
 	if sessionErr != nil {
 		return fmt.Errorf("statusChainPopulationSession: %w", sessionErr)
 	}
+	if p.logger != nil {
+		for _, audit := range populationSession.SectionAudits() {
+			p.logger.Printf("RakNet population filter level=%q seed=%#x section=%s recipe=%q input_wander=%d input_spike=%d excluded_spike=%d recipe_omitted_wander=%d recipe_omitted_spike=%d retained_wander=%d retained_spike=%d pending_encounters=%d fixtures=separate",
+				binding.Level, director.MapVariantSeed, zonepopulation.SectionLabel(audit.Section),
+				audit.Recipe, audit.InputWandererLoci, audit.InputSpikeLoci,
+				audit.ExcludedSpikeLoci, audit.RecipeOmittedWandererLoci,
+				audit.RecipeOmittedSpikeLoci, audit.RetainedWandererLoci,
+				audit.RetainedSpikeLoci, audit.PendingEncounterLoci)
+		}
+		selectedHordeSets := 0
+		for _, set := range director.MarkerSets {
+			if strings.Contains(strings.ToLower(set.Name), "_ai_horde_") {
+				selectedHordeSets++
+			}
+		}
+		p.logger.Printf("RakNet population pending encounter sets level=%q selected_horde_sets=%d scope=selected-layout fixtures=separate",
+			binding.Level, selectedHordeSets)
+	}
 	scriptRegistry, registryErr := game.NewCampaignScriptRegistry(director)
 	if registryErr != nil {
 		return fmt.Errorf("statusChainScriptRegistry: %w", registryErr)
@@ -5798,6 +5861,12 @@ func (p campaignPreparation) initialize(
 		if fixtureErr != nil {
 			return fmt.Errorf("statusChainFixturePlans: %w", fixtureErr)
 		}
+	}
+	fixtureErr = p.auditSelectedFixtureTakeover(
+		director, fixtureMarkers, sceneryDeleteObjectIDs, fixturePlans,
+	)
+	if fixtureErr != nil {
+		return fmt.Errorf("statusFixtureAudit: %w", fixtureErr)
 	}
 	if binding.Mode == game.ModeChain {
 		barrierSets, barrierErr := director.HordeBarriers()

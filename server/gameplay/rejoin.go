@@ -11,6 +11,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/squad"
 	"github.com/darkspinnet/darkspin/server/util"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
+	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 	barrierraknet "github.com/darkspinnet/darkspin/server/zone/barrier/raknet103"
 	zonecompanion "github.com/darkspinnet/darkspin/server/zone/companion"
 	zonehero "github.com/darkspinnet/darkspin/server/zone/hero"
@@ -55,11 +56,18 @@ func (r gameplaySetupRuntime) publishRejoin(
 		r.registry.sessions[packet.Address.String()] = current
 		r.registry.mutex.Unlock()
 	}
+	treeRevision := uint64(0)
+	if peerSession.zone != nil && peerSession.zone.TreeOfLife() != nil {
+		treeRevision = peerSession.zone.TreeOfLife().Revision()
+	}
 	baseline, revision, err := marshalGameplayRejoinBaseline(
 		peerSession, packet.SourceTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinBaseline: %w", err)
+	}
+	if peerSession.zone.TreeOfLife() != nil && peerSession.zone.TreeOfLife().Revision() != treeRevision {
+		return nil, fmt.Errorf("rejoinTreeCapture: %w", errRejoinSnapshotActive)
 	}
 	r.registry.mutex.Lock()
 	current, isFound := r.registry.sessions[packet.Address.String()]
@@ -73,7 +81,7 @@ func (r gameplaySetupRuntime) publishRejoin(
 	err = packet.AfterResponseCommit(func() {
 		r.commitRejoin(
 			packet.Address.String(), peerSession.transportGeneration,
-			revision,
+			revision, treeRevision,
 		)
 		r.scheduleCampaignClock(packet, peerSession)
 	})
@@ -89,7 +97,7 @@ func (r gameplaySetupRuntime) publishRejoin(
 }
 
 func (r gameplaySetupRuntime) commitRejoin(
-	sessionKey string, transportGeneration uint64, revision uint64,
+	sessionKey string, transportGeneration uint64, revision uint64, treeRevision uint64,
 ) {
 	r.registry.mutex.RLock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
@@ -136,6 +144,14 @@ func (r gameplaySetupRuntime) commitRejoin(
 	}
 	r.registry.mutex.Lock()
 	current, isFound := r.registry.sessions[sessionKey]
+	// A tree may spawn or retire after baseline encoding but before transport
+	// commit. Keep the reconnect pending for a fresh baseline in that case;
+	// queued removals remain behind it rather than preceding a stale create.
+	if peerSession.zone.TreeOfLife() != nil &&
+		peerSession.zone.TreeOfLife().Revision() != treeRevision {
+		r.registry.mutex.Unlock()
+		return
+	}
 	isCurrent = isFound &&
 		current.transportGeneration == transportGeneration &&
 		current.isRejoinPending
@@ -173,13 +189,19 @@ func marshalGameplayRejoinBaseline(
 	}
 	for attempt := 0; attempt < rejoinSnapshotAttemptLimit; attempt++ {
 		revision := peerSession.zone.ProjectionRevision()
+		trees := peerSession.zone.TreeOfLife()
+		treeRevision := uint64(0)
+		if trees != nil {
+			treeRevision = trees.Revision()
+		}
 		packets, err := marshalGameplayRejoinBaselineState(
 			peerSession, sourceTime,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("rejoinSnapshot[%d]: %w", attempt, err)
 		}
-		if peerSession.zone.ProjectionRevision() == revision {
+		isTreeSnapshotCurrent := trees == nil || trees.Revision() == treeRevision
+		if peerSession.zone.ProjectionRevision() == revision && isTreeSnapshotCurrent {
 			return packets, revision, nil
 		}
 	}
@@ -385,6 +407,11 @@ func marshalGameplayRejoinBaselineState(
 		return nil, fmt.Errorf("rejoinCompanion: %w", err)
 	}
 	packets = append(packets, companionPackets...)
+	treePackets, err := marshalGameplayRejoinTrees(peerSession)
+	if err != nil {
+		return nil, fmt.Errorf("rejoinTrees: %w", err)
+	}
+	packets = append(packets, treePackets...)
 	pickupPackets, err := marshalGameplayRejoinPickups(peerSession)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinPickup: %w", err)
@@ -515,6 +542,23 @@ func marshalDungeonReconnectState() ([]byte, error) {
 		return nil, fmt.Errorf("reconnectMarshal: %w", err)
 	}
 	return packet, nil
+}
+
+func marshalGameplayRejoinTrees(peerSession gameplayPeerSession) ([][]byte, error) {
+	if peerSession.zone == nil || peerSession.zone.TreeOfLife() == nil {
+		return nil, nil
+	}
+	now := peerSession.zone.Elapsed(time.Now())
+	trees := peerSession.zone.TreeOfLife().SnapshotsAt(now)
+	packets := make([][]byte, 0, len(trees))
+	for index, tree := range trees {
+		packet, err := abilityraknet.MarshalTreeOfLifePresentation(tree, now)
+		if err != nil {
+			return nil, fmt.Errorf("treeSnapshot[%d]: %w", index, err)
+		}
+		packets = append(packets, packet)
+	}
+	return packets, nil
 }
 
 func marshalGameplayRejoinPickups(

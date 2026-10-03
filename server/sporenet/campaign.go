@@ -125,10 +125,13 @@ func (m *UserManager) GrantCampaignExperience(
 		if receipt.ResultID != resultID {
 			continue
 		}
-		if receipt.Amount != amount || receipt.Level == 0 {
+		if receipt.Level == 0 {
 			user.mu.Unlock()
 			return TutorialExperience{}, errors.New("campaign experience receipt conflict")
 		}
+		// A restored zone can have a different provisional XP total after
+		// an interrupted result flow. The durable receipt owns this award;
+		// replay its result without granting or replacing experience again.
 		experience := TutorialExperience{
 			CumulativeXP: receipt.CumulativeXP, Level: receipt.Level,
 		}

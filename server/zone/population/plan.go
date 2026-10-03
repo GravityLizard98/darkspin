@@ -456,12 +456,15 @@ func PoolEntries(
 	return selectedEntries
 }
 
-// HordeEntries resolves the 1-1 horde and boss-add markers against the
-// authored minion roster; this level has no populated agent pool.
+// HordeEntries uses the mission's minion roster for horde and boss-add
+// markers when no separate agent pool is authored.
 func HordeEntries(director game.CampaignDirector) []game.CampaignDirectorEntry {
 	entries := PoolEntries(director, "agent")
-	if len(entries) != 0 || !strings.EqualFold(director.Level, game.InitialChainLevel) {
+	if len(entries) != 0 {
 		return entries
+	}
+	if !strings.EqualFold(director.Level, game.InitialChainLevel) {
+		return PoolEntries(director, "minion")
 	}
 	for _, pool := range director.Pools {
 		if strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") &&

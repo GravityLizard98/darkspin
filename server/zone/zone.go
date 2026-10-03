@@ -17,6 +17,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/squad"
 	"github.com/darkspinnet/darkspin/server/util"
+	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	zonebarrier "github.com/darkspinnet/darkspin/server/zone/barrier"
 	zoneboss "github.com/darkspinnet/darkspin/server/zone/boss"
 	zonecheckpoint "github.com/darkspinnet/darkspin/server/zone/checkpoint"
@@ -177,6 +178,7 @@ type NPCTargetDamage struct {
 // Zone owns the state shared by every peer participating in one campaign
 // run. Connection-local presentation and transport state remain outside it.
 type Zone struct {
+	treeOfLife           *zoneability.TreeOfLifePresentationSession
 	mu                   sync.RWMutex
 	ctx                  context.Context
 	cancel               context.CancelFunc
@@ -251,7 +253,8 @@ func New(id uint64, generation uint64, info ZoneInfo) (*Zone, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	zone := &Zone{
-		ctx: ctx, cancel: cancel,
+		treeOfLife: zoneability.NewTreeOfLifePresentationSession(),
+		ctx:        ctx, cancel: cancel,
 		id: id, generation: generation, completionID: completionID,
 		state: StateActive, startedAt: time.Now(),
 		info: info, members: make(map[uint64]Member),

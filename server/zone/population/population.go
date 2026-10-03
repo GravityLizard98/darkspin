@@ -29,6 +29,7 @@ type candidate struct {
 	isAmbush              bool
 	navigationComponentID uint32
 	provisionalNounNames  []string
+	sourceLocusIDs        []uint32
 }
 
 type Decision struct {
@@ -75,6 +76,9 @@ type Session struct {
 	groupChallengeMultiplier float32
 	mixedRandom              *mixedGroupRandom
 	sectionRosters           []SectionRoster
+	inputLoci                []PopulationLocus
+	excludedLoci             []PopulationLocus
+	recipe                   string
 }
 
 func (s *Session) Random() *sim.SimulatorRandom {
@@ -156,6 +160,8 @@ func newSession(
 		groupWeights[strings.ToLower(markerSet.GroupName)] += markerSet.Weight
 	}
 	var candidates []candidate
+	inputLoci := make([]PopulationLocus, 0)
+	excludedLoci := make([]PopulationLocus, 0)
 	for _, markerSet := range director.MarkerSets {
 		if strings.Contains(strings.ToLower(markerSet.Name), "_ai_horde_") {
 			continue
@@ -183,9 +189,6 @@ func newSession(
 			selectedSpikeSets[groupName] = -1
 		}
 		fallbackSection := Section(markerSet.Name)
-		if fallbackSection == 0 {
-			continue
-		}
 		spikesBySection := make(map[sim.DirectorRouteSection]*candidate)
 		for _, marker := range markerSet.Markers {
 			if !marker.IsSpawnKindKnown {
@@ -195,18 +198,29 @@ func newSession(
 			if marker.IsSpawnSectionKnown {
 				section = sim.DirectorRouteSection(marker.SpawnSectionType + 1)
 			}
+			// Sets such as zelems_3_Ai_Wander and Ai_Spike_8a do not
+			// encode a route section in their name. Their markers do.
+			if section == 0 {
+				continue
+			}
 			switch marker.SpawnKind {
 			case 7:
+				inputLoci = append(inputLoci, PopulationLocus{ID: marker.MarkerID,
+					Kind: sim.DirectorLocusWanderer, Section: section})
 				candidate := candidate{
 					locusID: marker.MarkerID, kind: sim.DirectorLocusWanderer, section: section,
 					markerSetOrdinal: markerSet.Ordinal, markerSetName: markerSet.Name,
 					markerOrdinal: marker.Ordinal, positions: []game.Vec3{marker.Position},
 					rotations: []game.Vec3{marker.Rotation},
-					radius:    sim.LocalWandererRadius,
+					radius:    sim.LocalWandererRadius, sourceLocusIDs: []uint32{marker.MarkerID},
 				}
 				candidates = append(candidates, candidate)
 			case 8:
+				locus := PopulationLocus{ID: marker.MarkerID,
+					Kind: sim.DirectorLocusSpike, Section: section}
+				inputLoci = append(inputLoci, locus)
 				if isSpikeExcluded(marker, volumes) {
+					excludedLoci = append(excludedLoci, locus)
 					continue
 				}
 				spike := spikesBySection[section]
@@ -220,6 +234,7 @@ func newSession(
 				}
 				spike.positions = append(spike.positions, marker.Position)
 				spike.positionIDs = append(spike.positionIDs, marker.MarkerID)
+				spike.sourceLocusIDs = append(spike.sourceLocusIDs, marker.MarkerID)
 				spike.rotations = append(spike.rotations, marker.Rotation)
 			}
 		}
@@ -232,7 +247,9 @@ func newSession(
 			}
 		}
 	}
+	recipe := "authored-candidates"
 	if strings.EqualFold(director.Level, game.InitialChainLevel) {
+		recipe = "initial-chain-local-plan"
 		var planErr error
 		candidates, planErr = applyInitialChainPopulationPlan(candidates, director, isFirstClear,
 			random, sim.NewSimulatorRandom(seed^0x53454354))
@@ -241,6 +258,7 @@ func newSession(
 		}
 	} else if strings.EqualFold(director.Level, "zelems_3") &&
 		hasSecondChainBaseRoster(director) {
+		recipe = "second-chain-15-per-section"
 		var planErr error
 		candidates, planErr = applySecondChainPopulationPlan(candidates, random)
 		if planErr != nil {
@@ -248,6 +266,7 @@ func newSession(
 		}
 	} else if strings.EqualFold(director.Level, "nocturna_4") &&
 		hasThirdChainBaseRoster(director) {
+		recipe = "third-chain-15-per-section"
 		var planErr error
 		candidates, planErr = applyThirdChainPopulationPlan(candidates, random)
 		if planErr != nil {
@@ -255,6 +274,7 @@ func newSession(
 		}
 	} else if strings.EqualFold(director.Level, "zelems_2") &&
 		hasSeventhChainBaseRoster(director) {
+		recipe = "seventh-chain-15-per-section"
 		var planErr error
 		candidates, planErr = applySeventhChainPopulationPlan(candidates, random)
 		if planErr != nil {
@@ -262,6 +282,7 @@ func newSession(
 		}
 	} else if strings.EqualFold(director.Level, "zelems_4") &&
 		hasEighthChainBaseRoster(director) {
+		recipe = "eighth-chain-15-per-section"
 		var planErr error
 		candidates, planErr = applyEighthChainPopulationPlan(candidates, random)
 		if planErr != nil {
@@ -273,6 +294,7 @@ func newSession(
 			return nil, fmt.Errorf("populationPoolTheme: %w", planErr)
 		}
 		if isThemeFound {
+			recipe = "pool-theme-15-per-section"
 			candidates, planErr = applyCampaignPopulationThemes(
 				candidates, [2]campaignPopulationTheme{theme, theme}, random,
 			)
@@ -296,6 +318,9 @@ func newSession(
 		groupChallengeMultiplier: multiplier,
 		mixedRandom:              &mixedGroupRandom{state: seed ^ 0x4d495845},
 		sectionRosters:           sectionRosters,
+		inputLoci:                inputLoci,
+		excludedLoci:             excludedLoci,
+		recipe:                   recipe,
 		candidates:               candidates, insideStates: make(map[uint32]bool, len(candidates)),
 		resolvedDirectorPointIDs: make(map[uint32]bool, len(candidates)),
 		enteredComponents:        make(map[uint32]bool, floorComponentCount),
@@ -1137,7 +1162,7 @@ func planCampaignFloor(
 			nounNames = append(nounNames, theme.minionNouns[index%len(theme.minionNouns)])
 		}
 		plans = append(plans, initialChainClusterCandidate(
-			nearby[0], positions, nounNames,
+			nearby[0], positions, nounNames, candidates, nearby, position,
 		))
 		spawnedCount += len(nounNames)
 	}
@@ -1175,6 +1200,7 @@ func campaignSpikeAt(candidates []candidate, position game.Vec3) (candidate, boo
 			if index < len(candidate.positionIDs) {
 				candidate.locusID = candidate.positionIDs[index]
 				candidate.positionIDs = []uint32{candidate.locusID}
+				candidate.sourceLocusIDs = []uint32{candidate.locusID}
 			}
 			if index < len(candidate.rotations) {
 				candidate.rotations = []game.Vec3{candidate.rotations[index]}
@@ -1187,8 +1213,16 @@ func campaignSpikeAt(candidates []candidate, position game.Vec3) (candidate, boo
 
 func initialChainClusterCandidate(
 	anchor candidate, positions []game.Vec3, nounNames []string,
+	candidates []candidate, nearby []candidate, elitePosition game.Vec3,
 ) candidate {
 	anchor.positions = append([]game.Vec3(nil), positions...)
+	anchor.sourceLocusIDs = make([]uint32, 0, len(nearby)+1)
+	if spike, isFound := campaignSpikeAt(candidates, elitePosition); isFound {
+		anchor.sourceLocusIDs = append(anchor.sourceLocusIDs, spike.locusID)
+	}
+	for _, candidate := range nearby {
+		anchor.sourceLocusIDs = append(anchor.sourceLocusIDs, candidate.sourceLocusIDs...)
+	}
 	anchor.provisionalCount = len(nounNames)
 	anchor.isProvisionalCaptain = true
 	anchor.isAmbush = true

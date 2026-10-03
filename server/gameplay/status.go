@@ -464,16 +464,6 @@ func (r gameplayStatusRuntime) campaignBeamOut(
 			"statusCampaignResultSnapshot: %w", errors.Join(err, rollbackErr),
 		)
 	}
-	experienceCommit, err := r.commitCampaignExperience(ctx, currentSession)
-	if err != nil {
-		rollbackErr := r.rollbackCampaignBeamOut(sessionKey, generation)
-		return nil, fmt.Errorf(
-			"statusCampaignExperience: %w", errors.Join(err, rollbackErr),
-		)
-	}
-	snapshot.StartingExperience = startingExperience
-	snapshot.FinalExperience = experienceCommit.CumulativeXP
-	snapshot.FinalLevel = experienceCommit.Level
 	snapshot.RewardClassType = creature.ClassType
 	snapshot.RewardElementType = creature.ElementType
 	nextBinding := currentSession.binding
@@ -500,6 +490,18 @@ func (r gameplayStatusRuntime) campaignBeamOut(
 			"statusCampaignResultRoster: %w", errors.Join(err, rollbackErr),
 		)
 	}
+	// Prepare the next-mission presentation before committing rewards so
+	// a preview failure does not leave a partially completed result flow.
+	experienceCommit, err := r.commitCampaignExperience(ctx, currentSession)
+	if err != nil {
+		rollbackErr := r.rollbackCampaignBeamOut(sessionKey, generation)
+		return nil, fmt.Errorf(
+			"statusCampaignExperience: %w", errors.Join(err, rollbackErr),
+		)
+	}
+	snapshot.StartingExperience = startingExperience
+	snapshot.FinalExperience = experienceCommit.CumulativeXP
+	snapshot.FinalLevel = experienceCommit.Level
 	err = currentSession.zone.CompleteObjectives(ctx, time.Now())
 	if err != nil {
 		if r.logger != nil {
@@ -567,7 +569,7 @@ func (r gameplayStatusRuntime) campaignBeamOut(
 	if !isCommitted {
 		return nil, nil
 	}
-	stopGameplayPeerRuntime(committedSession, r.modifierPool, r.effectPool)
+	stopGameplayPeerRuntime(&committedSession, r.modifierPool, r.effectPool)
 	r.logger.Printf(
 		"RakNet campaign Beam Out accepted for %s result=%d; chain voting entered with A9 body pending",
 		packet.Address, snapshot.ResultID,
@@ -706,6 +708,7 @@ func (r gameplayStatusRuntime) commitCampaignBeamOut(
 		return gameplayPeerSession{}, false
 	}
 	peerSession.chainResult = resultSession
+	r.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 	if snapshot.FinalLevel != 0 {
 		peerSession.binding.AvatarLevel = snapshot.FinalLevel
 		peerSession.binding.AvatarXP = float32(snapshot.FinalExperience)

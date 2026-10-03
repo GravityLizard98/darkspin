@@ -170,7 +170,7 @@ func (e gameplayPendingRuntime) updateGraviticPresentationLocked(
 	}
 	if member.isGraviticEffectAttached && member.graviticSlowObjectID != nextObjectID {
 		messages = append(messages, raknet.AttachedEffectMessage{
-			ObjectID: member.graviticSlowObjectID, Slot: member.graviticEffectSlot,
+			ObjectID: member.graviticSlowObjectID, Slot: member.graviticEffectSlot + 1,
 			IsRemovalRequested: true, IsHardStop: true,
 		})
 		isReleased := e.effectPool.Release(member.graviticSlowObjectID, member.graviticEffectSlot)
@@ -203,7 +203,7 @@ func (e gameplayPendingRuntime) updateGraviticPresentationLocked(
 		// ZelemSlow's authored statusFootEffect owns the entry and sustained
 		// snare presentation; removing the attachment stops its looping effect.
 		messages = append(messages, raknet.AttachedEffectMessage{
-			ObjectID: nextObjectID, Slot: member.graviticEffectSlot,
+			ObjectID: nextObjectID, Slot: member.graviticEffectSlot + 1,
 			Asset: util.HashID("status_snared.ServerEventDef"), IsForceAttached: true,
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/darkspinnet/darkspin/server/game"
+	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
 func (e campaignPreparation) selectInitialMapLayout(
@@ -31,7 +32,8 @@ func (e campaignPreparation) selectInitialMapLayout(
 		selectedAssets := make([]string, 0, len(ordinals))
 		for _, ordinal := range ordinals {
 			set := setsByOrdinal[ordinal]
-			selectedAssets = append(selectedAssets, mapLayoutAssetLabel(set.Name, set.CatalogAsset))
+			selectedAssets = append(selectedAssets, fmt.Sprintf("set=%d %s", ordinal,
+				mapLayoutAssetLabel(set.Name, set.CatalogAsset)))
 		}
 		e.logger.Printf(
 			"RakNet map layout game=%d level=%q stage=%d seed=%#x conditions=%#x level_catalog=%s selected_sets=%v",
@@ -41,6 +43,39 @@ func (e campaignPreparation) selectInitialMapLayout(
 		)
 	}
 	return selectedDirector, nil
+}
+
+// auditSelectedFixtureTakeover ties each selected client object deletion to
+// exactly one server-owned fixture before either packet is published.
+func (e campaignPreparation) auditSelectedFixtureTakeover(
+	director game.CampaignDirector, markers []game.CampaignDirectorMarker,
+	deletedObjectIDs []uint32, plans []zonenpc.SpawnPlan,
+) error {
+	if len(markers) != len(deletedObjectIDs) || len(markers) != len(plans) {
+		return fmt.Errorf("fixtureMapping: markers=%d deletions=%d plans=%d",
+			len(markers), len(deletedObjectIDs), len(plans))
+	}
+	ordinalsBySet := make(map[string]int, len(director.MarkerSets))
+	for _, set := range director.MarkerSets {
+		ordinalsBySet[set.Name] = set.Ordinal
+	}
+	for index, marker := range markers {
+		plan := plans[index]
+		setOrdinal, isSelected := ordinalsBySet[marker.MarkerSetName]
+		if !isSelected || deletedObjectIDs[index] != marker.MarkerID ||
+			plan.LocusID != marker.MarkerID || plan.MarkerSetName != marker.MarkerSetName ||
+			plan.NounName != marker.NounName || plan.Position != marker.Position ||
+			plan.Rotation != marker.Rotation || plan.PlacementScale != marker.Scale || !plan.IsFixture {
+			return fmt.Errorf("fixtureMapping[%d]: selected marker %d mismatch", index, marker.MarkerID)
+		}
+		if e.logger != nil {
+			e.logger.Printf("RakNet fixture takeover level=%q set=%d marker=%d runtime=%d noun=%q position=(%.6f,%.6f,%.6f) rotation=(%.6f,%.6f,%.6f) scale=%.6f order=delete-before-create",
+				director.Level, setOrdinal, marker.MarkerID, plan.ObjectID, plan.NounName,
+				plan.Position.X, plan.Position.Y, plan.Position.Z,
+				plan.Rotation.X, plan.Rotation.Y, plan.Rotation.Z, plan.PlacementScale)
+		}
+	}
+	return nil
 }
 
 func mapLayoutAssetLabel(reference string, asset game.CampaignAssetIdentity) string {

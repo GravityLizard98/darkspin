@@ -6,6 +6,7 @@ import (
 
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/raknet"
+	zoneboss "github.com/darkspinnet/darkspin/server/zone/boss"
 	zonesecurity "github.com/darkspinnet/darkspin/server/zone/security"
 )
 
@@ -26,6 +27,22 @@ func (e gameplayPendingRuntime) pollTeleporters(packet raknet.Packet) ([][]byte,
 	now := e.now()
 	orientation := raknet.Quaternion{W: 1}
 	packets, route, isTeleported, err := peerSession.pollTeleporterContacts(now, packet.SourceTime, orientation)
+	publications := make([]game.CampaignDirectorPublication, 0)
+	if err == nil && isTeleported && peerSession.binding.Mode == game.ModeChain {
+		arrival := game.Vec3(peerSession.playerPosition)
+		arrivals, advanceErr := peerSession.zone.AdvanceDirector(arrival, arrival)
+		if advanceErr != nil {
+			if e.logger != nil {
+				e.logger.Printf("RakNet teleporter arrival trigger deferred for %s: %v", packet.Address, advanceErr)
+			}
+		} else {
+			for _, publication := range arrivals {
+				if publication.CallbackName == zoneboss.GenericCallback {
+					publications = append(publications, publication)
+				}
+			}
+		}
+	}
 	e.registry.sessions[sessionKey] = peerSession
 	if err != nil {
 		e.registry.mutex.Unlock()
@@ -41,6 +58,16 @@ func (e gameplayPendingRuntime) pollTeleporters(packet raknet.Packet) ([][]byte,
 		}
 	}
 	e.registry.mutex.Unlock()
+	if len(publications) != 0 {
+		err = e.action.movement.campaign.encounter.scheduleNamedBossTriggers(
+			sessionKey, peerSession, publications,
+		)
+		if err != nil {
+			if e.logger != nil {
+				e.logger.Printf("RakNet teleporter boss scheduling deferred for %s: %v", packet.Address, err)
+			}
+		}
+	}
 	err = publishCampaignPeersAfterCommit(e.registry, packet, packets)
 	if err != nil {
 		return nil, fmt.Errorf("teleporterPublish: %w", err)

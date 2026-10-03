@@ -584,6 +584,7 @@ func (e wraithActiveSchedule) fail(scheduleErr error) {
 }
 
 type treeOfLifeSchedule struct {
+	startedAt           time.Duration
 	runtime             campaignAbilityCommandRuntime
 	sessionKey          string
 	generation          uint64
@@ -626,36 +627,18 @@ func (e treeOfLifeSchedule) fail(scheduleErr error) {
 	if scheduleErr == nil {
 		return
 	}
-	cleanupPacket, cleanupErr := raknet.MarshalApplication(raknet.ObjectDeleteMessage{
-		ObjectID: []uint32{e.objectID},
-	})
-	if cleanupErr != nil {
-		e.runtime.logger.Printf("RakNet Tree of Life cleanup marshal failed object=%d: %v", e.objectID, cleanupErr)
-	}
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
 	if isCurrent {
-		peerSession.treeOfLifeObjectID = 0
-		peerSession.treeOfLifeRun = nil
+		e.runtime.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
 	}
-	// A failed producer never reaches its normal final despawn or peer
-	// publication callback. Queue cleanup directly, including for the caster.
-	// Keep it within the original session generation to avoid a newer zone.
-	isSameGeneration := isFound && peerSession.generation == e.generation
-	if isSameGeneration && cleanupErr == nil {
-		for sessionKey, candidate := range e.runtime.registry.sessions {
-			if candidate.binding.GameID != peerSession.binding.GameID || candidate.zone != peerSession.zone {
-				continue
-			}
-			candidate.queueCampaignPackets([][]byte{cleanupPacket})
-			e.runtime.registry.sessions[sessionKey] = candidate
-		}
-	}
 	e.runtime.registry.mutex.Unlock()
-	if isSameGeneration {
-		e.run.Stop()
+	// Only the matching run may retire the retained tree. A late failure from
+	// an older activation cannot clear or remove a replacement activation.
+	e.run.Stop()
+	if isCurrent {
 		e.runtime.logger.Printf(
 			"RakNet campaign Tree of Life stopped after schedule failure for %s: %v",
 			e.sessionKey, scheduleErr,
@@ -694,6 +677,23 @@ func (e treeOfLifeStep) produce() ([][]byte, error) {
 	if err != nil {
 		schedule.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("campaignTreeAdvance: %w", err)
+	}
+	if output.IsSpawned {
+		err = peerSession.zone.TreeOfLife().Commit(zoneability.TreeOfLifePresentation{
+			ObjectID: schedule.objectID, SourceObjectID: schedule.actorObjectID,
+			NounName: schedule.definition.SpawnNoun,
+			Position: game.Vec3{X: schedule.position.X, Y: schedule.position.Y, Z: schedule.position.Z},
+			Team:     1, Phase: zoneability.TreeOfLifeSpawned,
+			SpawnedAt: schedule.startedAt + schedule.definition.HitDelay,
+			ExpiresAt: schedule.startedAt + schedule.definition.HitDelay + schedule.definition.Duration,
+		})
+		if err != nil {
+			schedule.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignTreePresentation: %w", err)
+		}
+	}
+	if e.deadline >= schedule.definition.ReleaseDelay {
+		peerSession.zone.TreeOfLife().Release(schedule.objectID)
 	}
 	healing := make([]zoneSquadHealing, 0)
 	resourcePackets := make([][]byte, 0)
@@ -742,6 +742,11 @@ func (e treeOfLifeStep) produce() ([][]byte, error) {
 	}
 	isFinal := len(output.Cleanup) != 0
 	if isFinal {
+		peerSession.zone.TreeOfLife().Retire(schedule.objectID)
+		// Queue removal before clearing ownership or performing fallible stats
+		// publication. A failed final producer must not strand its tree.
+		schedule.runtime.registry.queueCampaignTreeRemovalLocked(&peerSession, output.Cleanup)
+		output.Cleanup = nil
 		peerSession.treeOfLifeObjectID = 0
 		peerSession.treeOfLifeRun = nil
 		schedule.run.ClearCancel()
@@ -1897,7 +1902,8 @@ func (r campaignAbilityCommandRuntime) handleSpecial(
 		slices.Sort(deadlines)
 		deadlines = slices.Compact(deadlines)
 		schedule := treeOfLifeSchedule{
-			runtime: r, sessionKey: sessionKey,
+			startedAt: peerSession.zone.Elapsed(abilityStartTime),
+			runtime:   r, sessionKey: sessionKey,
 			generation: generation, objectID: objectID,
 			actorObjectID:     command.Common.ObjectID,
 			creatureIndex:     peerSession.deployedCreatureIndex,

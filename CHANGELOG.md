@@ -1,5 +1,16 @@
 # Changelog
 
+### 2026-10-03
+
+- Restore 1-2 boss progression after the red portal by honoring the authored four-second arena trigger and publishing the encounter to all players.
+- Show still-active allied Trees of Life after reconnect using their retained objects and original simulation expiry, without replaying growth, costs, cooldowns or healing.
+- Audit selected campaign layouts with per-section population counts and fixture identity, transform, and load/rejoin takeover logs.
+- Remove Tree of Life reliably for watching allies when its caster beams out or disconnects, clear retired tree state before rejoin, and prevent late cleanup from affecting a replacement tree.
+- Restore mission 1-2 enemy spawn candidates by reading authored marker sections before falling back to marker-set filenames.
+- Fix the Gravitic Stabilizer debuff visual lingering after leaving its shield by using the client's one-based effect slot for attachment and removal.
+- Fix Return to Ship retries after an interrupted victory by reusing the saved XP receipt and preparing the next-mission preview before committing XP.
+- Fix Return to Ship disconnecting during the next-mission preview when horde markers lack an agent pool; use the mission's minion roster for horde and boss adds.
+
 ### 2026-10-02
 - Change campaign melee impacts from a fresh distance veto to authored start-range movement grace, retained multi-hit arcs and hostile fallback selection; use native footprint overlap at arc edges and publish the selected victim through the normal damage path.
 - Change hero, NPC and companion melee admission, pursuit and hit-arc radii from legacy physics fallbacks to authored noun footprints and live object scale, completing noun mappings and preserving separate projectile geometry without requiring navigation meshes.

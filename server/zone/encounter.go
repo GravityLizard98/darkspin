@@ -551,6 +551,49 @@ func (e *Zone) PlanBossNearPosition(
 	}, true, nil
 }
 
+// PlanBossFromTrigger resolves the selected authored trigger through its live
+// named-event listeners. The trigger publication remains pending until the
+// encounter has been admitted.
+func (e *Zone) PlanBossFromTrigger(
+	trigger game.CampaignDirectorPublication, gameID uint32,
+	chainLevelIndex uint32,
+) (NamedBossPlan, error) {
+	if e == nil || !zoneboss.IsNamedCallback(trigger.CallbackName) ||
+		trigger.TriggerMarkerID == 0 || trigger.EventName == "" {
+		return NamedBossPlan{}, errors.New("named boss trigger invalid")
+	}
+	e.mu.RLock()
+	directorDefinition := e.info.DirectorDefinition
+	objectID := e.info.ObjectID
+	isAvailable := e.state == StateActive && e.info.Boss != nil &&
+		e.info.Boss.IsDormant()
+	e.mu.RUnlock()
+	if !isAvailable || objectID == nil {
+		return NamedBossPlan{}, errors.New("named boss trigger unavailable")
+	}
+	namedPublication, err := e.prepareNamedEvent(
+		trigger.MarkerSetOrdinal, trigger.TriggerMarkerID, trigger.EventName,
+	)
+	if err != nil {
+		return NamedBossPlan{}, fmt.Errorf("triggerBossPrepare: %w", err)
+	}
+	publication, plans, _, err := zoneboss.PlanNamedEncounter(
+		directorDefinition, namedPublication, objectID.Next(), gameID,
+		chainLevelIndex,
+	)
+	if err != nil {
+		return NamedBossPlan{}, fmt.Errorf("triggerBossPlan: %w", err)
+	}
+	plans, err = e.AssignSpawnPlanIDs(plans)
+	if err != nil {
+		return NamedBossPlan{}, fmt.Errorf("triggerBossID: %w", err)
+	}
+	return NamedBossPlan{
+		NamedPublication: namedPublication, Publication: publication,
+		Actors: plans,
+	}, nil
+}
+
 // IsStandaloneBossEncounter reports whether the active chain occurrence uses
 // a zone boss rather than a captain promoted into the boss encounter.
 func (e *Zone) IsStandaloneBossEncounter(chainLevelIndex uint32) bool {
@@ -593,6 +636,32 @@ func (e *Zone) AdmitNamedBossEncounter(
 	targetObjectID uint32,
 	plans []zonenpc.SpawnPlan,
 ) error {
+	return e.admitNamedBossEncounter(
+		namedPublication, publication, game.CampaignDirectorPublication{},
+		targetObjectID, plans,
+	)
+}
+
+func (e *Zone) AdmitTriggeredNamedBossEncounter(
+	namedPublication game.CampaignDirectorNamedEventPublication,
+	publication game.CampaignDirectorPublication,
+	trigger game.CampaignDirectorPublication,
+	targetObjectID uint32, plans []zonenpc.SpawnPlan,
+) error {
+	if trigger.TriggerMarkerID == 0 || !zoneboss.IsNamedCallback(trigger.CallbackName) {
+		return errors.New("named boss trigger invalid")
+	}
+	return e.admitNamedBossEncounter(
+		namedPublication, publication, trigger, targetObjectID, plans,
+	)
+}
+
+func (e *Zone) admitNamedBossEncounter(
+	namedPublication game.CampaignDirectorNamedEventPublication,
+	publication game.CampaignDirectorPublication,
+	trigger game.CampaignDirectorPublication,
+	targetObjectID uint32, plans []zonenpc.SpawnPlan,
+) error {
 	if e == nil {
 		return errors.New("named boss zone unavailable")
 	}
@@ -618,6 +687,9 @@ func (e *Zone) AdmitNamedBossEncounter(
 	}
 	if err == nil {
 		err = e.info.Director.CanAcceptNamedEvent(namedPublication)
+	}
+	if err == nil && trigger.TriggerMarkerID != 0 {
+		err = e.info.Director.CanAccept(trigger)
 	}
 	if err != nil {
 		return fmt.Errorf("namedBossCheck: %w", err)
@@ -649,6 +721,13 @@ func (e *Zone) AdmitNamedBossEncounter(
 		return fmt.Errorf(
 			"namedBossPublication: %w", errors.Join(err, rollbackErr),
 		)
+	}
+	if trigger.TriggerMarkerID != 0 {
+		err = e.info.Director.Accept(trigger)
+		if err != nil {
+			rollbackErr := e.info.NPCs.RollbackAdd(livePlans)
+			return fmt.Errorf("namedBossTrigger: %w", errors.Join(err, rollbackErr))
+		}
 	}
 	err = e.info.Boss.Replace(candidateBoss)
 	if err != nil {

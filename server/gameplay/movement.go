@@ -783,6 +783,17 @@ func (r campaignMovementCommandRuntime) handle(
 		if isCampaignTunnel {
 			current = campaignTunnel.Destination
 			previous = current
+			arrivalPublications, arrivalErr := peerSession.zone.AdvanceDirector(current, current)
+			if arrivalErr != nil {
+				if r.logger != nil {
+					r.logger.Printf("RakNet campaign tunnel arrival trigger deferred for %s: %v", packet.Address, arrivalErr)
+				}
+			}
+			for _, publication := range arrivalPublications {
+				if publication.CallbackName == zoneboss.GenericCallback {
+					encounterResult.publications = append(encounterResult.publications, publication)
+				}
+			}
 			publishedGoal = raknet.Vector3{
 				X: current.X, Y: current.Y, Z: current.Z,
 			}
@@ -1153,6 +1164,10 @@ func (r campaignMovementCommandRuntime) handle(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("moveCampaignPublications: %w", err)
+	}
+	err = r.encounter.scheduleNamedBossTriggers(sessionKey, commandSession, publications)
+	if err != nil {
+		r.logger.Printf("RakNet campaign named boss scheduling deferred for %s: %v", packet.Address, err)
 	}
 	for _, publication := range publications {
 		if len(publication.Listeners) > 0 {
@@ -2322,7 +2337,15 @@ func (r campaignEncounterRuntime) advance(
 			result.hordePlans = append(result.hordePlans, plannedHorde...)
 			result.hordePackets = append(result.hordePackets, plannedPackets...)
 		}
-		if peerSession.binding.Mode == game.ModeChain && len(result.bossPlans) == 0 {
+		isNamedBossTriggerPending := false
+		for _, publication := range result.publications {
+			if publication.CallbackName == zoneboss.GenericCallback {
+				isNamedBossTriggerPending = true
+				break
+			}
+		}
+		if peerSession.binding.Mode == game.ModeChain && len(result.bossPlans) == 0 &&
+			!isNamedBossTriggerPending {
 			namedBossPlan, isNamedBossPlanned, namedBossErr :=
 				peerSession.zone.PlanBossNearPosition(
 					result.current, peerSession.binding.GameID,
