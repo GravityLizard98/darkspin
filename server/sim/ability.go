@@ -3,6 +3,7 @@ package sim
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -179,6 +180,9 @@ type AbilityDefinition struct {
 	RandomMeleeDamagePolicies       []MeleeDamagePolicy
 	AdditionalTargetRange           float32
 	AdditionalTargetAngle           float32
+	MissMovementAmount              float32
+	HitArcLength                    *float32
+	HitAngle                        float32
 	HitDelay                        time.Duration
 	TeleportDelay                   time.Duration
 	HitDelays                       []time.Duration
@@ -318,6 +322,30 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 			return AbilityDefinition{}, fmt.Errorf("range: %w", rangeErr)
 		}
 		definition.Range = float32(rangeAmount)
+	}
+	// get follows the authored class parent; has only sees local fields.
+	definition.MissMovementAmount = 1
+	definition.HitAngle = 90
+	for _, key := range []string{"missMovementAmount", "hitArcLength", "hitAngle"} {
+		if table.get(stringLuaKey(key)).kind == luaNil {
+			continue
+		}
+		amount, fieldErr := luaAbilityRankFloat32(table, key, 1)
+		if fieldErr != nil {
+			return AbilityDefinition{}, fmt.Errorf("meleeField[%s]: %w", key, fieldErr)
+		}
+		if math.IsNaN(float64(amount)) || math.IsInf(float64(amount), 0) || amount < 0 ||
+			(key == "hitAngle" && (amount <= 0 || amount > 360)) {
+			return AbilityDefinition{}, fmt.Errorf("meleeField[%s]: invalid", key)
+		}
+		switch key {
+		case "missMovementAmount":
+			definition.MissMovementAmount = amount
+		case "hitArcLength":
+			definition.HitArcLength = &amount
+		case "hitAngle":
+			definition.HitAngle = amount
+		}
 	}
 	if table.has(stringLuaKey("manaCost")) {
 		manaCost, manaErr := luaAbilityRankNumber(table, "manaCost", 1)
@@ -728,7 +756,8 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 	// The melee template also inherits generic targeted and bonus-damage fields.
 	// Prefer its authored hit arc before considering the broader point-blank
 	// shape, otherwise basic attacks such as Wraith's Pummel compile as specials.
-	isMelee := table.has(stringLuaKey("hitArcLength"))
+	isMelee := table.get(stringLuaKey("MakeHitArc")).kind != luaNil ||
+		table.get(stringLuaKey("hitArcLength")).kind != luaNil
 	if isMelee {
 		definition.Kind = AbilityKindMelee
 	}

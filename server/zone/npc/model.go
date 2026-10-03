@@ -62,6 +62,10 @@ type SpawnPlan struct {
 }
 
 func (e SpawnPlan) Clone() SpawnPlan {
+	if e.NPCProfile.ActorFootprint != nil {
+		footprint := *e.NPCProfile.ActorFootprint
+		e.NPCProfile.ActorFootprint = &footprint
+	}
 	e.ActionProfile = e.ActionProfile.Clone()
 	e.NPCProfile.DropTypes = slices.Clone(e.NPCProfile.DropTypes)
 	e.NPCProfile.AIGraph = e.NPCProfile.AIGraph.Clone()

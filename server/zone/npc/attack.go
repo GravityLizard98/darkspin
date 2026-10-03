@@ -214,7 +214,7 @@ func PlanControlWithProfile(
 		return AttackPlan{}, errors.New("npc control target unavailable")
 	}
 	stopDistance, err := zoneaction.NPCStopDistance(
-		profile.Range, npc.Plan.NPCProfile.FootprintRadius,
+		profile.Range, npc.Plan.ActorFootprintRadius(),
 		targetFootprintRadius,
 	)
 	if err != nil {

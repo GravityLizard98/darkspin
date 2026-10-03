@@ -998,6 +998,13 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 		},
 	}
 	for assetName, ability := range definition {
+		if ability.Kind == sim.AbilityKindMelee {
+			// Recovered registrations retain the common melee template defaults
+			// when their custom registration cannot be executed by the compiler.
+			ability.MissMovementAmount = 1
+			ability.HitAngle = 90
+			definition[assetName] = ability
+		}
 		if ability.Kind != sim.AbilityKindProjectileBurst ||
 			ability.ShotCount == 0 || ability.FiringRate <= 0 {
 			continue

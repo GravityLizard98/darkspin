@@ -533,7 +533,7 @@ func (r campaignNPCActionRuntime) planOrcusAbility(
 ) (zonenpc.AttackPlan, error) {
 	if isGroundSlam {
 		plan, err := zonenpc.PlanAttackWithProfile(
-			orcus, target.ObjectID, target.Position, profile, target.FootprintRadius,
+			orcus, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 		)
 		if err != nil {
 			return zonenpc.AttackPlan{}, fmt.Errorf("orcusGroundSlamPlan: %w", err)
@@ -541,7 +541,7 @@ func (r campaignNPCActionRuntime) planOrcusAbility(
 		return plan, nil
 	}
 	plan, err := zonenpc.PlanControlWithProfile(
-		orcus, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		orcus, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		return zonenpc.AttackPlan{}, fmt.Errorf("orcusDiseasePlan: %w", err)
@@ -555,7 +555,7 @@ func (r campaignNPCActionRuntime) pursueOrcusAbility(
 ) ([][]byte, bool, error) {
 	action, err := campaignNPCActionWithProfile(
 		orcus.Plan, target.ObjectID, target.Position, profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil || !action.IsPursuitNeeded {
 		return nil, true, nil

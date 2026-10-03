@@ -104,7 +104,7 @@ func (s *Session) add(plans []SpawnPlan, targetObjectID uint32) error {
 		return fmt.Errorf("addValidate: %w", err)
 	}
 	for _, plan := range plans {
-		plan = plan.Clone()
+		plan = s.attachActorFootprint(plan).Clone()
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
 		if navigationErr != nil {
 			return fmt.Errorf("addNavigation: %w", navigationErr)
@@ -170,7 +170,7 @@ func (s *Session) AddDormant(plans []SpawnPlan) error {
 		return fmt.Errorf("dormantValidate: %w", err)
 	}
 	for _, plan := range plans {
-		plan = plan.Clone()
+		plan = s.attachActorFootprint(plan).Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
 		if navigationErr != nil {
@@ -210,7 +210,7 @@ func (s *Session) AddStaged(plans []SpawnPlan) error {
 		return fmt.Errorf("stagedValidate: %w", err)
 	}
 	for _, plan := range plans {
-		plan = plan.Clone()
+		plan = s.attachActorFootprint(plan).Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
 		if navigationErr != nil {

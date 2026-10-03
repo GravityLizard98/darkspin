@@ -300,6 +300,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 	}
 	for nounName, profile := range profileByNoun {
 		result.NPCProfilesByNoun[nounName] = game.CampaignNPCProfile{
+			ActorFootprint: result.ActorFootprintForAsset(nounName),
 			AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
 			NounType:       result.NounTypeForAsset(nounName),
 			AggroType:      profile.AggroType,
@@ -377,6 +378,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 				NounName: entry.NounName, MinimumDifficulty: entry.MinimumDifficulty,
 				MaximumDifficulty: entry.MaximumDifficulty, IsHordeLegal: entry.IsHordeLegal,
 				NPCProfile: game.CampaignNPCProfile{
+					ActorFootprint: result.ActorFootprintForAsset(entry.NounName),
 					AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
 					NounType:       result.NounTypeForAsset(entry.NounName),
 					AggroType:      profile.AggroType,
@@ -463,6 +465,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 				}
 			}
 			mappedMarker.NPCProfile = game.CampaignNPCProfile{
+				ActorFootprint: result.ActorFootprintForAsset(marker.NounName),
 				AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
 				NounType:       mappedMarker.NounType,
 				AggroType:      profile.AggroType,

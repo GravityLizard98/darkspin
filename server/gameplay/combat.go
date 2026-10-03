@@ -4201,7 +4201,7 @@ func campaignNPCActionProfile(
 	}
 	if zonenpc.ArcturusRank(plan.NounName) != 0 {
 		surfaceDistance := max(float32(0), targetPosition.Sub(plan.Position).Length()-
-			plan.NPCProfile.FootprintRadius-targetFootprintRadius)
+			plan.ActorFootprintRadius()-targetFootprintRadius)
 		if surfaceDistance > profile.Range {
 			return zonenpc.ArcturusSawBladeProfile(plan.NounName)
 		}
@@ -4213,7 +4213,7 @@ func campaignNPCActionProfile(
 		deltaY := targetPosition.Y - plan.Position.Y
 		centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 		surfaceDistance := max(
-			float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+			float32(0), centerDistance-plan.ActorFootprintRadius()-
 				targetFootprintRadius,
 		)
 		if surfaceDistance <= nashiraSwipeProfile.Range {
@@ -4227,7 +4227,7 @@ func campaignNPCActionProfile(
 		deltaY := targetPosition.Y - plan.Position.Y
 		centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 		surfaceDistance := max(
-			float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+			float32(0), centerDistance-plan.ActorFootprintRadius()-
 				targetFootprintRadius,
 		)
 		if surfaceDistance <= cryosBossMeleeProfile.Range {
@@ -4240,7 +4240,7 @@ func campaignNPCActionProfile(
 		deltaY := targetPosition.Y - plan.Position.Y
 		centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 		surfaceDistance := max(
-			float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+			float32(0), centerDistance-plan.ActorFootprintRadius()-
 				targetFootprintRadius,
 		)
 		if surfaceDistance > profile.Range {
@@ -4254,7 +4254,7 @@ func campaignNPCActionProfile(
 		deltaY := targetPosition.Y - plan.Position.Y
 		centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 		surfaceDistance := max(
-			float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+			float32(0), centerDistance-plan.ActorFootprintRadius()-
 				targetFootprintRadius,
 		)
 		if surfaceDistance <= homerMeleeProfile.Range {
@@ -4268,7 +4268,7 @@ func campaignNPCActionProfile(
 		deltaY := targetPosition.Y - plan.Position.Y
 		centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 		surfaceDistance := max(
-			float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+			float32(0), centerDistance-plan.ActorFootprintRadius()-
 				targetFootprintRadius,
 		)
 		if surfaceDistance <= hybridMeleeProfile.Range {
@@ -4293,7 +4293,7 @@ func campaignNPCActionProfile(
 	deltaY := targetPosition.Y - plan.Position.Y
 	centerDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
 	surfaceDistance := max(
-		float32(0), centerDistance-plan.NPCProfile.FootprintRadius-
+		float32(0), centerDistance-plan.ActorFootprintRadius()-
 			targetFootprintRadius,
 	)
 	if surfaceDistance > profile.Range {
@@ -4319,7 +4319,7 @@ func campaignNPCActionCommand(
 	return zonenpc.FirstActionCommand{
 		ObjectID: plan.ObjectID, NounName: plan.NounName,
 		SourcePosition:       plan.Position,
-		ActorFootprintRadius: plan.NPCProfile.FootprintRadius,
+		ActorFootprintRadius: plan.ActorFootprintRadius(),
 		TargetObjectID:       deployedObjectID, TargetPosition: deployedPosition,
 		TargetFootprintRadius: targetFootprintRadius,
 	}
@@ -4728,12 +4728,12 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		currentPlan, err = zonenpc.PlanAttackWithProfile(
 			currentNPC, currentTarget.ObjectID, currentTarget.Position,
 			zonenpc.NomadSnipeMeleeProfile(currentNPC.Plan.NounName),
-			currentTarget.FootprintRadius,
+			currentTarget.ActorFootprintRadius,
 		)
 	} else if req.kind == campaignNPCAttackBoomerSmash {
 		currentPlan, err = zonenpc.PlanAttackWithProfile(
 			currentNPC, currentTarget.ObjectID, currentTarget.Position,
-			zonenpc.BoomerSmashProfile(), currentTarget.FootprintRadius,
+			zonenpc.BoomerSmashProfile(), currentTarget.ActorFootprintRadius,
 		)
 		if err == nil {
 			impactPacket, err = npcraknet.AttackImpact(currentPlan)
@@ -4746,7 +4746,7 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		req.kind == campaignNPCAttackPickyMelee {
 		currentPlan, err = zonenpc.PlanAttackWithProfile(
 			currentNPC, currentTarget.ObjectID, currentTarget.Position,
-			e.plan.Profile, currentTarget.FootprintRadius,
+			e.plan.Profile, currentTarget.ActorFootprintRadius,
 		)
 		if err == nil && currentPlan.Profile.ImpactEffectName != "" {
 			impactPacket, err = npcraknet.AttackImpact(currentPlan)
@@ -4754,7 +4754,7 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 	} else {
 		currentPlan, err = zonenpc.PlanAttack(
 			currentNPC, currentTarget.ObjectID, currentTarget.Position,
-			currentTarget.FootprintRadius,
+			currentTarget.ActorFootprintRadius,
 		)
 	}
 	if err != nil {
@@ -5423,7 +5423,7 @@ func (e campaignNPCFirstActionStep) produce() ([][]byte, error) {
 		return repairPackets, nil
 	}
 	action, isActionFound, err := campaignNPCFirstAction(
-		npc.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+		npc.Plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		e.releaseAction(latest)
@@ -5659,11 +5659,11 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 		enemy.Plan.IsActionKnown = true
 	}
 	attackPlan, err := zonenpc.PlanAttack(
-		enemy, target.ObjectID, target.Position, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, isActionFound, actionErr := campaignNPCFirstAction(
-			enemy.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+			enemy.Plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyPunchPursuitAction: %w", actionErr)
@@ -5838,12 +5838,12 @@ func (r campaignNPCActionRuntime) producePlunge(
 	}
 	attackPlan, err := zonenpc.PlanAttackWithProfile(
 		enemy, target.ObjectID, target.Position, profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position,
-			profile, target.FootprintRadius,
+			profile, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyPlungePursuitAction: %w", actionErr)
@@ -6045,7 +6045,7 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 			continue
 		}
 		action, isActionFound, err := campaignNPCFirstAction(
-			plan, target.ObjectID, target.Position, target.FootprintRadius,
+			plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 		)
 		if err != nil {
 			releaseCampaignNPCFirstActions(npcSession, owner, startedObjectIDs)
@@ -6071,7 +6071,7 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 			continue
 		}
 		action, isActionFound, err = campaignNPCFirstAction(
-			npc.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+			npc.Plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 		)
 		if err != nil {
 			npcSession.ReleaseAction(plan.ObjectID, owner)
@@ -6679,11 +6679,11 @@ func (r campaignNPCActionRuntime) produceSnipeMelee(
 	}
 	profile := zonenpc.NomadSnipeMeleeProfile(enemy.Plan.NounName)
 	attackPlan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
-			enemy.Plan, target.ObjectID, target.Position, profile, target.FootprintRadius,
+			enemy.Plan, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemySnipePursuitAction: %w", actionErr)
@@ -6788,7 +6788,7 @@ func (e campaignSnipeSlowSchedule) hit() ([][]byte, error) {
 		return nil, nil
 	}
 	_, err := zonenpc.PlanSnipeSlow(
-		currentNPC, target.ObjectID, target.Position, target.FootprintRadius,
+		currentNPC, target.ObjectID, target.Position, target.ActorFootprintRadius,
 	)
 	if err != nil || target.ObjectID != e.plan.TargetObjectID {
 		_, releaseErr := e.run.release(e.runtime.modifierPool)
@@ -6863,7 +6863,7 @@ func (e campaignSnipeSlowSchedule) melee() ([][]byte, error) {
 	action, err := campaignNPCActionWithProfile(
 		currentNPC.Plan, target.ObjectID, target.Position,
 		zonenpc.NomadSnipeMeleeProfile(currentNPC.Plan.NounName),
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("enemySlowMeleeAction: %w", err)
@@ -6965,11 +6965,11 @@ func (r campaignNPCActionRuntime) produceSnipeSlow(
 		return nil, nil
 	}
 	slowPlan, err := zonenpc.PlanSnipeSlow(
-		enemy, target.ObjectID, target.Position, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, isActionFound, actionErr := campaignNPCFirstAction(
-			enemy.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+			enemy.Plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemySlowPursuitAction: %w", actionErr)
@@ -7949,7 +7949,7 @@ func (r campaignNPCActionRuntime) applyEnemyProjectileTeleport(
 		}
 	}
 	sourcePosition := target.Position
-	footprintRadius := max(target.FootprintRadius, float32(0.25))
+	footprintRadius := max(target.ActorFootprintRadius, float32(0.25))
 	if target.IsHero {
 		sourcePosition = game.Vec3(targetSession.playerPosition)
 		footprintRadius = targetSession.deployedCampaignFootprintRadius()
@@ -8206,7 +8206,7 @@ func (e campaignNPCPushPullSchedule) hit() ([][]byte, error) {
 	}
 	_, planErr := zonenpc.PlanControlWithProfile(
 		enemy, target.ObjectID, target.Position, e.plan.Profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if planErr != nil {
 		runtime.registry.mutex.Unlock()
@@ -8313,7 +8313,7 @@ func (r campaignNPCActionRuntime) applyEnemyForcedMovement(
 	}
 	destination, isFound, err := navigationClippedMovementDestination(
 		peerSession.zone.Navigation(), target.Position, desired,
-		max(target.FootprintRadius, float32(0.25)),
+		max(target.ActorFootprintRadius, float32(0.25)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("destinationSelect: %w", err)
@@ -8434,7 +8434,7 @@ func (r campaignNPCActionRuntime) producePushPull(
 		return nil, fmt.Errorf("enemyPushPullProfile: %w", err)
 	}
 	plan, planErr := zonenpc.PlanControlWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if planErr != nil {
 		decisionProfile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
@@ -8444,7 +8444,7 @@ func (r campaignNPCActionRuntime) producePushPull(
 		}
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position,
-			decisionProfile, target.FootprintRadius,
+			decisionProfile, target.ActorFootprintRadius,
 		)
 		if actionErr != nil || !action.IsPursuitNeeded {
 			r.registry.mutex.Unlock()
@@ -8472,7 +8472,7 @@ func (r campaignNPCActionRuntime) producePushPull(
 	if !profile.IsPull {
 		damagePlan, damagePlanErr := zonenpc.PlanAttackWithProfile(
 			enemy, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if damagePlanErr != nil {
 			r.registry.mutex.Unlock()

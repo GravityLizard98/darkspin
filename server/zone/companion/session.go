@@ -19,6 +19,7 @@ const attackRangeTolerance = 0.25
 const minimumPursuitDuration = 50 * time.Millisecond
 
 type Actor struct {
+	ActorFootprint    *game.NavigationFootprint
 	UserID            uint64
 	PeerGeneration    uint64
 	ObjectID          uint32
@@ -88,8 +89,9 @@ type Pursuit struct {
 }
 
 type Session struct {
-	mu     sync.RWMutex
-	actors map[uint32]Actor
+	actorFootprints map[uint32]game.NavigationFootprint
+	mu              sync.RWMutex
+	actors          map[uint32]Actor
 }
 
 func NewSession() *Session {
@@ -112,6 +114,19 @@ func (e *Session) Put(actor Actor) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	footprint, isFootprintFound := e.actorFootprints[actor.Noun]
+	if isFootprintFound {
+		actor.ActorFootprint = &footprint
+	}
+	if actor.ActorFootprint != nil {
+		radius, radiusErr := actor.ActorFootprint.ActorRadius(1)
+		if radiusErr != nil {
+			return fmt.Errorf("companionFootprint: %w", radiusErr)
+		}
+		if radius < 0 {
+			return errors.New("negative companion footprint")
+		}
+	}
 	current, isFound := e.actors[actor.ObjectID]
 	if isFound && actor.PeerGeneration < current.PeerGeneration {
 		return fmt.Errorf(
@@ -346,8 +361,8 @@ func hasNearbyCombatTarget(
 			target.Faction == zonenpc.FactionPlayerAligned {
 			continue
 		}
-		retentionRange := maximumRange + actor.FootprintRadius +
-			max(float32(0), target.Plan.NPCProfile.FootprintRadius)
+		retentionRange := maximumRange + actor.ActorFootprintRadius() +
+			max(float32(0), target.Plan.ActorFootprintRadius())
 		return actor.Position.Sub(target.Plan.Position).Length() <= retentionRange
 	}
 	return false
@@ -415,8 +430,8 @@ func (e *Session) ReserveAttacks(
 				target.Faction == zonenpc.FactionPlayerAligned {
 				continue
 			}
-			centerRange := attackRange + actor.FootprintRadius +
-				max(float32(0), target.Plan.NPCProfile.FootprintRadius) +
+			centerRange := attackRange + actor.ActorFootprintRadius() +
+				max(float32(0), target.Plan.ActorFootprintRadius()) +
 				attackRangeTolerance
 			distance := actor.Position.Sub(target.Plan.Position).Length()
 			if distance > centerRange || distance > selectedDistance {
@@ -492,8 +507,8 @@ func (e *Session) ReserveActorAttack(
 			target.Faction == zonenpc.FactionPlayerAligned {
 			continue
 		}
-		centerRange := attackRange + actor.FootprintRadius +
-			max(float32(0), target.Plan.NPCProfile.FootprintRadius) +
+		centerRange := attackRange + actor.ActorFootprintRadius() +
+			max(float32(0), target.Plan.ActorFootprintRadius()) +
 			attackRangeTolerance
 		distance := actor.Position.Sub(target.Plan.Position).Length()
 		if distance > centerRange || distance > selectedDistance {
@@ -559,8 +574,8 @@ func (e *Session) ReservePursuits(
 				target.Faction == zonenpc.FactionPlayerAligned {
 				continue
 			}
-			stopDistance := attackRange + actor.FootprintRadius +
-				max(float32(0), target.Plan.NPCProfile.FootprintRadius) +
+			stopDistance := attackRange + actor.ActorFootprintRadius() +
+				max(float32(0), target.Plan.ActorFootprintRadius()) +
 				attackRangeTolerance
 			distance := actor.Position.Sub(target.Plan.Position).Length()
 			if distance <= stopDistance || distance > aggroRadius ||
@@ -641,8 +656,8 @@ func (e *Session) ReserveActorPursuit(
 			target.Faction == zonenpc.FactionPlayerAligned {
 			continue
 		}
-		stopDistance := attackRange + actor.FootprintRadius +
-			max(float32(0), target.Plan.NPCProfile.FootprintRadius) +
+		stopDistance := attackRange + actor.ActorFootprintRadius() +
+			max(float32(0), target.Plan.ActorFootprintRadius()) +
 			attackRangeTolerance
 		distance := actor.Position.Sub(target.Plan.Position).Length()
 		if distance <= stopDistance || distance > aggroRadius ||

@@ -387,7 +387,7 @@ func (r campaignNPCActionRuntime) produceNomadShielderShield(
 	}
 	action, err := campaignNPCActionWithProfile(
 		enemy.Plan, target.ObjectID, target.Position, actionProfile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		r.releaseAction(sessionKey, generation, objectID)

@@ -115,7 +115,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		destination, isDestinationFound, destinationErr :=
 			noctGhostChargeMovementDestination(
 				peerSession.zone.Navigation(), enemy.Plan.Position, target.Position,
-				enemy.Plan.NPCProfile.FootprintRadius, target.FootprintRadius,
+				enemy.Plan.ActorFootprintRadius(), target.ActorFootprintRadius,
 			)
 		if destinationErr != nil {
 			return e.fail("enemyGhostDestination", destinationErr)
@@ -133,7 +133,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	} else if movementProfile.AbilityName == "NocturnaSpecialDriftCharge" {
 		desired := noctGhostChargeDestination(
 			enemy.Plan.Position, target.Position,
-			enemy.Plan.NPCProfile.FootprintRadius, target.FootprintRadius,
+			enemy.Plan.ActorFootprintRadius(), target.ActorFootprintRadius,
 		)
 		destination, isDestinationFound, destinationErr :=
 			navigationClippedMovementDestination(
@@ -171,7 +171,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	} else {
 		action, err = campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, movementProfile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 	}
 	if err != nil {
@@ -623,7 +623,7 @@ func campaignChargeSegmentTargets(
 		if target.ObjectID == 0 || target.HitPoint <= 0 ||
 			!zonegeometry.SegmentIntersectsSphere(
 				start, end, target.Position,
-				triggerRadius+target.FootprintRadius,
+				triggerRadius+target.ActorFootprintRadius,
 			) {
 			continue
 		}
@@ -763,7 +763,7 @@ func (r campaignNPCActionRuntime) produceChargeSegmentCollision(
 		for _, target := range peerSession.zone.LiveNPCTargets() {
 			if zonegeometry.Distance(enemy.Plan.Position, target.Position) >
 				auraProfile.Radius+enemy.Plan.NPCProfile.FootprintRadius+
-					target.FootprintRadius {
+					target.ActorFootprintRadius {
 				continue
 			}
 			plan, planErr := zonenpc.PlanAreaAttackWithProfile(
@@ -890,7 +890,7 @@ func (r campaignNPCActionRuntime) produceEnemyCharge(
 		var actionErr error
 		chargePursuit, actionErr = campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			r.registry.mutex.Unlock()
@@ -921,7 +921,7 @@ func (r campaignNPCActionRuntime) produceEnemyCharge(
 	if isEnemyFound && isTargetFound {
 		pickySurfaceDistance = max(
 			float32(0), zonegeometry.Distance(enemy.Plan.Position, target.Position)-
-				enemy.Plan.NPCProfile.FootprintRadius-target.FootprintRadius,
+				enemy.Plan.ActorFootprintRadius()-target.ActorFootprintRadius,
 		)
 	}
 	isPickyMelee := isEnemyFound && isTargetFound && isProfileFound &&
@@ -1104,7 +1104,7 @@ func (r campaignNPCActionRuntime) produceVerdanthBasicPickyLanding(
 	movementProfile.MovementSpeed += movementProfile.ForcedMovementSpeed
 	action, err := campaignNPCActionWithProfile(
 		enemy.Plan, target.ObjectID, target.Position, movementProfile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("enemyPickyFinalApproachPlan: %w", err)
@@ -1177,12 +1177,12 @@ func (r campaignNPCActionRuntime) produceVerdanthBasicPickyAttack(
 		return nil, nil
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyPickyAttackPursuitPlan: %w", actionErr)
@@ -1305,12 +1305,12 @@ func (r campaignNPCActionRuntime) produceCryosBasicChargeHeadbutt(
 		chargeProfile.NonCombatMovementSpeed,
 	)
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyHeadbuttPursuitPlan: %w", actionErr)
@@ -1408,12 +1408,12 @@ func (r campaignNPCActionRuntime) produceNomadChargeAttack(
 	}
 	profile := zonenpc.NomadSpecialOneChargingAttackProfile()
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyChargeAttackPursuitPlan: %w", actionErr)
@@ -1483,7 +1483,7 @@ func (r campaignNPCActionRuntime) produceBoomerSmash(
 	}
 	profile := zonenpc.BoomerSmashProfile()
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		if timestamp >= chargeReadyTimestamp {
@@ -1491,7 +1491,7 @@ func (r campaignNPCActionRuntime) produceBoomerSmash(
 		}
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemySmashPursuitPlan: %w", actionErr)

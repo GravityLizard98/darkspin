@@ -880,8 +880,8 @@ func prepareBeastPetCharge(
 	if !isPetFound || pet.HitPoint <= 0 || !pet.IsCombatant {
 		return zonecompanion.Pursuit{}, game.DamageRange{}, nil, nil
 	}
-	centerRange := float32(0.2) + pet.FootprintRadius +
-		max(float32(0), target.Plan.NPCProfile.FootprintRadius)
+	centerRange := float32(0.2) + pet.ActorFootprintRadius() +
+		max(float32(0), target.Plan.ActorFootprintRadius())
 	distance := pet.Position.Sub(target.Plan.Position).Length()
 	if distance > 125 {
 		return zonecompanion.Pursuit{}, game.DamageRange{}, nil, nil
@@ -1030,8 +1030,8 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	}
 	stopDistance := projected.Distance
 	if projected.Name == "BeastCharge" {
-		stopDistance = peerSession.deployedCampaignFootprintRadius() +
-			max(float32(0.5), target.Plan.NPCProfile.FootprintRadius) + 0.2
+		stopDistance = peerSession.deployedCampaignActorFootprintRadius() +
+			max(float32(0.5), target.Plan.ActorFootprintRadius()) + 0.2
 	}
 	destination := chargeDestination(startPosition, targetPosition, stopDistance)
 	if projected.Name == "PhantomCharge" {

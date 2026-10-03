@@ -92,7 +92,7 @@ func (e campaignLeapSchedule) launch() ([][]byte, error) {
 	movementProfile.MovementSpeed = e.plan.Profile.ForcedMovementSpeed
 	action, err := campaignNPCActionWithProfile(
 		enemy.Plan, target.ObjectID, target.Position, movementProfile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		return e.fail("enemyLeapMovePlan", err)
@@ -185,7 +185,7 @@ func (e campaignLeapSchedule) land(
 			}
 			plan, err := zonenpc.PlanAttackWithProfile(
 				source, target.ObjectID, target.Position, damageProfile,
-				target.FootprintRadius,
+				target.ActorFootprintRadius,
 			)
 			if err != nil {
 				continue
@@ -306,7 +306,7 @@ func (r campaignNPCActionRuntime) produceEnemyLeap(
 		generation, enemy.TargetObjectID,
 	)
 	profile, isProfileFound := campaignNPCActionProfile(
-		enemy.Plan, target.Position, target.FootprintRadius,
+		enemy.Plan, target.Position, target.ActorFootprintRadius,
 	)
 	r.registry.mutex.RUnlock()
 	if !isEnemyFound || !isTargetFound || !isProfileFound {
@@ -330,12 +330,12 @@ func (r campaignNPCActionRuntime) produceEnemyLeap(
 		return nil, nil
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil || !action.IsPursuitNeeded {
 			r.releaseAction(sessionKey, generation, objectID)

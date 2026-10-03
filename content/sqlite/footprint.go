@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 )
 
@@ -52,6 +53,21 @@ func (e *Store) NounFootprints(ctx context.Context) ([]NounFootprint, error) {
 	for _, noun := range physics {
 		stem := strings.TrimSuffix(strings.ToLower(noun.AssetName), ".noun")
 		namesByInstance[hashID(stem)] = noun.AssetName
+	}
+	catalogs, catalogErr := e.AssetCatalogEntries(ctx)
+	if catalogErr != nil {
+		return nil, fmt.Errorf("footprintCatalog: %w", catalogErr)
+	}
+	for _, catalog := range catalogs {
+		if catalog.AssetName == nil {
+			continue
+		}
+		nounName := path.Base(strings.ReplaceAll(*catalog.AssetName, "\\", "/"))
+		if !strings.EqualFold(path.Ext(nounName), ".noun") {
+			continue
+		}
+		stem := nounName[:len(nounName)-len(".Noun")]
+		namesByInstance[hashID(stem)] = nounName
 	}
 	footprints := make([]NounFootprint, 0, len(nouns))
 	for _, noun := range nouns {

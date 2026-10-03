@@ -50,22 +50,16 @@ func (e gameplayPeerSession) deployedCampaignFootprintRadius() float32 {
 	return campaignSecurityBlitzFootprintFallback
 }
 
-// Navigation uses the noun's size-class/custom bounds, not its combat radius.
+// Navigation and melee use the native noun-bounds/live-scale actor footprint.
 func (e gameplayPeerSession) deployedCampaignNavigationRadius() float32 {
+	return e.deployedCampaignActorFootprintRadius()
+}
+
+func (e gameplayPeerSession) deployedCampaignActorFootprintRadius() float32 {
 	if e.zone == nil || e.deployedCreatureIndex >= uint32(len(e.binding.Creatures)) {
 		return campaignSecurityBlitzFootprintFallback
 	}
-	noun := e.binding.Creatures[e.deployedCreatureIndex].Noun
-	footprint, isFound := e.zone.DirectorDefinition().NounFootprintsByNoun[noun]
-	if !isFound {
-		return e.deployedCampaignFootprintRadius()
-	}
-	radius, err := footprint.ActorRadius(1)
-	if err != nil {
-		log.Printf("campaign actor navigation noun=%#x: %v", noun, err)
-		return 0
-	}
-	return radius
+	return e.zone.CreatureActorFootprintRadius(e.binding.UserID, e.generation, e.deployedCreatureIndex)
 }
 
 type campaignSecurityTransferAuthority struct {

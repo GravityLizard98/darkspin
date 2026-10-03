@@ -448,12 +448,12 @@ func (r campaignNPCActionRuntime) produceManaDrain(
 	}
 	plan, err := zonenpc.PlanControlWithProfile(
 		enemy, target.ObjectID, target.Position, profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position,
-			profile, target.FootprintRadius,
+			profile, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return request.fail("enemyManaDrainPursuitAction", actionErr)

@@ -730,15 +730,22 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	directAggroPlans := make([]zonenpc.SpawnPlan, 0, 4)
 	directAggroPackets := make([][]byte, 0, 1)
 	if targetObjectID != 0 {
-		actorFootprint, err = r.program.FootprintRadiusByNoun(creature.Noun)
-		if err != nil {
-			r.registry.mutex.Unlock()
-			return request.reject("actor footprint unavailable")
+		if definition.Kind == sim.AbilityKindMelee {
+			actorFootprint = peerSession.deployedCampaignActorFootprintRadius()
+		} else {
+			actorFootprint, err = r.program.FootprintRadiusByNoun(creature.Noun)
+			if err != nil {
+				r.registry.mutex.Unlock()
+				return request.reject("actor footprint unavailable")
+			}
 		}
 		targetEnemy, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
 		if isTargetFound {
 			targetFootprint = targetEnemy.Plan.NPCProfile.FootprintRadius
-			if targetFootprint > 0 {
+			if definition.Kind == sim.AbilityKindMelee {
+				targetFootprint = targetEnemy.Plan.ActorFootprintRadius()
+			}
+			if targetFootprint > 0 || definition.Kind == sim.AbilityKindMelee {
 				maximumRange += actorFootprint + targetFootprint
 			}
 			targetEnemy, isReconciled, reconcileErr :=
@@ -2170,6 +2177,7 @@ type campaignBasicScheduleRun struct {
 }
 
 type campaignMeleeSchedule struct {
+	hitState          *campaignMeleeHitState
 	runtime           campaignAbilityCommandRuntime
 	packet            raknet.Packet
 	sessionKey        string
@@ -2191,6 +2199,14 @@ type campaignMeleeHitStep struct {
 	schedule campaignMeleeSchedule
 	index    int
 	delay    time.Duration
+}
+
+// Scheduled value copies share one activation's retained selection state.
+// Access is serialized by the gameplay registry mutex.
+type campaignMeleeHitState struct {
+	isTargetInRangeAtStart bool
+	initialTargetPosition  game.Vec3
+	arc                    *zoneability.MeleeArc
 }
 
 type campaignMeleeImpact struct {
@@ -2258,26 +2274,37 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	livePlan.Definition.HitDelay = e.delay
 	livePlan.Definition.ReleaseDelay = schedule.selection.ReleaseDelay
 	livePlan.Definition.HitEffectName = schedule.selected.HitEffectName
-	liveNPC, isLiveNPCFound := current.zone.NPCs().NPC(schedule.targetObjectID)
-	isInRange := false
-	if isLiveNPCFound {
-		maximumRange := heroAbilityAdmissionRange(currentCreature, schedule.definition)
-		targetFootprint := liveNPC.Plan.NPCProfile.FootprintRadius
-		if targetFootprint > 0 {
-			actorFootprint, footprintErr := runtime.program.FootprintRadiusByNoun(currentCreature.Noun)
-			if footprintErr != nil {
-				runtime.registry.mutex.Unlock()
-				return nil, fmt.Errorf("meleeImpactFootprint: %w", footprintErr)
-			}
-			maximumRange += actorFootprint + targetFootprint
+	state := schedule.hitState
+	if state.arc == nil {
+		length := schedule.selected.Range
+		if schedule.selected.HitArcLength != nil {
+			length = *schedule.selected.HitArcLength
 		}
-		isInRange = zonegeometry.Distance(livePlan.SourcePosition, liveNPC.Plan.Position) <= maximumRange
+		length += current.deployedCampaignActorFootprintRadius()
+		facing := current.attackPose.facing
+		arc, arcErr := zoneability.NewMeleeArc(livePlan.SourcePosition,
+			game.Vec3{X: facing.X, Y: facing.Y, Z: facing.Z}, length, schedule.selected.HitAngle)
+		if arcErr != nil {
+			runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("campaignMeleeArc: %w", arcErr)
+		}
+		state.arc = &arc
 	}
-	// A target can die between accepting the swing and its impact frame.
-	// It can also leave melee reach. Finish either case as a miss so the
-	// scheduled release still runs, without applying pursuit retry tolerance.
-	if schedule.targetObjectID == 0 || !isLiveNPCFound ||
-		liveNPC.IsDefeated || liveNPC.HitPoint <= 0 || !isInRange {
+	liveNPC, isLiveNPCFound := current.zone.NPCs().NPC(schedule.targetObjectID)
+	isSelected := isLiveNPCFound && zoneability.IsHostileMeleeTarget(liveNPC)
+	if isSelected {
+		movement := zonegeometry.Distance(state.initialTargetPosition, liveNPC.Plan.Position)
+		isSelected = (state.isTargetInRangeAtStart && movement < schedule.selected.MissMovementAmount) ||
+			state.arc.Contains(liveNPC.Plan.Position, liveNPC.Plan.ActorFootprintRadius())
+	}
+	if !isSelected {
+		facing := current.attackPose.facing
+		liveNPC, isSelected = state.arc.BestTarget(current.zone.NPCs(), livePlan.SourcePosition,
+			game.Vec3{X: facing.X, Y: facing.Y, Z: facing.Z})
+	}
+	// Revalidate the original primary before grace/arc admission, then try the
+	// authored arc fallback before finishing an empty swing.
+	if !isSelected {
 		position := toSimPosition(current.playerPosition)
 		err = schedule.run.PrepareHitAt(
 			e.index, false, 0, schedule.plan.Damage.Maximum, false,
@@ -2295,6 +2322,7 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 		}
 		return packets, nil
 	}
+	livePlan.TargetObjectID = liveNPC.Plan.ObjectID
 	result, err := zoneability.CommitBasic(
 		current.zone.Population().Random(), current.zone.NPCs(),
 		livePlan, currentCreature, current.binding.Difficulty,
@@ -2336,7 +2364,7 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	}
 	if additionalTargetCount != 0 {
 		additionalTargets, targetErr := zoneability.AdditionalMeleeTargets(
-			current.zone.NPCs(), schedule.targetObjectID,
+			current.zone.NPCs(), livePlan.TargetObjectID,
 			livePlan.SourcePosition, liveNPC.Plan.Position,
 			schedule.selected.AdditionalTargetRange,
 			schedule.selected.AdditionalTargetAngle, additionalTargetCount,
@@ -2383,8 +2411,8 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	if result.Damage.IsDamageImmune {
 		preparedDamage = schedule.plan.Damage.Maximum
 	}
-	err = schedule.run.PrepareHitAt(
-		e.index, !result.Damage.IsDamageImmune,
+	err = schedule.run.PrepareTargetHitAt(
+		e.index, livePlan.TargetObjectID, !result.Damage.IsDamageImmune,
 		result.Damage.PreviousHealth, preparedDamage, result.IsCritical,
 		toSimPosition(deathDefinition.position),
 		sim.Position{X: facing.X, Y: facing.Y, Z: facing.Z},
@@ -2473,7 +2501,7 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	if isPlasmaApplied {
 		modifierPackets, modifierErr := runtime.damage.publishPlasmaModifier(
 			schedule.packet, schedule.sessionKey, schedule.generation,
-			schedule.sourceObjectID, schedule.targetObjectID,
+			schedule.sourceObjectID, livePlan.TargetObjectID,
 			timestamp, schedule.binding, plasmaPlan,
 		)
 		if modifierErr != nil {
@@ -2502,28 +2530,8 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	}
 	packets = filterProjectileCombatPackets(packets)
 	packets = append(packets, publishedPackets...)
-	if !result.Damage.IsDefeated {
-		return packets, nil
-	}
-	releasePackets, err := schedule.run.Advance(
-		context.Background(), schedule.selection.ReleaseDelay,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("campaignBasicLethalRelease: %w", err)
-	}
-	runtime.registry.mutex.Lock()
-	latest, isLatestFound := runtime.registry.sessions[schedule.sessionKey]
-	isLatest := isLatestFound && latest.generation == schedule.generation &&
-		latest.basicAttack == schedule.run
-	if isLatest {
-		latest.basicAttack = nil
-		latest.basicAttackSyncStamp = 0
-		latest.basicSequenceSession().ReleaseHeld()
-		runtime.registry.sessions[schedule.sessionKey] = latest
-	}
-	runtime.registry.mutex.Unlock()
-	packets = append(packets, releasePackets...)
-	packets = append(packets, schedule.releaseResponse)
+	// A lethal hit does not skip later authored hit frames. They can select a
+	// fallback victim within the same captured arc; release has its own step.
 	return packets, nil
 }
 
@@ -3572,6 +3580,15 @@ func (r campaignAbilityCommandRuntime) handleMeleeBasic(
 	plan.Damage = normalizeCampaignMeleeDamage(plan.Damage)
 	plan.Definition = selectedDefinition
 	enemy, isEnemyFound := peerSession.zone.NPCs().NPC(targetObjectID)
+	hitState := &campaignMeleeHitState{}
+	if isEnemyFound {
+		hitState.initialTargetPosition = enemy.Plan.Position
+		// Pursuit retries may admit a little beyond reach; that tolerance must
+		// not grant the native start-range latch used by the movement grace.
+		startRange := heroAbilityAdmissionRange(creature, definition) +
+			peerSession.deployedCampaignActorFootprintRadius() + enemy.Plan.ActorFootprintRadius()
+		hitState.isTargetInRangeAtStart = zonegeometry.Distance(plan.SourcePosition, enemy.Plan.Position) <= startRange
+	}
 	targetPosition := command.Ability.TargetPosition
 	if !isReportedZonePosition(targetPosition) {
 		targetPosition = command.Ability.CursorPosition
@@ -3716,7 +3733,8 @@ func (r campaignAbilityCommandRuntime) handleMeleeBasic(
 	r.registry.mutex.Unlock()
 
 	meleeSchedule := campaignMeleeSchedule{
-		runtime: r, packet: packet, sessionKey: sessionKey, generation: generation,
+		hitState: hitState,
+		runtime:  r, packet: packet, sessionKey: sessionKey, generation: generation,
 		sourceObjectID: command.Common.ObjectID, targetObjectID: targetObjectID,
 		creature: creature, definition: definition,
 		selection: selection, selected: selectedDefinition, plan: plan,

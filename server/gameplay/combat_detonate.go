@@ -249,12 +249,12 @@ func (r campaignNPCActionRuntime) produceExploderScarab(
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
 		source, target.ObjectID, target.Position, profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			source.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			r.releaseAction(sessionKey, generation, objectID)

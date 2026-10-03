@@ -38,6 +38,7 @@ type CampaignNPCIdentity struct {
 // CampaignNPCProfile is the transport- and storage-neutral authored
 // baseline for one director noun.
 type CampaignNPCProfile struct {
+	ActorFootprint         *NavigationFootprint
 	AIGraph                *CampaignAIGraph
 	IsClassKnown           bool
 	NounType               NounType

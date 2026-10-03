@@ -310,7 +310,7 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	}
 	profile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
 	if zonenpc.ArcturusRank(enemy.Plan.NounName) != 0 && !volley.isActive {
-		profile, isProfileFound = campaignNPCActionProfile(enemy.Plan, target.Position, target.FootprintRadius)
+		profile, isProfileFound = campaignNPCActionProfile(enemy.Plan, target.Position, target.ActorFootprintRadius)
 		if isProfileFound && profile.Family == zonenpc.ActionCone {
 			r.registry.mutex.Unlock()
 			return r.produceEnemyCone(packet, sessionKey, generation, objectID, timestamp)
@@ -357,8 +357,8 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 			return nil, nil
 		}
 		volleyRange, rangeErr := zoneaction.NPCStopDistance(
-			profile.Range, enemy.Plan.NPCProfile.FootprintRadius,
-			target.FootprintRadius,
+			profile.Range, enemy.Plan.ActorFootprintRadius(),
+			target.ActorFootprintRadius,
 		)
 		isVolleyTargetInRange := rangeErr == nil &&
 			zonegeometry.Distance(enemy.Plan.Position, target.Position) < volleyRange
@@ -393,19 +393,19 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		if isControlProjectile {
 			plan, planErr = zonenpc.PlanControlWithProfile(
 				enemy, target.ObjectID, target.Position, profile,
-				target.FootprintRadius,
+				target.ActorFootprintRadius,
 			)
 		} else {
 			plan, planErr = zonenpc.PlanAttackWithProfile(
 				enemy, target.ObjectID, target.Position, profile,
-				target.FootprintRadius,
+				target.ActorFootprintRadius,
 			)
 		}
 	}
 	if planErr != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil || !action.IsPursuitNeeded {
 			r.registry.mutex.Unlock()

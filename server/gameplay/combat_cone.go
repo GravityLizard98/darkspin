@@ -51,7 +51,7 @@ func campaignCryosBossChainTargets(
 				continue
 			}
 			distance := target.Position.Sub(origin).Length()
-			if distance > radius+target.FootprintRadius || distance >= candidateDistance {
+			if distance > radius+target.ActorFootprintRadius || distance >= candidateDistance {
 				continue
 			}
 			candidateIndex = index
@@ -80,7 +80,7 @@ func isCampaignConeTarget(
 	deltaX := target.Position.X - source.X
 	deltaY := target.Position.Y - source.Y
 	distance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
-	if distance <= 0 || distance > radius+target.FootprintRadius {
+	if distance <= 0 || distance > radius+target.ActorFootprintRadius {
 		return false
 	}
 	facingLength := float32(math.Hypot(float64(facing.X), float64(facing.Y)))
@@ -97,7 +97,7 @@ func isCampaignLineTarget(
 ) bool {
 	segment := endpoint.Sub(source)
 	lengthSquared := segment.X*segment.X + segment.Y*segment.Y + segment.Z*segment.Z
-	if lengthSquared <= 0 || target.FootprintRadius < 0 {
+	if lengthSquared <= 0 || target.ActorFootprintRadius < 0 {
 		return false
 	}
 	toTarget := target.Position.Sub(source)
@@ -108,7 +108,7 @@ func isCampaignLineTarget(
 	}
 	closest := source.Add(segment.Scale(projection))
 	distance := target.Position.Sub(closest).Length()
-	return distance <= target.FootprintRadius
+	return distance <= target.ActorFootprintRadius
 }
 
 func isCampaignLaserPathClear(
@@ -697,7 +697,7 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 	enemy, isEnemyFound := peerSession.zone.NPCs().NPC(objectID)
 	target, isTargetFound := peerSession.campaignNPCTarget(generation, enemy.TargetObjectID)
 	profile, isProfileFound := campaignNPCActionProfile(
-		enemy.Plan, target.Position, target.FootprintRadius,
+		enemy.Plan, target.Position, target.ActorFootprintRadius,
 	)
 	nextDelay := profile.Cooldown
 	if profile.AbilityName == "ZelemBossPush" {
@@ -783,17 +783,17 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 	if profile.AbilityName == "VerdanthBossDiseaseCone" {
 		// The breath applies disease without a direct damage hit.
 		plan, err = zonenpc.PlanControlWithProfile(
-			enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+			enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 		)
 	} else {
 		plan, err = zonenpc.PlanAttackWithProfile(
-			enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+			enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 		)
 	}
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("conePursuit: %w", actionErr)

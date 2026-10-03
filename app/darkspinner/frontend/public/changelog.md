@@ -1,6 +1,8 @@
 # Changelog
 
 ### 2026-10-02
+- Change campaign melee impacts from a fresh distance veto to authored start-range movement grace, retained multi-hit arcs and hostile fallback selection; use native footprint overlap at arc edges and publish the selected victim through the normal damage path.
+- Change hero, NPC and companion melee admission, pursuit and hit-arc radii from legacy physics fallbacks to authored noun footprints and live object scale, completing noun mappings and preserving separate projectile geometry without requiring navigation meshes.
 - Fix content.db import failures by passing the build context into combat, weapon, and spike resource readers.
 - Track content.db import stage durations, index resource identities before projections, reuse bounded package readers, and remove unused duplicate raw resource blobs while retaining Lua and navigation payloads.
 - Fix campaign startup going black when a seeded zelems_1 layout has no obelisks by replacing the legacy fixed-count requirement with the authored selection.

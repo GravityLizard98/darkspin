@@ -299,13 +299,13 @@ func (r campaignAbilityCommandRuntime) handleRideLightning(
 		return req.reject("destination, cooldown, or power unavailable")
 	}
 	ridePlan := zoneability.BasicPlan{}
-	strikeRange := peerSession.deployedCampaignFootprintRadius() +
+	strikeRange := peerSession.deployedCampaignActorFootprintRadius() +
 		zonenavigation.ProjectionDistance
 	if targetObjectID != 0 && peerSession.zone.NPCs() != nil {
 		target, isTargetFound := peerSession.zone.NPCs().LiveNPC(targetObjectID)
 		if isTargetFound && target.Faction == zonenpc.FactionNonPlayerAligned &&
 			!target.Plan.IsFixture {
-			strikeRange += target.Plan.NPCProfile.FootprintRadius
+			strikeRange += target.Plan.ActorFootprintRadius()
 			if target.Plan.Position.Sub(landing).Length() <= strikeRange {
 				ridePlan, err = zoneability.PlanProjected(
 					peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,

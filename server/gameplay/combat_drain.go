@@ -257,7 +257,7 @@ func (e campaignNPCDrainSchedule) tick(
 	}
 	currentPlan, err := zonenpc.PlanAttackWithProfile(
 		currentNPC, currentTarget.ObjectID, currentTarget.Position,
-		e.plan.Profile, currentTarget.FootprintRadius,
+		e.plan.Profile, currentTarget.ActorFootprintRadius,
 	)
 	if err != nil {
 		runtime.registry.mutex.Unlock()
@@ -443,12 +443,12 @@ func (r campaignNPCActionRuntime) produceHealthDrain(
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
 		enemy, target.ObjectID, target.Position, profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position,
-			profile, target.FootprintRadius,
+			profile, target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyDrainPursuitAction: %w", actionErr)

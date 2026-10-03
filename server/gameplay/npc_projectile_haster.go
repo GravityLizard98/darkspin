@@ -68,7 +68,7 @@ func (r campaignNPCActionRuntime) produceHasterProjectile(
 	hasteAttackSpeed, hasteCooldownReduction, hasteMovementSpeedBuff :=
 		peerSession.zone.NPCs().HasteProfile(objectID, r.now())
 	plan, planErr := planCampaignNPCHasterAttack(
-		enemy, target.ObjectID, target.Position, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, target.ActorFootprintRadius,
 	)
 	if planErr == nil {
 		plan.Profile = applyNPCHaste(
@@ -89,7 +89,7 @@ func (r campaignNPCActionRuntime) produceHasterProjectile(
 		}
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position,
-			attackProfile, target.FootprintRadius,
+			attackProfile, target.ActorFootprintRadius,
 		)
 		r.registry.mutex.Unlock()
 		if actionErr != nil {

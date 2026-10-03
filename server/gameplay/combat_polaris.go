@@ -255,7 +255,7 @@ func (r campaignNPCActionRuntime) producePolarisMarkSeeker(
 		return nil, errors.New("enemy Polaris mark seeker profile unavailable")
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		npc, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		npc, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		r.releaseAction(sessionKey, generation, objectID)

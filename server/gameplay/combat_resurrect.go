@@ -90,7 +90,7 @@ func (r campaignNPCActionRuntime) produceRezzerFallback(
 	}
 	action, err := zonenpc.PlanActionWithProfile(
 		campaignNPCActionCommand(
-			source.Plan, target.ObjectID, target.Position, target.FootprintRadius,
+			source.Plan, target.ObjectID, target.Position, target.ActorFootprintRadius,
 		),
 		profile,
 	)

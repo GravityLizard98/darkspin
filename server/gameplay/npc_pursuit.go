@@ -467,7 +467,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	}
 	step, err := npcSession.AdvancePursuit(
 		peerSession.zone.Navigation(), objectID, targetPosition, profile.Range,
-		movementSpeed, enemy.Plan.NPCProfile.FootprintRadius,
+		movementSpeed, enemy.Plan.ActorFootprintRadius(),
 		elapsed,
 	)
 	if err != nil {

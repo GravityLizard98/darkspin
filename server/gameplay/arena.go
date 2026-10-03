@@ -319,17 +319,20 @@ func (r campaignAbilityCommandRuntime) handleArenaCharacter(
 		return nil, fmt.Errorf("arenaTargetPosition: %w", err)
 	}
 	maximumRange := heroAbilityAdmissionRange(creature, projected)
-	actorRadius, actorRadiusErr := r.program.FootprintRadiusByNoun(creature.Noun)
-	if actorRadiusErr == nil && actorRadius > 0 {
-		maximumRange += actorRadius
-	}
-	targetCreature := targetSession.binding.Creatures[targetSession.deployedCreatureIndex]
-	targetRadius, targetRadiusErr := r.program.FootprintRadiusByNoun(targetCreature.Noun)
-	if targetRadiusErr == nil && targetRadius > 0 {
-		maximumRange += targetRadius
-	}
 	if projected.Kind == sim.AbilityKindMelee {
+		maximumRange += peerSession.deployedCampaignActorFootprintRadius() +
+			targetSession.deployedCampaignActorFootprintRadius()
 		maximumRange += campaignHeldMeleeCursorRadius
+	} else {
+		actorRadius, actorRadiusErr := r.program.FootprintRadiusByNoun(creature.Noun)
+		if actorRadiusErr == nil && actorRadius > 0 {
+			maximumRange += actorRadius
+		}
+		targetCreature := targetSession.binding.Creatures[targetSession.deployedCreatureIndex]
+		targetRadius, targetRadiusErr := r.program.FootprintRadiusByNoun(targetCreature.Noun)
+		if targetRadiusErr == nil && targetRadius > 0 {
+			maximumRange += targetRadius
+		}
 	}
 	distance := zonegeometry.Distance(
 		game.Vec3(peerSession.playerPosition), game.Vec3(targetSession.playerPosition),

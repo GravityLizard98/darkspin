@@ -212,7 +212,7 @@ func (r campaignNPCActionRuntime) produceScaldronBasicBlink(
 		)
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		r.releaseAction(sessionKey, generation, objectID)

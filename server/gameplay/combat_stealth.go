@@ -206,7 +206,7 @@ func (e campaignStealtherSchedule) cast(timestamp uint64) ([][]byte, error) {
 		return e.finishStealth(true, timestamp), nil
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()
@@ -337,7 +337,7 @@ func (e campaignStealtherSchedule) hit() ([][]byte, error) {
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
 		enemy, target.ObjectID, target.Position, e.plan.Profile,
-		target.FootprintRadius,
+		target.ActorFootprintRadius,
 	)
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()

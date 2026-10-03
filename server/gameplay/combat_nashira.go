@@ -138,11 +138,11 @@ func (r campaignNPCActionRuntime) produceNashiraPanic(
 	}
 	sourceFootprint := float32(0)
 	if zonenpc.IsCorruptorNoun(nashira.Plan.NounName) {
-		sourceFootprint = nashira.Plan.NPCProfile.FootprintRadius
+		sourceFootprint = nashira.Plan.ActorFootprintRadius()
 	}
 	isInRange := isTargetFound && target.Position.Sub(
 		nashira.Plan.Position,
-	).Length() <= profile.Range+sourceFootprint+target.FootprintRadius
+	).Length() <= profile.Range+sourceFootprint+target.ActorFootprintRadius
 	if !isNashiraFound || nashira.Plan.OwnerObjectID != 0 || !isProfileFound ||
 		!isReady || !isInRange {
 		r.registry.mutex.Unlock()

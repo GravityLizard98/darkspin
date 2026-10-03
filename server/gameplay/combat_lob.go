@@ -841,18 +841,18 @@ func (r campaignNPCActionRuntime) produceEnemyLob(
 	if isSleepMushroom {
 		plan, planErr = zonenpc.PlanControlWithProfile(
 			enemy, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 	} else {
 		plan, planErr = zonenpc.PlanAttackWithProfile(
 			enemy, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 	}
 	if planErr != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil || !action.IsPursuitNeeded {
 			r.registry.mutex.Unlock()

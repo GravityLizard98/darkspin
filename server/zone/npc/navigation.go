@@ -3,6 +3,7 @@ package npc
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/darkspinnet/darkspin/server/game"
@@ -22,10 +23,12 @@ func (e *Session) ConfigureNavigation(mesh *navigation.Mesh, footprints map[uint
 	e.navigationMesh = mesh
 	e.navigationFootprints = footprints
 	for objectID, npc := range e.npcs {
+		npc.Plan = e.attachActorFootprint(npc.Plan)
+		e.npcs[objectID] = npc
 		if !zonegeometry.IsFiniteScalar(npc.Navigation.Radius) || npc.Navigation.Radius < 0 {
 			return fmt.Errorf("actorRadius[%d]: invalid", objectID)
 		}
-		if npc.Navigation.IsPresent {
+		if npc.Navigation.IsPresent && mesh != nil {
 			layerInfo, isFound := mesh.LayerInfo(npc.Navigation.PlanLayer)
 			if !isFound || layerInfo.PlanLayer != npc.Navigation.PlanLayer {
 				return fmt.Errorf("actorLayer[%d]: unavailable", objectID)
@@ -43,24 +46,12 @@ func (e *Session) ConfigureNavigation(mesh *navigation.Mesh, footprints map[uint
 }
 
 func (e *Session) navigationForPlan(plan SpawnPlan) (navigation.ActorNavigation, error) {
-	if e.navigationFootprints == nil {
-		return navigation.ActorNavigation{}, nil
+	plan = e.attachActorFootprint(plan)
+	radius, err := plan.actorFootprintRadius()
+	if err != nil {
+		return navigation.ActorNavigation{}, fmt.Errorf("planRadius: %w", err)
 	}
-	stem := strings.TrimSuffix(strings.ToLower(plan.NounName), ".noun")
-	footprint, isFound := e.navigationFootprints[util.HashID(stem)]
-	// Compatibility plans without imported nouns retain their previous radius.
-	radius := max(plan.NPCProfile.FootprintRadius, float32(0.1))
-	if isFound {
-		scale := plan.PlacementScale
-		if scale == 0 {
-			scale = 1
-		}
-		var err error
-		radius, err = footprint.ActorRadius(scale)
-		if err != nil {
-			return navigation.ActorNavigation{}, fmt.Errorf("planRadius: %w", err)
-		}
-	}
+	radius = max(radius, float32(0.1))
 	mode := uint8(0)
 	if plan.IsArena {
 		mode = uint8(game.ModeArena)
@@ -78,9 +69,46 @@ func (e *Session) navigationForPlan(plan SpawnPlan) (navigation.ActorNavigation,
 	return actor, nil
 }
 
+func (e *Session) attachActorFootprint(plan SpawnPlan) SpawnPlan {
+	stem := strings.TrimSuffix(strings.ToLower(plan.NounName), ".noun")
+	footprint, isFound := e.navigationFootprints[util.HashID(stem)]
+	if isFound {
+		plan.NPCProfile.ActorFootprint = &footprint
+	}
+	return plan
+}
+
+func (e SpawnPlan) actorFootprintRadius() (float32, error) {
+	if e.NPCProfile.ActorFootprint == nil {
+		// Compatibility plans genuinely lacking noun geometry retain the old
+		// radius, which may already include authored scale. Do not scale twice.
+		return e.NPCProfile.FootprintRadius, nil
+	}
+	scale := e.PlacementScale
+	if scale == 0 {
+		scale = 1
+	}
+	radius, err := e.NPCProfile.ActorFootprint.ActorRadius(scale)
+	if err != nil {
+		return 0, fmt.Errorf("nounRadius: %w", err)
+	}
+	return radius, nil
+}
+
+// ActorFootprintRadius follows the live object scale, independently of the
+// cached navigation layer and the noun's authored graphics scale.
+func (e SpawnPlan) ActorFootprintRadius() float32 {
+	radius, err := e.actorFootprintRadius()
+	if err != nil {
+		log.Printf("NPC actor footprint noun=%q: %v", e.NounName, err)
+		return 0
+	}
+	return radius
+}
+
 func (e Snapshot) NavigationRadius() float32 {
 	if e.Navigation.IsPresent || e.Navigation.Radius > 0 {
 		return e.Navigation.Radius
 	}
-	return e.Plan.NPCProfile.FootprintRadius
+	return e.Plan.ActorFootprintRadius()
 }

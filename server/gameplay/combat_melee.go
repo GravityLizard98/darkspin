@@ -237,7 +237,7 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 		generation, enemy.TargetObjectID,
 	)
 	profile, isProfileFound := campaignNPCActionProfile(
-		enemy.Plan, target.Position, target.FootprintRadius,
+		enemy.Plan, target.Position, target.ActorFootprintRadius,
 	)
 	isOperativeChannel := zonenpc.IsOperativeCage(profile.ModifierName) &&
 		r.registry.isOperativeChannelLocked(peerSession, objectID, target.ObjectID)
@@ -367,7 +367,7 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 		return fleePackets, nil
 	}
 	attackPlan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		pursuitPosition := target.Position
@@ -378,7 +378,7 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 		}
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, pursuitPosition, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyMeleePursuitPlan: %w", actionErr)
@@ -530,12 +530,12 @@ func (r campaignNPCActionRuntime) produceCryosRezMelee(
 		return nil, nil
 	}
 	plan, err := zonenpc.PlanAttackWithProfile(
-		enemy, target.ObjectID, target.Position, profile, target.FootprintRadius,
+		enemy, target.ObjectID, target.Position, profile, target.ActorFootprintRadius,
 	)
 	if err != nil {
 		action, actionErr := campaignNPCActionWithProfile(
 			enemy.Plan, target.ObjectID, target.Position, profile,
-			target.FootprintRadius,
+			target.ActorFootprintRadius,
 		)
 		if actionErr != nil {
 			return nil, fmt.Errorf("enemyRezMeleePursuitPlan: %w", actionErr)

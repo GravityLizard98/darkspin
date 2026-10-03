@@ -155,15 +155,16 @@ type objectiveActor struct {
 }
 
 type NPCTarget struct {
-	UserID          uint64
-	PeerGeneration  uint64
-	ObjectID        uint32
-	Position        game.Vec3
-	LinearVelocity  game.Vec3
-	FootprintRadius float32
-	HitPoint        float32
-	ManaPoint       float32
-	IsHero          bool
+	ActorFootprintRadius float32
+	UserID               uint64
+	PeerGeneration       uint64
+	ObjectID             uint32
+	Position             game.Vec3
+	LinearVelocity       game.Vec3
+	FootprintRadius      float32
+	HitPoint             float32
+	ManaPoint            float32
+	IsHero               bool
 }
 
 type NPCTargetDamage struct {
@@ -277,6 +278,7 @@ func New(id uint64, generation uint64, info ZoneInfo) (*Zone, error) {
 		cancel()
 		return nil, fmt.Errorf("zoneNavigation: %w", navigationErr)
 	}
+	info.Companion.ConfigureActorFootprints(info.DirectorDefinition.NounFootprintsByNoun)
 	return zone, nil
 }
 
@@ -1257,7 +1259,8 @@ func (e *Zone) NPCTarget(objectID uint32) (NPCTarget, bool) {
 	hero, isHeroFound := e.info.Hero.SnapshotByObjectID(objectID)
 	if isHeroFound && hero.HitPoint > 0 && !hero.IsStealthed {
 		return NPCTarget{
-			UserID: hero.UserID, PeerGeneration: hero.PeerGeneration,
+			ActorFootprintRadius: e.CreatureActorFootprintRadius(hero.UserID, hero.PeerGeneration, hero.CreatureIndex),
+			UserID:               hero.UserID, PeerGeneration: hero.PeerGeneration,
 			ObjectID: hero.ObjectID, Position: hero.Position,
 			LinearVelocity:  hero.LinearVelocity,
 			FootprintRadius: hero.FootprintRadius,
@@ -1270,7 +1273,8 @@ func (e *Zone) NPCTarget(objectID uint32) (NPCTarget, bool) {
 		return NPCTarget{}, false
 	}
 	return NPCTarget{
-		UserID: companion.UserID, PeerGeneration: companion.PeerGeneration,
+		ActorFootprintRadius: companion.ActorFootprintRadius(),
+		UserID:               companion.UserID, PeerGeneration: companion.PeerGeneration,
 		ObjectID: companion.ObjectID, Position: companion.Position,
 		FootprintRadius: companion.FootprintRadius,
 		HitPoint:        companion.HitPoint,
