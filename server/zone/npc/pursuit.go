@@ -116,7 +116,7 @@ func (s *Session) AdvancePursuit(
 	travel = min(travel, max(float32(0.0001), distance-stopDistance+0.0001))
 	if mesh != nil {
 		destination, pathErr := zoneaction.AdvancePursuitPath(
-			mesh, source, targetPosition, footprintRadius, travel,
+			mesh, source, targetPosition, max(npc.NavigationRadius(), minimumNavigationFootprintRadius), travel, npc.Navigation,
 		)
 		if pathErr == nil && destination != source {
 			npc.Facing = directionTo(source, destination)

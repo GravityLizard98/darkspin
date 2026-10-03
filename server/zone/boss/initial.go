@@ -18,11 +18,13 @@ import (
 const (
 	InitialMarkerSetName   = "zelems_1_design_spawners.Markerset"
 	InitialTriggerCallback = "nTutorial_SoloSupportUnlockClient.main"
-	InitialArmingDelay     = 2 * time.Second
+	// The native delay after ActivateHordeSpawn is not recovered. Immediate
+	// local admission is a separate server policy, not a script wait.
+	InitialAdmissionDelay  = time.Duration(0)
 	InitialSecondWaveDelay = 2 * time.Second
 )
 
-var ErrSecondHordeIncomplete = errors.New("boss order: second horde incomplete")
+var ErrHordeActive = errors.New("boss order: horde still active")
 
 func SelectInitialLeader(
 	entries []game.CampaignDirectorEntry, chainLevelIndex uint32,
@@ -93,11 +95,13 @@ func PlanInitialEncounter(
 		NPCProfile:    leaderEntry.NPCProfile,
 		BossIdentity:  bossIdentity,
 	}}
-	startIndex := int(
-		(gameID ^ bossMarker.MarkerID) % uint32(len(agentEntry)),
-	)
+	random := initialAddRandom(director, gameID, bossMarker.MarkerID, 1)
 	for index, marker := range addMarker {
-		entry := agentEntry[(startIndex+index)%len(agentEntry)]
+		entryIndex, choiceErr := random.Index(uint32(len(agentEntry)))
+		if choiceErr != nil {
+			return nil, firstObjectID, fmt.Errorf("bossAddChoice[%d]: %w", index, choiceErr)
+		}
+		entry := agentEntry[entryIndex]
 		plans = append(plans, zonenpc.SpawnPlan{
 			ObjectID: firstObjectID + 1 + uint32(index),
 			NounName: entry.NounName, Position: marker.Position,
@@ -130,13 +134,14 @@ func PlanInitialSecondWave(
 	if len(agentEntry) == 0 {
 		return nil, firstObjectID, errors.New("boss second plan: empty pool")
 	}
-	startIndex := int(
-		(gameID ^ publication.TriggerMarkerID ^ 0x206) %
-			uint32(len(agentEntry)),
-	)
+	random := initialAddRandom(director, gameID, publication.TriggerMarkerID, 2)
 	plans := make([]zonenpc.SpawnPlan, 0, 2)
 	for index := 0; index < 2; index++ {
-		entry := agentEntry[(startIndex+index)%len(agentEntry)]
+		entryIndex, choiceErr := random.Index(uint32(len(agentEntry)))
+		if choiceErr != nil {
+			return nil, firstObjectID, fmt.Errorf("bossSecondChoice[%d]: %w", index, choiceErr)
+		}
+		entry := agentEntry[entryIndex]
 		plans = append(plans, zonenpc.SpawnPlan{
 			ObjectID: firstObjectID + uint32(index),
 			NounName: entry.NounName, Position: addMarker[index].Position,
@@ -201,18 +206,28 @@ func InitialDeveloperPublication(
 
 func ValidateInitialOrder(hordeSession *zonehorde.Session) error {
 	if hordeSession == nil {
-		return ErrSecondHordeIncomplete
+		return errors.New("boss horde state unavailable")
 	}
-	if hordeSession.IsComplete("zelems_1_Ai_Horde_2.Markerset") {
-		return nil
-	}
-	// A first-clear route can enter the final arena without intersecting the
-	// tiny Horde 2 trigger sphere. Do not leave the authored support boundary
-	// retrying forever after the earlier horde has conclusively completed.
-	if !hordeSession.IsComplete("zelems_1_Ai_Horde_1.Markerset") {
-		return ErrSecondHordeIncomplete
+	// Hordes are alternatives, not mandatory predecessors of the boss. Only
+	// an encounter already in progress owns the route; absent/untriggered
+	// hordes impose no completion requirement on the final arena trigger.
+	if hordeSession.IsActive() {
+		return ErrHordeActive
 	}
 	return nil
+}
+
+// Encounter streams are deliberately independent of the native layout draws.
+// Phase/marker salts are server policy; they do not claim to reproduce the
+// original director's unrecovered challenge-budget call sequence.
+func initialAddRandom(
+	director game.CampaignDirector, fallbackSeed, markerID, waveOrdinal uint32,
+) *sim.SimulatorRandom {
+	seed := fallbackSeed
+	if director.IsInitialLayoutSelected {
+		seed = director.MapVariantSeed
+	}
+	return sim.NewSimulatorRandom(seed ^ markerID ^ waveOrdinal*0x103 ^ 0x424f5353)
 }
 
 func initialMarkers(

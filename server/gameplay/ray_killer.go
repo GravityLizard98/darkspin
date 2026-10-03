@@ -30,7 +30,7 @@ func campaignRayKillerFleeDestination(
 				Z: source.Z,
 			}
 			destination, isFound, err := zoneaction.NPCDirectMovementDestination(
-				mesh, source, candidate, enemy.Plan.NPCProfile.FootprintRadius,
+				mesh, source, candidate, enemy.NavigationRadius(), enemy.Navigation,
 			)
 			if err != nil {
 				return game.Vec3{}, false, fmt.Errorf("retreatProject: %w", err)

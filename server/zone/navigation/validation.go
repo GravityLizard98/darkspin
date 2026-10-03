@@ -16,15 +16,15 @@ const HeroHeight = float32(1.75)
 const interactionProjectionDistance = float32(6)
 
 func ValidateMovement(
-	mesh *basenavigation.Mesh, start game.Vec3, goal game.Vec3, footprintRadius float32,
+	mesh *basenavigation.Mesh, start game.Vec3, goal game.Vec3, footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) error {
 	if mesh == nil {
 		return nil
 	}
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return errors.New("navigation footprint invalid")
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.ActorLayer(footprintRadius, actors...)
 	if !isLayerFound {
 		return errors.New("navigation layer unavailable")
 	}
@@ -57,10 +57,10 @@ func ValidateTeleport(
 	if mesh == nil {
 		return nil
 	}
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return errors.New("navigation teleport footprint invalid")
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(footprintRadius)
 	if !isLayerFound {
 		return errors.New("navigation teleport layer unavailable")
 	}
@@ -84,10 +84,10 @@ func ValidateInteraction(
 	if mesh == nil {
 		return nil
 	}
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return errors.New("navigation interaction footprint invalid")
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(footprintRadius)
 	if !isLayerFound {
 		return errors.New("navigation interaction layer unavailable")
 	}

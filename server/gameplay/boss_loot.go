@@ -12,7 +12,6 @@ import (
 	zoneboss "github.com/darkspinnet/darkspin/server/zone/boss"
 	zoneinteract "github.com/darkspinnet/darkspin/server/zone/interact"
 	zoneloot "github.com/darkspinnet/darkspin/server/zone/loot"
-	lootraknet "github.com/darkspinnet/darkspin/server/zone/loot/raknet103"
 	zonenavigation "github.com/darkspinnet/darkspin/server/zone/navigation"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
@@ -26,6 +25,7 @@ func isCampaignDestructorLoot(plan zonenpc.SpawnPlan) bool {
 type destructorEquipmentDrop struct {
 	pickup      zoneinteract.EquipmentPickup
 	destination sim.Position
+	flight      sim.DropFlight
 }
 
 // Prepare the whole burst before publishing it; the caller owns the shared
@@ -50,10 +50,14 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 		choice := e.zone.DropRandom().Uint32()
 		subject := subjects[choice%uint32(len(subjects))]
 		part, err := gameplayJoin.GenerateCampaignPartFromBag(
-			subject, e.binding.Difficulty, e.binding.AvatarLevel, choice, &slotBag, &rarityBag,
+			subject, e.binding.Difficulty, e.binding.ChainLevelIndex, choice, &slotBag, &rarityBag, true,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("bossPart[%d]: %w", index, err)
+		}
+		err = gameplayJoin.ValidateGeneratedCampaignPart(part)
+		if err != nil {
+			return nil, 0, fmt.Errorf("bossPartComplete[%d]: %w", index, err)
 		}
 		objectID, err := e.reserveCampaignObjectID()
 		if err != nil {
@@ -66,28 +70,31 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 		})
 		plan, err := zoneloot.PlanEquipment(zoneloot.EquipmentPlanInput{
 			ObjectID: objectID, Rarity: zoneloot.Rarity(part.Rarity),
-			Source: source, Destination: destination,
+			PresentationPolicy: zoneloot.EquipmentUniqueRewardGroundDrop,
+			Source:             source, Destination: destination,
 			SimulationTime: time.Duration(sourceTime) * time.Millisecond,
 		})
 		if err != nil {
 			return nil, 0, fmt.Errorf("bossPlan[%d]: %w", index, err)
 		}
-		dropPackets, err := lootraknet.MarshalEquipmentDrop(plan, part)
+		dropPackets, err := e.marshalEquipmentDrop(plan, part)
 		if err != nil {
 			return nil, 0, fmt.Errorf("bossMarshal[%d]: %w", index, err)
 		}
 		packets = append(packets, dropPackets...)
 		drops = append(drops, destructorEquipmentDrop{
 			destination: destination,
+			flight:      e.pickupFlight(plan.NounName, source, destination, plan.Lob),
 			pickup: zoneinteract.EquipmentPickup{
 				ObjectID: objectID, Part: part, WinnerRewardChoice: choice,
+				PresentationPolicy:     zoneloot.EquipmentUniqueRewardGroundDrop,
 				WinnerRewardDifficulty: e.binding.Difficulty,
 				IsWinnerReward:         true, IsWinnerRewardBoss: true, IsDestructorReward: true,
 			},
 		})
 	}
 	for index, drop := range drops {
-		err := e.registerCampaignPickup(zoneinteract.PickupEquipment, drop.pickup.ObjectID, source, drop.destination)
+		err := e.registerCampaignPickup(zoneinteract.PickupEquipment, drop.pickup.ObjectID, source, drop.destination, drop.flight)
 		if err != nil {
 			e.removeDestructorDrops(drops[:index])
 			return nil, 0, fmt.Errorf("bossRegister[%d]: %w", index, err)
@@ -113,7 +120,7 @@ func (e *gameplayPeerSession) destructorDropDestination(source sim.Position, des
 	if nav == nil {
 		return destination
 	}
-	layer, isLayerFound := nav.SelectLayer(campaignSecurityBlitzFootprintFallback, zonenavigation.HeroHeight)
+	layer, isLayerFound := nav.SelectLayerForMode(campaignSecurityBlitzFootprintFallback, uint8(e.binding.Mode))
 	if !isLayerFound {
 		return source
 	}

@@ -36,7 +36,7 @@ func (e campaignNPCFearExpiryStep) move() ([][]byte, error) {
 	destination, isDestinationFound, err := zonenavigation.RandomTeleportDestination(
 		member.zone.Navigation(), member.zone.NPCRandom(),
 		zonenavigation.RandomTeleportRequest{
-			SourcePosition: e.run.origin, FootprintRadius: member.deployedCampaignFootprintRadius(),
+			SourcePosition: e.run.origin, FootprintRadius: member.deployedCampaignNavigationRadius(),
 			MinimumDistance: 1, NormalDistance: 4, MaximumDistance: 6,
 		},
 	)

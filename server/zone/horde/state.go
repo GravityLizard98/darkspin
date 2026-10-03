@@ -73,6 +73,22 @@ type Session struct {
 	wavesByMarkerSet         map[string]*WaveSequence
 }
 
+// IsActive includes the delay between waves, while a horde still owns its
+// barriers. Unselected and never-triggered alternatives do not block progress.
+func (e *Session) IsActive() bool {
+	if e == nil {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, encounter := range e.encountersByMarkerSet {
+		if encounter.phase != PhaseComplete || encounter.isGateActive {
+			return true
+		}
+	}
+	return false
+}
+
 func NewCampaignSession(chainLevelIndex uint32) *Session {
 	e := NewSession()
 	e.areMutationAgentsEnabled = chainLevelIndex >= 7
@@ -157,9 +173,7 @@ func ListenerCount(publication game.CampaignDirectorPublication) (int, bool) {
 		if listener.CallbackName != "HordeSpawner_Register" {
 			continue
 		}
-		if listener.MarkerSetOrdinal != publication.MarkerSetOrdinal ||
-			!strings.EqualFold(listener.MarkerSetName, publication.MarkerSetName) ||
-			!listener.IsSpawnKindKnown || listener.SpawnKind != 5 ||
+		if !listener.IsSpawnKindKnown || listener.SpawnKind != 5 ||
 			!strings.EqualFold(listener.PoolKind, "agent") || listener.MarkerID == 0 ||
 			!isFinitePosition(listener.Position) {
 			return 0, false

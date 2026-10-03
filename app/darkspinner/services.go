@@ -245,6 +245,10 @@ func (a *App) prepareContent(ctx context.Context, pathSet *spinnerPathSet) error
 		return fmt.Errorf("webPrepare: %w", err)
 	}
 	a.setSubsystemProgress("Content", "preparing", "Checking prepared content", 15)
+	stageTiming := func(timing contentsqlite.BuildStageTiming) {
+		a.log(fmt.Sprintf("Content import phase=%q elapsed=%s complete=%t",
+			timing.Phase, timing.Duration, timing.IsComplete))
+	}
 	_, err = os.Stat(pathSet.contentPath)
 	if err == nil {
 		_, err = contentsqlite.Verify(ctx, pathSet.contentPath)
@@ -269,6 +273,7 @@ func (a *App) prepareContent(ctx context.Context, pathSet *spinnerPathSet) error
 			}
 			a.setSubsystemProgress("Content", "preparing", progress.Phase, percent)
 		},
+		OnStageTiming: stageTiming,
 	})
 	if err != nil {
 		return fmt.Errorf("contentBuild: %w", err)

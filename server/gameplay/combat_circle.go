@@ -105,7 +105,7 @@ func (e campaignCircleTargetStep) produce() ([][]byte, error) {
 	if isDestinationFound {
 		destination, isDestinationFound, _ = zoneaction.NPCDirectMovementDestination(
 			peerSession.zone.Navigation(), enemy.Plan.Position, destination,
-			enemy.Plan.NPCProfile.FootprintRadius,
+			enemy.NavigationRadius(), enemy.Navigation,
 		)
 	}
 	if !isDestinationFound {
@@ -118,7 +118,7 @@ func (e campaignCircleTargetStep) produce() ([][]byte, error) {
 			destination, isDestinationFound, _ =
 				zoneaction.NPCDirectMovementDestination(
 					peerSession.zone.Navigation(), enemy.Plan.Position, destination,
-					enemy.Plan.NPCProfile.FootprintRadius,
+					enemy.NavigationRadius(), enemy.Navigation,
 				)
 		}
 	}

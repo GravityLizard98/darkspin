@@ -264,7 +264,7 @@ func (r campaignAbilityCommandRuntime) handleRideLightning(
 	// caster or the melee target's range. Preserve cursor-directed ground casts.
 	landing, isLandingFound, projectionErr := zonenavigation.ProjectPosition(
 		peerSession.zone.Navigation(), game.Vec3(destination),
-		peerSession.deployedCampaignFootprintRadius(),
+		peerSession.deployedCampaignNavigationRadius(),
 	)
 	if projectionErr != nil {
 		r.registry.mutex.Unlock()

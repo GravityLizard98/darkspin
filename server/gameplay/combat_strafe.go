@@ -227,7 +227,7 @@ func (r campaignNPCActionRuntime) produceBoundedStrafeOrIdle(
 	desired.Y += lateralY * distance
 	destination, isDestinationFound, err := navigationClippedMovementDestination(
 		peerSession.zone.Navigation(), enemy.Plan.Position, desired,
-		max(enemy.Plan.NPCProfile.FootprintRadius, float32(0.25)),
+		max(enemy.NavigationRadius(), float32(0.25)), enemy.Navigation,
 	)
 	if err != nil {
 		r.registry.mutex.Unlock()

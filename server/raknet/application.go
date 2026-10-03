@@ -1636,9 +1636,10 @@ type ChainVoteMessage struct {
 	EnemyNouns         [6]uint32
 	FirstPresentation  [3]uint32
 	FirstVoice         uint32
-	UnlockOrdinal      uint32
-	NextPresentation   [3]uint32
-	NextLevel          uint32
+	// Record +0x49: L <= completed planets forces Cash Out unless L == 5.
+	ContinuationLimit int32
+	NextPresentation  [3]uint32
+	NextLevel         uint32
 }
 
 func (m ChainVoteMessage) PacketID() PacketID { return ChainVoteMsgs }
@@ -1659,7 +1660,7 @@ func (m ChainVoteMessage) EncodePayload() []byte {
 		binary.LittleEndian.PutUint32(data[offset:offset+4], presentation)
 	}
 	binary.LittleEndian.PutUint32(data[0x045:0x049], m.FirstVoice)
-	binary.LittleEndian.PutUint32(data[0x049:0x04d], m.UnlockOrdinal)
+	binary.LittleEndian.PutUint32(data[0x049:0x04d], uint32(m.ContinuationLimit))
 	for index, presentation := range m.NextPresentation {
 		offset := 0x0d9 + index*4
 		binary.LittleEndian.PutUint32(data[offset:offset+4], presentation)
@@ -1791,10 +1792,10 @@ func (m ChainCashOutMessage) EncodePayload() []byte {
 }
 
 type PrepareForStartMessage struct {
-	Level      uint32
-	Markerset  uint32
-	PlayerMask uint32
-	LevelIndex uint32
+	Level         uint32
+	VariantSeed   uint32
+	ConditionMask uint32
+	LevelIndex    uint32
 }
 
 type LabsPlayerStatusMessage struct {
@@ -2223,8 +2224,8 @@ func (m PrepareForStartMessage) PacketID() PacketID { return GamePrepareForStart
 func (m PrepareForStartMessage) EncodePayload() []byte {
 	payload := make([]byte, 16)
 	binary.LittleEndian.PutUint32(payload[0:4], m.Level)
-	binary.LittleEndian.PutUint32(payload[4:8], m.Markerset)
-	binary.LittleEndian.PutUint32(payload[8:12], m.PlayerMask)
+	binary.LittleEndian.PutUint32(payload[4:8], m.VariantSeed)
+	binary.LittleEndian.PutUint32(payload[8:12], m.ConditionMask)
 	binary.LittleEndian.PutUint32(payload[12:16], m.LevelIndex)
 	return payload
 }

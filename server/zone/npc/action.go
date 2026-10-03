@@ -237,16 +237,42 @@ func PlanFirstAction(command FirstActionCommand) (FirstActionPlan, bool, error) 
 
 func ActionProfileForPlan(plan SpawnPlan) (ActionProfile, bool) {
 	if plan.IsActionKnown {
-		return mapIntroductionProfile(plan, plan.ActionProfile), true
+		return authoredCombatSpeed(plan, mapIntroductionProfile(plan, plan.ActionProfile)), true
 	}
 	profile, isFound := ActionProfileForNoun(plan.NounName)
 	if isFound {
-		return mapIntroductionProfile(plan, profile), true
+		return authoredCombatSpeed(plan, mapIntroductionProfile(plan, profile)), true
 	}
 	if plan.IsFixture || plan.NounName == "" {
 		return ActionProfile{}, false
 	}
-	return fallbackActionProfile(plan.NounName), true
+	return authoredCombatSpeed(plan, fallbackActionProfile(plan.NounName)), true
+}
+
+func authoredCombatSpeed(plan SpawnPlan, profile ActionProfile) ActionProfile {
+	combatSpeed := profile.MovementSpeed
+	if plan.NPCProfile.BaseCombatSpeed > 0 {
+		combatSpeed = plan.NPCProfile.BaseCombatSpeed
+	}
+	idleSpeed := profile.NonCombatMovementSpeed
+	if plan.NPCProfile.IdleMovementSpeed > 0 {
+		idleSpeed = plan.NPCProfile.IdleMovementSpeed
+	}
+	if idleSpeed <= 0 {
+		idleSpeed = combatSpeed
+	}
+	// sub_9E9960 selects attribute 12 in combat or Arena, otherwise 11,
+	// then multiplies the selected base by 1 + attribute 48.
+	speedScale := 1 + plan.MovementSpeedBuff
+	profile.MovementSpeed = combatSpeed * speedScale
+	profile.NonCombatMovementSpeed = idleSpeed * speedScale
+	return profile
+}
+
+// IsCombatMovementState is the state currently owned by the server. Native
+// automatic combat-state transitions beyond target acquisition are unknown.
+func IsCombatMovementState(plan SpawnPlan, targetObjectID uint32) bool {
+	return plan.IsArena || targetObjectID != 0
 }
 
 func fallbackActionProfile(nounName string) ActionProfile {

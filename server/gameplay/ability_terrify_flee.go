@@ -115,7 +115,7 @@ func (r campaignAbilityCommandRuntime) startTerrifyFlee(
 		func(candidate game.Vec3) (game.Vec3, bool, error) {
 			return zoneaction.NPCDirectMovementDestination(
 				peerSession.zone.Navigation(), target.Plan.Position, candidate,
-				target.Plan.NPCProfile.FootprintRadius,
+				target.NavigationRadius(), target.Navigation,
 			)
 		},
 	)

@@ -3,6 +3,7 @@ package zone
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
@@ -147,10 +148,26 @@ func (e *Zone) planPopulation(
 ) ([]zonenpc.SpawnPlan, error) {
 	occupiedSpawnGroups := make(map[uint32]struct{})
 	operativeCount := 0
+	compositionContext := zonepopulation.GroupCompositionContext{}
+	agentEntries := zonepopulation.PoolEntries(e.info.DirectorDefinition, "agent")
+	for _, hero := range e.info.Hero.Snapshots() {
+		member, isMemberFound := e.members[hero.UserID]
+		if isMemberFound && member.IsConnected && member.PeerGeneration == hero.PeerGeneration && hero.HitPoint > 0 {
+			compositionContext.AlivePartyCount++
+		}
+	}
 	for spawnGroupID := range e.clearedSpawnGroups {
 		occupiedSpawnGroups[spawnGroupID] = struct{}{}
 	}
 	for _, npc := range e.info.NPCs.Snapshots() {
+		if !npc.IsDefeated && npc.HitPoint > 0 {
+			for _, entry := range agentEntries {
+				if strings.EqualFold(entry.NounName, npc.Plan.NounName) {
+					compositionContext.ActiveAgentCount++
+					break
+				}
+			}
+		}
 		// Defeated actors remain in durable snapshots and spend the map budget.
 		profile, isOperative := zonenpc.OperativeProfile(npc.Plan.NounName)
 		if isOperative && zonenpc.IsOperativeCage(profile.ModifierName) {
@@ -169,9 +186,9 @@ func (e *Zone) planPopulation(
 		}
 		filteredDecisions = append(filteredDecisions, decision)
 	}
-	plans, _, err := e.info.Population.PlanCampaignSpawns(
+	plans, _, err := e.info.Population.PlanCampaignSpawnsWithContext(
 		e.info.DirectorDefinition, filteredDecisions, e.info.ObjectID.Next(),
-		e.info.ChainLevelIndex,
+		e.info.ChainLevelIndex, compositionContext,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("spawnPlan: %w", err)

@@ -517,3 +517,14 @@ func Updates(
 	}
 	return updates, nil
 }
+
+func (e *Session) BindRandom(random *sim.SimulatorRandom) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, runtime := range e.runtimes {
+		runtime.BindRandom(random)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/squad"
@@ -523,7 +524,9 @@ func marshalGameplayRejoinPickups(
 		return nil, nil
 	}
 	packets := make([][]byte, 0)
-	for index, pickup := range peerSession.zone.Pickups().Snapshots() {
+	for index, pickup := range peerSession.zone.Pickups().SnapshotsAt(
+		peerSession.zone.Elapsed(time.Now()),
+	) {
 		encoded, err := marshalGameplayRejoinPickup(peerSession, pickup)
 		if err != nil {
 			return nil, fmt.Errorf("pickup[%d]: %w", index, err)
@@ -531,6 +534,10 @@ func marshalGameplayRejoinPickups(
 		packets = append(packets, encoded...)
 	}
 	for index, pickup := range peerSession.zone.DNA().Snapshots() {
+		err := peerSession.validatePickupNounType("DNA.Noun", game.NounTypeLoot)
+		if err != nil {
+			return nil, fmt.Errorf("dnaSnapshotNounType[%d]: %w", index, err)
+		}
 		position := raknet.Vector3{
 			X: pickup.Position.X, Y: pickup.Position.Y, Z: pickup.Position.Z,
 		}
@@ -543,12 +550,32 @@ func marshalGameplayRejoinPickups(
 		if err != nil {
 			return nil, fmt.Errorf("DNA[%d]: %w", index, err)
 		}
+		flightPackets, err := marshalPickupFlight(pickup.ObjectID, pickup.Flight, true)
+		if err != nil {
+			return nil, fmt.Errorf("dnaFlight[%d]: %w", index, err)
+		}
+		encoded = append(encoded, flightPackets...)
 		packets = append(packets, encoded...)
 	}
 	return packets, nil
 }
 
-func marshalGameplayRejoinPickup(
+func marshalGameplayRejoinPickup(peerSession gameplayPeerSession, pickup zoneinteract.Pickup) ([][]byte, error) {
+	packets, err := marshalGameplayRejoinPickupPayload(peerSession, pickup)
+	if err != nil {
+		return nil, fmt.Errorf("pickupPayload: %w", err)
+	}
+	if len(packets) == 0 {
+		return nil, nil
+	}
+	flightPackets, err := marshalPickupFlight(pickup.ObjectID, pickup.Flight, true)
+	if err != nil {
+		return nil, fmt.Errorf("pickupFlight: %w", err)
+	}
+	return append(packets, flightPackets...), nil
+}
+
+func marshalGameplayRejoinPickupPayload(
 	peerSession gameplayPeerSession, pickup zoneinteract.Pickup,
 ) ([][]byte, error) {
 	position := raknet.Vector3{
@@ -560,7 +587,14 @@ func marshalGameplayRejoinPickup(
 		if !isFound {
 			return nil, errors.New("equipment payload unavailable")
 		}
-		noun := zoneloot.EquipmentContainerNoun(zoneloot.Rarity(payload.Part.Rarity))
+		noun, isSupported := payload.PresentationPolicy.ContainerNoun(zoneloot.Rarity(payload.Part.Rarity))
+		if !isSupported {
+			return nil, nil
+		}
+		err := peerSession.validatePickupNounType(noun, game.NounTypeLoot)
+		if err != nil {
+			return nil, fmt.Errorf("equipmentNounType: %w", err)
+		}
 		create, err := raknet.MarshalApplication(raknet.EnemyObjectCreateMessage{
 			ObjectID: pickup.ObjectID, Noun: util.HashID(noun),
 			Position: position, Scale: 1, IsCollidable: true,
@@ -592,6 +626,10 @@ func marshalGameplayRejoinPickup(
 		if !isFound {
 			return nil, errors.New("crystal payload unavailable")
 		}
+		err := peerSession.validatePickupNounType(payload.Request.NounName, game.NounTypeCrystal)
+		if err != nil {
+			return nil, fmt.Errorf("crystalNounType: %w", err)
+		}
 		return marshalGameplayRejoinSimplePickup(
 			pickup.ObjectID, util.HashID(payload.Request.NounName), position,
 			raknet.CrystalLootDataUpdateMessage{
@@ -604,6 +642,10 @@ func marshalGameplayRejoinPickup(
 		if !isFound {
 			return nil, errors.New("DNA payload unavailable")
 		}
+		err := peerSession.validatePickupNounType("DNA.Noun", game.NounTypeLoot)
+		if err != nil {
+			return nil, fmt.Errorf("dnaNounType: %w", err)
+		}
 		return marshalGameplayRejoinSimplePickup(
 			pickup.ObjectID, util.HashID("DNA.Noun"), position,
 			raknet.LootDataUpdateMessage{
@@ -614,6 +656,10 @@ func marshalGameplayRejoinPickup(
 		payload, isFound := peerSession.zone.Orbs().Orb(pickup.ObjectID)
 		if !isFound {
 			return nil, errors.New("orb payload unavailable")
+		}
+		err := peerSession.validateOrbNounType(payload.Request)
+		if err != nil {
+			return nil, fmt.Errorf("orbNounType: %w", err)
 		}
 		var data raknet.ApplicationMessage
 		if payload.Request.Kind == sim.ResurrectionOrbDrop {

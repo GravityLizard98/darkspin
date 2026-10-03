@@ -39,13 +39,9 @@ func PlanNamedEncounter(
 	var bossListener game.CampaignDirectorListenerPublication
 	addListener := make([]game.CampaignDirectorListenerPublication, 0)
 	for _, listener := range publication.Listeners {
-		if listener.MarkerSetOrdinal != publication.MarkerSetOrdinal ||
-			!strings.EqualFold(
-				listener.MarkerSetName, publication.MarkerSetName,
-			) ||
-			listener.MarkerID == 0 || !isFinitePosition(listener.Position) {
+		if listener.MarkerID == 0 || !isFinitePosition(listener.Position) {
 			return game.CampaignDirectorPublication{}, nil, firstObjectID,
-				errors.New("named boss plan: cross-scoped listener")
+				errors.New("named boss plan: invalid listener")
 		}
 		switch {
 		case IsNamedCallback(listener.CallbackName):

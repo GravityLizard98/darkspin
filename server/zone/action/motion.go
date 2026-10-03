@@ -12,22 +12,26 @@ import (
 )
 
 type Motion struct {
-	mu              sync.RWMutex
-	movement        *sim.LinearMovement
-	position        sim.Position
-	startedAt       time.Time
-	revision        uint64
-	navigation      *navigation.Mesh
-	footprintRadius float32
-	projectionRange float32
+	mu                 sync.RWMutex
+	movement           *sim.LinearMovement
+	position           sim.Position
+	startedAt          time.Time
+	revision           uint64
+	navigation         *navigation.Mesh
+	footprintRadius    float32
+	navigationActor    navigation.ActorNavigation
+	navigationObjectID uint32
+	projectionRange    float32
 }
 
 type MotionSnapshot struct {
-	movement        *sim.LinearMovement
-	position        sim.Position
-	startedAt       time.Time
-	Revision        uint64
-	projectionRange float32
+	navigationObjectID uint32
+	navigationActor    navigation.ActorNavigation
+	movement           *sim.LinearMovement
+	position           sim.Position
+	startedAt          time.Time
+	Revision           uint64
+	projectionRange    float32
 }
 
 func (e MotionSnapshot) Position() sim.Position {
@@ -127,7 +131,9 @@ func (m *Motion) Snapshot() MotionSnapshot {
 
 func (m *Motion) snapshot() MotionSnapshot {
 	return MotionSnapshot{
-		movement: m.movement.Clone(), position: m.position,
+		navigationActor:    m.navigationActor,
+		navigationObjectID: m.navigationObjectID,
+		movement:           m.movement.Clone(), position: m.position,
 		startedAt: m.startedAt, Revision: m.revision,
 		projectionRange: m.projectionRange,
 	}
@@ -142,6 +148,8 @@ func (m *Motion) Restore(snapshot MotionSnapshot, expectedRevision uint64) (sim.
 	if m.revision != expectedRevision {
 		return m.position, false
 	}
+	m.navigationObjectID = snapshot.navigationObjectID
+	m.navigationActor = snapshot.navigationActor
 	m.movement = snapshot.movement.Clone()
 	m.position = snapshot.position
 	m.startedAt = snapshot.startedAt

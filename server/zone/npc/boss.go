@@ -1,10 +1,12 @@
 package npc
 
 import (
+	"math"
 	"strings"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
+	"github.com/darkspinnet/darkspin/server/util"
 )
 
 const (
@@ -32,51 +34,76 @@ func BossIdentityFromContent(
 	modifierIndex := 0
 	isAffixGap := false
 	for affixIndex, affixName := range contentIdentity.NPCAffixNames {
+		modifierName := contentIdentity.NPCAffixModifierNames[affixIndex]
+		modifierID := contentIdentity.NPCAffixModifierIDs[affixIndex]
 		if affixName == "" {
+			if modifierName != "" || modifierID != 0 {
+				return BossIdentity{}, false
+			}
 			isAffixGap = true
 			continue
 		}
-		if isAffixGap || !strings.HasSuffix(affixName, ".NPCAffix") {
+		if isAffixGap || !isNPCAffixMappingValid(affixName, modifierName, modifierID) {
 			return BossIdentity{}, false
 		}
 		assetStem := strings.TrimSuffix(affixName, ".NPCAffix")
-		if assetStem == "" {
-			return BossIdentity{}, false
-		}
 		identity.AffixNames[affixIndex] = affixName
-		identity.ModifierNames[modifierIndex] = npcAffixModifierName(assetStem)
+		identity.ModifierNames[modifierIndex] = modifierName
+		identity.ModifierIDs[modifierIndex] = modifierID
 		modifierIndex++
 		if strings.HasPrefix(assetStem, "Aura_") {
 			identity.AuraRadius = 12
 		}
 	}
 	identity.ModifierNames[modifierIndex] = EliteModifierName
+	identity.ModifierIDs[modifierIndex] = util.HashID(EliteModifierName)
 	return identity, true
 }
 
-func npcAffixModifierName(assetStem string) string {
-	if strings.EqualFold(assetStem, "Spiky") {
-		return "Aura_Spiky_NPCAffixModifier"
-	}
-	return assetStem + "_NPCAffixModifier"
+func isNPCAffixMappingValid(affixName string, modifierName string, modifierID uint32) bool {
+	return strings.HasSuffix(affixName, ".NPCAffix") &&
+		strings.TrimSuffix(affixName, ".NPCAffix") != "" && modifierID != 0 &&
+		(modifierName == "" || util.HashID(modifierName) == modifierID)
 }
 
 func IsBossIdentityValid(identity BossIdentity) bool {
-	if !identity.IsKnown {
+	if !identity.IsKnown || strings.TrimSpace(identity.DisplayName) == "" ||
+		identity.AuraRadius < 0 || math.IsNaN(float64(identity.AuraRadius)) ||
+		math.IsInf(float64(identity.AuraRadius), 0) {
 		return false
 	}
-	contentIdentity := game.CampaignNPCIdentity{
-		DisplayName:   identity.DisplayName,
-		NPCAffixNames: identity.AffixNames,
-		IsKnown:       true,
+	modifierIndex := 0
+	isAffixGap := false
+	for affixIndex, affixName := range identity.AffixNames {
+		if affixName == "" {
+			isAffixGap = true
+			continue
+		}
+		if isAffixGap || !isNPCAffixMappingValid(affixName,
+			identity.ModifierNames[affixIndex], identity.ModifierIDs[affixIndex]) {
+			return false
+		}
+		modifierIndex++
 	}
-	expected, isExpected := BossIdentityFromContent(contentIdentity)
-	return isExpected && identity == expected
+	if identity.ModifierNames[modifierIndex] != EliteModifierName ||
+		identity.ModifierIDs[modifierIndex] != util.HashID(EliteModifierName) {
+		return false
+	}
+	for index := modifierIndex + 1; index < len(identity.ModifierNames); index++ {
+		if identity.ModifierNames[index] != "" || identity.ModifierIDs[index] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (e BossIdentity) HasModifier(modifierName string) bool {
-	for _, candidateName := range e.ModifierNames {
-		if strings.EqualFold(candidateName, modifierName) {
+	if modifierName == "" {
+		return false
+	}
+	modifierID := util.HashID(modifierName)
+	for _, candidateID := range e.ModifierIDs {
+		if candidateID == modifierID {
 			return true
 		}
 	}

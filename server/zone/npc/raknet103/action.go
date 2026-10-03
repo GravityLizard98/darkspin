@@ -1143,7 +1143,7 @@ func ResurrectionState(target zonenpc.Snapshot) ([][]byte, error) {
 		},
 		raknet.AgentBlackboardUpdateMessage{
 			ObjectID: target.Plan.ObjectID, TargetID: target.TargetObjectID,
-			IsInCombat:    target.TargetObjectID != 0,
+			IsInCombat:    zonenpc.IsCombatMovementState(target.Plan, target.TargetObjectID),
 			IsTargetable:  target.Plan.NPCProfile.IsTargetable,
 			AttackerCount: 1,
 		},

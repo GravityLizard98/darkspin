@@ -1222,7 +1222,8 @@ function recordError(error) {
 }
 async function copyLauncherFailure() {
   if (!launcherFailure.value) return
-  isLauncherFailureCopied.value = await ClipboardSetText(launcherFailure.value)
+  const errorReport = `Darkspinner ${status.value.version || 'unknown version'}\n${launcherFailure.value}`
+  isLauncherFailureCopied.value = await ClipboardSetText(errorReport)
 }
 </script>
 

@@ -303,12 +303,18 @@ func snapshotSession(
 		}
 		state.Objects = append(state.Objects, object)
 	}
-	pickups := peerSession.zone.Pickups().Snapshots()
+	zoneElapsed := peerSession.zone.Elapsed(capturedAt)
+	pickups := peerSession.zone.Pickups().SnapshotsAt(zoneElapsed)
 	for _, pickup := range pickups {
+		remainingDurationMS := int64(0)
+		if pickup.ExpiresAt > 0 {
+			remainingDurationMS = int64((pickup.ExpiresAt - zoneElapsed) / time.Millisecond)
+		}
 		state.Objects = append(state.Objects, snapshot.ObjectState{
 			Kind: "pickup", SubType: uint32(pickup.Kind),
 			ObjectID: pickup.ObjectID, Position: vec3(pickup.Position),
 			TargetPosition: vec3(pickup.SourcePosition), IsPublished: true,
+			RemainingDurationMS: remainingDurationMS,
 		})
 	}
 	dnaPickups := peerSession.zone.DNA().Snapshots()
@@ -320,6 +326,14 @@ func snapshotSession(
 	}
 	orbs := peerSession.zone.Orbs().Orbs()
 	for _, orb := range orbs {
+		pickup, isPickupFound := peerSession.zone.Pickups().Pickup(orb.ObjectID)
+		if !isPickupFound || (pickup.ExpiresAt > 0 && zoneElapsed >= pickup.ExpiresAt) {
+			continue
+		}
+		remainingDurationMS := int64(0)
+		if pickup.ExpiresAt > 0 {
+			remainingDurationMS = int64((pickup.ExpiresAt - zoneElapsed) / time.Millisecond)
+		}
 		state.Objects = append(state.Objects, snapshot.ObjectState{
 			Kind: "orb", SubType: uint32(orb.Request.Kind),
 			ObjectID: orb.ObjectID, NounName: orb.Request.NounName,
@@ -328,7 +342,7 @@ func snapshotSession(
 				orb.Request.Destination.Y,
 				orb.Request.Destination.Z,
 			},
-			IsPublished: true,
+			IsPublished: true, RemainingDurationMS: remainingDurationMS,
 		})
 	}
 	state.Objects = append(

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
+	basenavigation "github.com/darkspinnet/darkspin/server/navigation"
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sporenet"
 	zone "github.com/darkspinnet/darkspin/server/zone"
@@ -112,13 +113,13 @@ func isCampaignLineTarget(
 
 func isCampaignLaserPathClear(
 	campaignZone *zone.Zone, source game.Vec3, target game.Vec3,
-	footprintRadius float32,
+	footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) (bool, error) {
 	if campaignZone == nil || campaignZone.Navigation() == nil {
 		return true, nil
 	}
 	isDirect, err := zoneaction.NPCPathClear(
-		campaignZone.Navigation(), source, target, footprintRadius,
+		campaignZone.Navigation(), source, target, footprintRadius, actors...,
 	)
 	if err != nil {
 		return false, fmt.Errorf("laserPath: %w", err)
@@ -174,7 +175,7 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 		isInRange := primary.Position.Sub(source.Plan.Position).Length() <= maximumDistance
 		isPathClear, pathErr := isCampaignLaserPathClear(
 			peerSession.zone, source.Plan.Position, primary.Position,
-			source.Plan.NPCProfile.FootprintRadius,
+			source.NavigationRadius(), source.Navigation,
 		)
 		if pathErr != nil {
 			e.runtime.registry.mutex.Unlock()
@@ -374,7 +375,7 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 			isTargeted = false
 			for index, endpoint := range e.laserEndpoints {
 				if isCampaignLineTarget(e.twinLaserOrigin(source, index), endpoint, target) {
-					isClear, pathErr := isCampaignLaserPathClear(peerSession.zone, source.Plan.Position, target.Position, 0.1)
+					isClear, pathErr := isCampaignLaserPathClear(peerSession.zone, source.Plan.Position, target.Position, max(source.NavigationRadius(), float32(0.1)), source.Navigation)
 					if pathErr != nil {
 						e.runtime.registry.mutex.Unlock()
 						return packets, fmt.Errorf("twinLaserHitPath: %w", pathErr)
@@ -761,7 +762,7 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 	if isLaserZone {
 		isPathClear, pathErr := isCampaignLaserPathClear(
 			peerSession.zone, enemy.Plan.Position, target.Position,
-			enemy.Plan.NPCProfile.FootprintRadius,
+			enemy.NavigationRadius(), enemy.Navigation,
 		)
 		if pathErr != nil {
 			return nil, fmt.Errorf("enemyConeLaserAdmission: %w", pathErr)
@@ -848,7 +849,7 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 			}
 			isPathClear, pathErr := isCampaignLaserPathClear(
 				peerSession.zone, enemy.Plan.Position, candidate.Position,
-				enemy.Plan.NPCProfile.FootprintRadius,
+				enemy.NavigationRadius(), enemy.Navigation,
 			)
 			if pathErr != nil {
 				return nil, fmt.Errorf("enemyConeLaserPlacement: %w", pathErr)

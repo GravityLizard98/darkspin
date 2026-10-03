@@ -11,16 +11,20 @@ import (
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
+	"github.com/darkspinnet/darkspin/server/navigation"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
 )
 
 type Session struct {
-	mu                sync.RWMutex
-	objectIDLimit     uint32
-	aggroRadius       float32
-	defenseConversion float32
-	objectIDs         []uint32
-	npcs              map[uint32]Snapshot
+	navigationMesh       *navigation.Mesh
+	navigationFootprints map[uint32]game.NavigationFootprint
+	mu                   sync.RWMutex
+	objectIDLimit        uint32
+	aggroRadius          float32
+	defenseConversion    float32
+	objectIDs            []uint32
+	npcs                 map[uint32]Snapshot
+	attackersByObject    map[uint32][]uint32
 }
 
 func NewSession(objectIDLimit uint32, aggroRadius float32) *Session {
@@ -29,6 +33,7 @@ func NewSession(objectIDLimit uint32, aggroRadius float32) *Session {
 		aggroRadius:       aggroRadius,
 		defenseConversion: 10,
 		npcs:              make(map[uint32]Snapshot),
+		attackersByObject: make(map[uint32][]uint32),
 	}
 }
 
@@ -39,21 +44,77 @@ func (s *Session) AggroRadius() float32 {
 	return s.aggroRadius
 }
 
+// EffectiveAggroRange is the server's current acquisition policy using the
+// authored AggroRange, with a session fallback for incomplete class data.
+// The recovered Lua perception query does not establish acquisition policy.
+func EffectiveAggroRange(profile game.CampaignNPCProfile, fallback float32) float32 {
+	radius := profile.AggroRange
+	if radius <= 0 || math.IsNaN(float64(radius)) || math.IsInf(float64(radius), 0) {
+		return fallback
+	}
+	return radius
+}
+
+// EffectivePerceptionRange follows sub_9E8FC0. A nil classProfile means no
+// NonPlayerClass is attached; a present class retains its authored range,
+// including zero. Profile.IsKnown alone does not establish class presence.
+func EffectivePerceptionRange(classProfile *game.CampaignNPCProfile) float32 {
+	if classProfile == nil {
+		return 20
+	}
+	return max(classProfile.AggroRange, classProfile.AlertRange)
+}
+
+// IsInPerceptionCircle implements nAgent.InPerceptionCircle, registered by
+// sub_A05A90 and evaluated by sub_A059A0. center is the resolved perception
+// center; targetRadius is the supplied Lua radius (zero when omitted).
+// This read-only predicate neither acquires a target nor propagates alerts.
+func IsInPerceptionCircle(
+	classProfile *game.CampaignNPCProfile, center, target game.Vec3,
+	targetRadius float32,
+) bool {
+	if !zonegeometry.IsFinite(center) || !zonegeometry.IsFinite(target) ||
+		!zonegeometry.IsFiniteScalar(targetRadius) {
+		return false
+	}
+	perceptionRange := EffectivePerceptionRange(classProfile)
+	if !zonegeometry.IsFiniteScalar(perceptionRange) {
+		return false
+	}
+	return perceptionRange > zonegeometry.Distance(center, target)-targetRadius
+}
+
 func (s *Session) Add(plans []SpawnPlan, targetObjectID uint32) error {
 	if s == nil || targetObjectID == 0 {
 		return errors.New("zero target object")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	err := s.add(plans, targetObjectID)
+	if err != nil {
+		return fmt.Errorf("addCreate: %w", err)
+	}
+	return nil
+}
+
+func (s *Session) add(plans []SpawnPlan, targetObjectID uint32) error {
 	plans = rewardSpawnPlans(plans)
 	err := s.canAdd(plans)
 	if err != nil {
 		return fmt.Errorf("addValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = plan.Clone()
+		actorNavigation, navigationErr := s.navigationForPlan(plan)
+		if navigationErr != nil {
+			return fmt.Errorf("addNavigation: %w", navigationErr)
+		}
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		s.npcs[plan.ObjectID] = Snapshot{
-			Plan: plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
+			IsNashiraPassiveActive: hasNashiraPassive(plan),
+			GraphState:             initialGraphState(plan.NPCProfile.AIGraph),
+			Navigation:             actorNavigation,
+			Plan:                   plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
 			Facing:   plan.InitialFacing(),
 			HitPoint: plan.NPCProfile.HitPoint, ManaPoint: plan.NPCProfile.PowerPoint,
 			TargetObjectID:               targetObjectID,
@@ -109,9 +170,17 @@ func (s *Session) AddDormant(plans []SpawnPlan) error {
 		return fmt.Errorf("dormantValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = plan.Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
+		actorNavigation, navigationErr := s.navigationForPlan(plan)
+		if navigationErr != nil {
+			return fmt.Errorf("dormantNavigation: %w", navigationErr)
+		}
 		s.npcs[plan.ObjectID] = Snapshot{
-			Plan: plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
+			IsNashiraPassiveActive: hasNashiraPassive(plan),
+			GraphState:             initialGraphState(plan.NPCProfile.AIGraph),
+			Navigation:             actorNavigation,
+			Plan:                   plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
 			Facing:                          plan.InitialFacing(),
 			HitPoint:                        plan.NPCProfile.HitPoint,
 			ManaPoint:                       plan.NPCProfile.PowerPoint,
@@ -141,9 +210,17 @@ func (s *Session) AddStaged(plans []SpawnPlan) error {
 		return fmt.Errorf("stagedValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = plan.Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
+		actorNavigation, navigationErr := s.navigationForPlan(plan)
+		if navigationErr != nil {
+			return fmt.Errorf("stagedNavigation: %w", navigationErr)
+		}
 		s.npcs[plan.ObjectID] = Snapshot{
-			Plan: plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
+			IsNashiraPassiveActive: hasNashiraPassive(plan),
+			GraphState:             initialGraphState(plan.NPCProfile.AIGraph),
+			Navigation:             actorNavigation,
+			Plan:                   plan, Origin: plan.Position, Faction: FactionNonPlayerAligned,
 			Facing:                          plan.InitialFacing(),
 			HitPoint:                        plan.NPCProfile.HitPoint,
 			ManaPoint:                       plan.NPCProfile.PowerPoint,
@@ -166,8 +243,16 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 	if len(snapshots) == 0 {
 		return nil
 	}
+	fiendErr := ValidateNashiraFiends(snapshots)
+	if fiendErr != nil {
+		return fmt.Errorf("restoreFiends: %w", fiendErr)
+	}
 	plans := make([]SpawnPlan, 0, len(snapshots))
 	for _, snapshot := range snapshots {
+		err := snapshot.GraphState.Validate(snapshot.Plan.NPCProfile.AIGraph)
+		if err != nil {
+			return fmt.Errorf("restoreGraph[%d]: %w", snapshot.Plan.ObjectID, err)
+		}
 		plans = append(plans, snapshot.Plan)
 	}
 	s.mu.Lock()
@@ -187,6 +272,12 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 		if !zonegeometry.IsFinite(plan.Position) {
 			return fmt.Errorf("restorePosition[%d]: invalid", plan.ObjectID)
 		}
+		if snapshot.IsPerceptionOffsetCached && !zonegeometry.IsFinite(snapshot.PerceptionOffset) {
+			return fmt.Errorf("restorePerception[%d]: invalid", plan.ObjectID)
+		}
+		if !zonegeometry.IsFiniteScalar(snapshot.Navigation.Radius) || snapshot.Navigation.Radius < 0 {
+			return fmt.Errorf("restoreNavigation[%d]: invalid radius", plan.ObjectID)
+		}
 		maximumHitPoint := plan.NPCProfile.HitPoint
 		if snapshot.HitPoint < 0 || snapshot.HitPoint > maximumHitPoint ||
 			math.IsNaN(float64(snapshot.HitPoint)) ||
@@ -199,7 +290,17 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 		}
 		isDefeated := snapshot.IsDefeated || snapshot.HitPoint == 0
 		restored := Snapshot{
-			Plan: plan, Origin: snapshot.Origin, Facing: snapshot.Facing,
+			IsNashiraPassiveActive:     snapshot.IsNashiraPassiveActive && !isDefeated,
+			NashiraFiendOwnerObjectID:  snapshot.NashiraFiendOwnerObjectID,
+			NashiraFiendCasterObjectID: snapshot.NashiraFiendCasterObjectID,
+			GraphState:                 snapshot.GraphState,
+			Navigation:                 snapshot.Navigation,
+			PerceptionOffset:           snapshot.PerceptionOffset,
+			IsPerceptionOffsetCached:   snapshot.IsPerceptionOffsetCached,
+			threats:                    slices.Clone(snapshot.threats),
+			IsInitialAggroSet:          snapshot.IsInitialAggroSet,
+			InitialAggroAnimationFlag:  snapshot.InitialAggroAnimationFlag,
+			Plan:                       plan, Origin: snapshot.Origin, Facing: snapshot.Facing,
 			Faction:  FactionNonPlayerAligned,
 			HitPoint: snapshot.HitPoint, ManaPoint: snapshot.ManaPoint,
 			IsDefeated: isDefeated, IsPublished: snapshot.IsPublished,
@@ -213,6 +314,9 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 		}
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		s.npcs[plan.ObjectID] = restored
+		for _, threat := range restored.threats {
+			s.trackAttacker(plan.ObjectID, threat.ObjectID)
+		}
 	}
 	slices.Sort(s.objectIDs)
 	return nil
@@ -223,7 +327,11 @@ func rewardSpawnPlans(plans []SpawnPlan) []SpawnPlan {
 	copy(rewarded, plans)
 	for index := range rewarded {
 		plan := &rewarded[index]
-		if plan.Experience != 0 || plan.IsFixture || plan.IsRewardSuppressed ||
+		if plan.IsExperienceSuppressed {
+			plan.Experience = 0
+			continue
+		}
+		if plan.Experience != 0 || plan.IsFixture ||
 			plan.NPCProfile.IsPlayerPet ||
 			plan.NPCProfile.ChallengeValue <= 0 {
 			continue
@@ -300,14 +408,7 @@ func (s *Session) ConfigureShieldedAffix(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, plan := range plans {
-		isShielded := false
-		for _, modifierName := range plan.BossIdentity.ModifierNames {
-			if strings.EqualFold(modifierName, "Shielded_NPCAffixModifier") {
-				isShielded = true
-				break
-			}
-		}
-		if !isShielded {
+		if !plan.BossIdentity.HasModifier("Shielded_NPCAffixModifier") {
 			continue
 		}
 		npc, isFound := s.npcs[plan.ObjectID]
@@ -348,14 +449,7 @@ func (s *Session) ConfigureCarapaceAffix(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, plan := range plans {
-		isCarapace := false
-		for _, modifierName := range plan.BossIdentity.ModifierNames {
-			if strings.EqualFold(modifierName, "Carapace_NPCAffixModifier") {
-				isCarapace = true
-				break
-			}
-		}
-		if !isCarapace {
+		if !plan.BossIdentity.HasModifier("Carapace_NPCAffixModifier") {
 			continue
 		}
 		npc, isFound := s.npcs[plan.ObjectID]
@@ -387,6 +481,13 @@ func (s *Session) canAdd(plans []SpawnPlan) error {
 		err := ValidateSpawnPlan(plan, s.objectIDLimit)
 		if err != nil {
 			return fmt.Errorf("planValidate[%d]: %w", index, err)
+		}
+		actorNavigation, navigationErr := s.navigationForPlan(plan)
+		if navigationErr != nil {
+			return fmt.Errorf("planNavigation[%d]: %w", index, navigationErr)
+		}
+		if actorNavigation.IsPresent && s.navigationMesh == nil {
+			return fmt.Errorf("planMesh[%d]: unavailable", index)
 		}
 		if seenObjectIDs[plan.ObjectID] || s.npcs[plan.ObjectID].Plan.ObjectID != 0 {
 			return fmt.Errorf("planDuplicate[%d]: %d", index, plan.ObjectID)
@@ -487,7 +588,7 @@ func (s *Session) acquireTargets(
 			deltaX := npc.Plan.Position.X - target.Position.X
 			deltaY := npc.Plan.Position.Y - target.Position.Y
 			deltaZ := npc.Plan.Position.Z - target.Position.Z
-			distance := s.aggroRadius + target.FootprintRadius +
+			distance := EffectiveAggroRange(npc.Plan.NPCProfile, s.aggroRadius) + target.FootprintRadius +
 				max(float32(0), npc.Plan.NPCProfile.FootprintRadius)
 			distanceSquared := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
 			if (bossObjectID == 0 && distanceSquared > distance*distance) ||
@@ -513,23 +614,11 @@ func (s *Session) acquireTargets(
 func (s *Session) AcquireTarget(
 	objectID uint32, targetObjectID uint32,
 ) (Snapshot, bool, error) {
-	if s == nil || objectID == 0 || targetObjectID == 0 {
-		return Snapshot{}, false, errors.New("npc target acquire invalid")
+	npc, isAdded, err := s.AlertObject(objectID, targetObjectID)
+	if err != nil {
+		return Snapshot{}, false, fmt.Errorf("targetAlert: %w", err)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	npc, isFound := s.npcs[objectID]
-	if !isFound || npc.IsDefeated || !npc.IsPublished || npc.HitPoint <= 0 {
-		return Snapshot{}, false, fmt.Errorf("npc target unavailable: %d", objectID)
-	}
-	if npc.Plan.IsFixture || npc.TargetObjectID != 0 {
-		return npc, false, nil
-	}
-	npc.TargetObjectID = targetObjectID
-	npc.TargetFaction = FactionPlayerAligned
-	npc.IsInvisibleToSecurityTeleporter = false
-	s.npcs[objectID] = npc
-	return npc, true, nil
+	return npc, isAdded && npc.TargetObjectID == targetObjectID, nil
 }
 
 func (s *Session) Retarget(objectID uint32, target Target) (Snapshot, bool, error) {
@@ -705,8 +794,8 @@ func (s *Session) Despawn(objectIDs []uint32) error {
 		if !isFound {
 			continue
 		}
-		if !npc.Plan.IsRewardSuppressed {
-			return fmt.Errorf("despawn npc[%d]: reward eligible", index)
+		if !npc.Plan.IsEncounterAuxiliary {
+			return fmt.Errorf("despawn npc[%d]: not encounter auxiliary", index)
 		}
 	}
 	for _, objectID := range objectIDs {
@@ -716,6 +805,7 @@ func (s *Session) Despawn(objectIDs []uint32) error {
 		}
 		npc.HitPoint = 0
 		npc.IsDefeated = true
+		s.deactivateNashiraPassive(&npc)
 		npc.TargetObjectID = 0
 		npc.TargetFaction = FactionUnknown
 		npc.TargetOwner = ActionOwner{}
@@ -791,7 +881,7 @@ func (s *Session) ReplaceTarget(
 			deltaX := npc.Plan.Position.X - target.Position.X
 			deltaY := npc.Plan.Position.Y - target.Position.Y
 			deltaZ := npc.Plan.Position.Z - target.Position.Z
-			distance := s.aggroRadius + target.FootprintRadius +
+			distance := EffectiveAggroRange(npc.Plan.NPCProfile, s.aggroRadius) + target.FootprintRadius +
 				max(float32(0), npc.Plan.NPCProfile.FootprintRadius)
 			distanceSquared := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
 			if distanceSquared > distance*distance ||
@@ -1113,15 +1203,17 @@ func (s *Session) damage(
 	}
 	deletedOwnedObjectIDs := make([]uint32, 0, 1)
 	if npc.IsDefeated {
+		deletedOwnedObjectIDs = append(deletedOwnedObjectIDs, s.deactivateNashiraPassive(&npc)...)
 		for _, objectID := range s.objectIDs {
 			owned := s.npcs[objectID]
 			if owned.Plan.OwnerObjectID != npc.Plan.ObjectID ||
 				owned.IsDefeated || !owned.IsPublished ||
-				!owned.Plan.IsRewardSuppressed {
+				!owned.Plan.IsEncounterAuxiliary {
 				continue
 			}
 			owned.HitPoint = 0
 			owned.IsDefeated = true
+			deletedOwnedObjectIDs = append(deletedOwnedObjectIDs, s.deactivateNashiraPassive(&owned)...)
 			owned.TargetObjectID = 0
 			owned.TargetFaction = FactionUnknown
 			owned.TargetOwner = ActionOwner{}
@@ -1344,8 +1436,27 @@ func (s *Session) IncreaseMana(
 	return npc, nil
 }
 
-func (s *Session) Resurrect(
-	objectID uint32, hitPointFraction float32,
+// Resurrect retains both per-instance reward gates (including Repair and boss transitions).
+func (e *Session) Resurrect(objectID uint32, hitPointFraction float32) (Snapshot, error) {
+	npc, err := e.resurrect(objectID, hitPointFraction, false)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("resurrectApply: %w", err)
+	}
+	return npc, nil
+}
+
+// ResurrectWithoutLoot implements the five indexed resurrection Lua callers'
+// MarkCantDropLoot without inferring MarkNotWorthXP.
+func (e *Session) ResurrectWithoutLoot(objectID uint32, hitPointFraction float32) (Snapshot, error) {
+	npc, err := e.resurrect(objectID, hitPointFraction, true)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("resurrectLootApply: %w", err)
+	}
+	return npc, nil
+}
+
+func (s *Session) resurrect(
+	objectID uint32, hitPointFraction float32, isLootSuppressed bool,
 ) (Snapshot, error) {
 	if s == nil || objectID == 0 || hitPointFraction <= 0 ||
 		hitPointFraction > 1 || math.IsNaN(float64(hitPointFraction)) ||
@@ -1383,6 +1494,7 @@ func (s *Session) Resurrect(
 		npc.Plan.ActionProfile = profile
 		npc.Plan.IsActionKnown = true
 	}
+	npc.Plan.IsLootSuppressed = npc.Plan.IsLootSuppressed || isLootSuppressed
 	s.npcs[objectID] = npc
 	return npc, nil
 }

@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
+	"github.com/darkspinnet/darkspin/server/sim"
 )
 
 type DNAPickup struct {
+	Flight      sim.DropFlight
 	ObjectID    uint32
 	Amount      uint32
 	Position    game.Vec3
@@ -79,7 +81,7 @@ func (s *DNASession) Lookup(objectID uint32) (DNAPickup, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	pickup, isFound := s.pickups[objectID]
-	return pickup, isFound
+	return pickup.at(time.Now()), isFound
 }
 
 func (s *DNASession) Snapshots() []DNAPickup {
@@ -93,7 +95,7 @@ func (s *DNASession) Snapshots() []DNAPickup {
 		if s.reservedObjectIDs[objectID] {
 			continue
 		}
-		pickup = append(pickup, current)
+		pickup = append(pickup, current.at(time.Now()))
 	}
 	sort.Slice(pickup, func(left int, right int) bool {
 		return pickup[left].ObjectID < pickup[right].ObjectID
@@ -113,6 +115,8 @@ func (s *DNASession) ReserveContact(
 	defer s.mu.Unlock()
 	objectID := make([]uint32, 0, len(s.pickups))
 	for id, pickup := range s.pickups {
+		pickup = pickup.at(now)
+		s.pickups[id] = pickup
 		if s.reservedObjectIDs[id] || now.Before(pickup.AvailableAt) ||
 			dnaSegmentDistance(start, end, pickup.Position) > radius {
 			continue
@@ -240,4 +244,13 @@ func dnaDistance(first game.Vec3, second game.Vec3) float32 {
 	return float32(math.Sqrt(float64(
 		deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ,
 	)))
+}
+
+func (e DNAPickup) at(now time.Time) DNAPickup {
+	if e.Flight.StartedAt.IsZero() || e.Flight.IsProjectilePresent {
+		return e
+	}
+	e.Flight = e.Flight.At(now)
+	e.Position = game.Vec3(e.Flight.Position)
+	return e
 }

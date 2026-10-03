@@ -165,7 +165,7 @@ func (r campaignNPCActionRuntime) produceMendingTanglidFlee(
 		func(candidate game.Vec3) (game.Vec3, bool, error) {
 			return zoneaction.NPCDirectMovementDestination(
 				peerSession.zone.Navigation(), source.Plan.Position, candidate,
-				source.Plan.NPCProfile.FootprintRadius,
+				source.NavigationRadius(), source.Navigation,
 			)
 		},
 	)
@@ -250,7 +250,7 @@ func (r campaignNPCActionRuntime) produceElectronBursterFlee(
 			func(candidate game.Vec3) (game.Vec3, bool, error) {
 				return zoneaction.NPCDirectMovementDestination(
 					peerSession.zone.Navigation(), enemy.Plan.Position, candidate,
-					enemy.Plan.NPCProfile.FootprintRadius,
+					enemy.NavigationRadius(), enemy.Navigation,
 				)
 			},
 		)
@@ -352,7 +352,7 @@ func (r campaignNPCActionRuntime) produceChronoStrikerFlee(
 			func(candidate game.Vec3) (game.Vec3, bool, error) {
 				return zoneaction.NPCDirectMovementDestination(
 					peerSession.zone.Navigation(), enemy.Plan.Position, candidate,
-					enemy.Plan.NPCProfile.FootprintRadius,
+					enemy.NavigationRadius(), enemy.Navigation,
 				)
 			},
 		)

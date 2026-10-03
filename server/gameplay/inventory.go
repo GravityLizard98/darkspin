@@ -14,7 +14,6 @@ import (
 	"github.com/darkspinnet/darkspin/server/zone"
 	zoneinteract "github.com/darkspinnet/darkspin/server/zone/interact"
 	zoneloot "github.com/darkspinnet/darkspin/server/zone/loot"
-	lootraknet "github.com/darkspinnet/darkspin/server/zone/loot/raknet103"
 	lootsporenet "github.com/darkspinnet/darkspin/server/zone/loot/sporenet"
 )
 
@@ -150,7 +149,8 @@ func (e *gameplayPartDropTarget) PlacePart(part sporenet.Part) error {
 	destination := e.session.reachableCampaignDropDestination(source)
 	plan, err := zoneloot.PlanEquipment(zoneloot.EquipmentPlanInput{
 		ObjectID: objectID, Rarity: zoneloot.Rarity(part.Rarity),
-		Source: source, Destination: destination,
+		PresentationPolicy: zoneloot.EquipmentInventoryGroundDrop,
+		Source:             source, Destination: destination,
 		SimulationTime: time.Duration(e.sourceTime) * time.Millisecond,
 	})
 	if err != nil {
@@ -160,18 +160,20 @@ func (e *gameplayPartDropTarget) PlacePart(part sporenet.Part) error {
 	// is on the ground. Collection allocates a new identity for the same affixes.
 	part.ID = 0
 	part.ReferenceID = 0
-	e.packets, err = lootraknet.MarshalEquipmentDrop(plan, part)
+	e.packets, err = e.session.marshalEquipmentDrop(plan, part)
 	if err != nil {
 		return fmt.Errorf("dropMarshal: %w", err)
 	}
 	err = e.session.registerCampaignPickup(
 		zoneinteract.PickupEquipment, objectID, source, destination,
+		e.session.pickupFlight(plan.NounName, source, destination, plan.Lob),
 	)
 	if err != nil {
 		return fmt.Errorf("dropRegister: %w", err)
 	}
 	err = e.session.zone.PickupPayload().AddEquipment(zoneinteract.EquipmentPickup{
 		ObjectID: objectID, Part: part, WinnerUserID: e.session.binding.UserID,
+		PresentationPolicy: zoneloot.EquipmentInventoryGroundDrop,
 	})
 	if err != nil {
 		return fmt.Errorf("dropPayload: %w", err)

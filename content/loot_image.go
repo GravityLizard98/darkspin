@@ -137,8 +137,8 @@ func LoadLootRigblocks(ctx context.Context, packagePath string) ([]LootRigblock,
 }
 
 func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
-	if len(payload) < 120 {
-		return LootRigblock{}, false, fmt.Errorf("payloadSize: got %d, need 120", len(payload))
+	if len(payload) < 140 {
+		return LootRigblock{}, false, fmt.Errorf("payloadSize: got %d, need 140", len(payload))
 	}
 	var rigblock LootRigblock
 	isRigblockFound := false
@@ -175,12 +175,6 @@ func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
 		}
 		if field == "plasma" || field == "bio" || field == "cyber" || field == "necro" || field == "chrono" {
 			scienceSet[field] = true
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(field), "pc_") && strings.HasSuffix(field, ".Noun") {
-			if rigblock.WeaponNoun == "" {
-				rigblock.WeaponNoun = field
-			}
 			continue
 		}
 		separator := strings.IndexByte(field, '!')
@@ -243,6 +237,31 @@ func parseLootRigblock(payload []byte) (LootRigblock, bool, error) {
 	}
 	if len(rigblock.ScienceTypes) == 0 {
 		return LootRigblock{}, false, errors.New("scienceMissing")
+	}
+	if rigblock.SlotType == "weapon" {
+		// Reflected pointer words mark presence; their descendants follow in
+		// field order. Resolve the first authored owner, not a scanned noun.
+		// The 140-byte fixed record includes the four inline hero hashes.
+		cursor := lootAffixCursor{payload: payload, offset: 140}
+		for _, fieldOffset := range []int{16, 32, 36} {
+			reference, err := cursor.reference(fieldOffset)
+			if err != nil {
+				return LootRigblock{}, false, fmt.Errorf("ownerReference[%d]: %w", fieldOffset, err)
+			}
+			// These name, rigblock and category references precede owner data.
+			if reference == "" {
+				return LootRigblock{}, false, fmt.Errorf("ownerReference[%d]: missing", fieldOffset)
+			}
+		}
+		for _, fieldOffset := range []int{40, 48, 56} {
+			references, err := cursor.strings(fieldOffset)
+			if err != nil {
+				return LootRigblock{}, false, fmt.Errorf("ownerArray[%d]: %w", fieldOffset, err)
+			}
+			if fieldOffset == 56 && len(references) > 0 {
+				rigblock.WeaponNoun = references[0]
+			}
+		}
 	}
 	if rigblock.SlotType == "weapon" && rigblock.WeaponNoun == "" {
 		return LootRigblock{}, false, errors.New("weaponNounMissing")

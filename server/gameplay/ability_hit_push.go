@@ -89,7 +89,7 @@ func (e campaignDamageRuntime) applyAcceptedHitPushes(
 		)
 		destination, isDestinationFound, err := navigationClippedMovementDestination(
 			peerSession.zone.Navigation(), target.Plan.Position, desired,
-			max(target.Plan.NPCProfile.FootprintRadius, float32(0.25)),
+			max(target.NavigationRadius(), float32(0.25)), target.Navigation,
 		)
 		if err != nil {
 			return packets, fmt.Errorf("heroPushDestination[%d]: %w", target.Plan.ObjectID, err)

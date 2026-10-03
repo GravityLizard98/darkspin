@@ -190,6 +190,10 @@ func MarshalEquipmentDrop(
 	if plan.ObjectID == 0 || plan.NounName == "" || part.RigblockAssetID == 0 {
 		return nil, errors.New("invalid campaign equipment drop")
 	}
+	nounName, isSupported := plan.PresentationPolicy.ContainerNoun(zoneloot.Rarity(part.Rarity))
+	if !isSupported || nounName != plan.NounName {
+		return nil, errors.New("invalid equipment rarity presentation")
+	}
 	createPacket, err := raknet.MarshalApplication(raknet.EnemyObjectCreateMessage{
 		ObjectID: plan.ObjectID, Noun: util.HashID(plan.NounName),
 		Position: raknet.Vector3{X: plan.Source.X, Y: plan.Source.Y, Z: plan.Source.Z},

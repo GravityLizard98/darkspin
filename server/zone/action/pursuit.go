@@ -9,7 +9,6 @@ import (
 	"github.com/darkspinnet/darkspin/server/game"
 	basenavigation "github.com/darkspinnet/darkspin/server/navigation"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
-	zonenavigation "github.com/darkspinnet/darkspin/server/zone/navigation"
 )
 
 const maximumVisitedPolygon = 2048
@@ -17,18 +16,16 @@ const PursuitTimeout = 8 * time.Second
 const pursuitProjectionDistance = 12
 
 func NPCProjectPosition(
-	mesh *basenavigation.Mesh, position game.Vec3, footprintRadius float32,
+	mesh *basenavigation.Mesh, position game.Vec3, footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) (game.Vec3, bool, error) {
 	if !zonegeometry.IsFinite(position) ||
-		!zonegeometry.IsFinitePositiveScalar(footprintRadius) {
+		(!zonegeometry.IsFiniteScalar(footprintRadius) || footprintRadius < 0) {
 		return game.Vec3{}, false, errors.New("invalid npc projection")
 	}
 	if mesh == nil {
 		return position, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(
-		footprintRadius, zonenavigation.HeroHeight,
-	)
+	planLayer, isLayerFound := mesh.ActorLayer(footprintRadius, actors...)
 	if !isLayerFound {
 		return position, false, nil
 	}
@@ -50,18 +47,16 @@ func NPCProjectPosition(
 
 func NPCDirectMovementDestination(
 	mesh *basenavigation.Mesh, source game.Vec3, desired game.Vec3,
-	footprintRadius float32,
+	footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) (game.Vec3, bool, error) {
 	if !zonegeometry.IsFinite(source) || !zonegeometry.IsFinite(desired) ||
-		!zonegeometry.IsFinitePositiveScalar(footprintRadius) {
+		(!zonegeometry.IsFiniteScalar(footprintRadius) || footprintRadius < 0) {
 		return game.Vec3{}, false, errors.New("invalid npc direct movement")
 	}
 	if mesh == nil {
 		return source, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(
-		footprintRadius, zonenavigation.HeroHeight,
-	)
+	planLayer, isLayerFound := mesh.ActorLayer(footprintRadius, actors...)
 	if !isLayerFound {
 		return source, false, nil
 	}
@@ -87,18 +82,16 @@ func NPCDirectMovementDestination(
 
 func NPCPathClear(
 	mesh *basenavigation.Mesh, source game.Vec3, target game.Vec3,
-	footprintRadius float32,
+	footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) (bool, error) {
 	if !zonegeometry.IsFinite(source) || !zonegeometry.IsFinite(target) ||
-		!zonegeometry.IsFinitePositiveScalar(footprintRadius) {
+		(!zonegeometry.IsFiniteScalar(footprintRadius) || footprintRadius < 0) {
 		return false, errors.New("invalid npc path visibility")
 	}
 	if mesh == nil {
 		return true, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(
-		footprintRadius, zonenavigation.HeroHeight,
-	)
+	planLayer, isLayerFound := mesh.ActorLayer(footprintRadius, actors...)
 	if !isLayerFound {
 		return false, nil
 	}
@@ -158,22 +151,15 @@ func NPCStopDistance(
 
 func AdvancePursuitPath(
 	mesh *basenavigation.Mesh, source game.Vec3, target game.Vec3,
-	footprintRadius float32, travel float32,
+	footprintRadius float32, travel float32, actors ...basenavigation.ActorNavigation,
 ) (game.Vec3, error) {
 	if mesh == nil || !zonegeometry.IsFinite(source) ||
 		!zonegeometry.IsFinite(target) ||
-		!zonegeometry.IsFinitePositiveScalar(footprintRadius) ||
+		(!zonegeometry.IsFiniteScalar(footprintRadius) || footprintRadius < 0) ||
 		!zonegeometry.IsFinitePositiveScalar(travel) {
 		return game.Vec3{}, errors.New("invalid campaign pursuit path")
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(
-		footprintRadius, zonenavigation.HeroHeight,
-	)
-	if !isLayerFound {
-		planLayer, isLayerFound = mesh.SelectLargestLayer(
-			zonenavigation.HeroHeight,
-		)
-	}
+	planLayer, isLayerFound := mesh.ActorLayer(footprintRadius, actors...)
 	if !isLayerFound {
 		return game.Vec3{}, errors.New("campaign pursuit layer unavailable")
 	}

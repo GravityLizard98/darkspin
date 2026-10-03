@@ -29,7 +29,7 @@ func (e *gameplayPeerSession) spawnHealthObeliskCapsules(
 		angle := phase + float64(index)*2*math.Pi/float64(count)
 		invocation.Position.X += float32(math.Cos(angle)) * 1.5
 		invocation.Position.Y += float32(math.Sin(angle)) * 1.5
-		orbPackets, objectID, err := e.spawnCampaignHealthOrb(invocation, sourceTime, now)
+		orbPackets, capsuleObjectIDs, err := e.spawnCampaignHealthOrb(invocation, sourceTime, now)
 		if err != nil {
 			for _, previousID := range objectIDs {
 				isPickupRemoved := e.zone.Pickups().Remove(previousID)
@@ -40,8 +40,8 @@ func (e *gameplayPeerSession) spawnHealthObeliskCapsules(
 			}
 			return nil, nil, fmt.Errorf("obeliskCapsule[%d]: %w", index, err)
 		}
-		if objectID != 0 {
-			objectIDs = append(objectIDs, objectID)
+		if len(capsuleObjectIDs) != 0 {
+			objectIDs = append(objectIDs, capsuleObjectIDs...)
 			packets = append(packets, orbPackets...)
 		}
 	}

@@ -138,7 +138,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		destination, isDestinationFound, destinationErr :=
 			navigationClippedMovementDestination(
 				peerSession.zone.Navigation(), enemy.Plan.Position, desired,
-				enemy.Plan.NPCProfile.FootprintRadius,
+				enemy.NavigationRadius(), enemy.Navigation,
 			)
 		if destinationErr != nil {
 			return e.fail("enemyDriftDestination", destinationErr)
@@ -308,13 +308,13 @@ func noctGhostChargeMovementDestination(
 
 func navigationClippedMovementDestination(
 	mesh *basenavigation.Mesh, source game.Vec3, desired game.Vec3,
-	footprintRadius float32,
+	footprintRadius float32, actors ...basenavigation.ActorNavigation,
 ) (game.Vec3, bool, error) {
 	if mesh == nil {
 		return desired, true, nil
 	}
 	destination, isFound, err := zoneaction.NPCDirectMovementDestination(
-		mesh, source, desired, footprintRadius,
+		mesh, source, desired, footprintRadius, actors...,
 	)
 	if err != nil {
 		return game.Vec3{}, false, fmt.Errorf("chargeDirect: %w", err)
@@ -331,7 +331,7 @@ func navigationClippedMovementDestination(
 		candidate := source.Add(delta.Scale(portion))
 		projected, isProjected, projectionErr :=
 			zoneaction.NPCDirectMovementDestination(
-				mesh, source, candidate, footprintRadius,
+				mesh, source, candidate, footprintRadius, actors...,
 			)
 		if projectionErr != nil {
 			return game.Vec3{}, false,
@@ -469,7 +469,7 @@ func (r campaignNPCActionRuntime) finishNoctGhostCharge(
 	}
 	position, isProjected, err := zoneaction.NPCProjectPosition(
 		peerSession.zone.Navigation(), enemy.Plan.Position,
-		enemy.Plan.NPCProfile.FootprintRadius,
+		enemy.NavigationRadius(), enemy.Navigation,
 	)
 	if err != nil {
 		peerSession.zone.NPCs().ClearChargeProtection(objectID)

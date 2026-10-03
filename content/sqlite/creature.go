@@ -13,8 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/darkspinnet/darkspin/content/dbpf"
 )
 
 const (
@@ -75,7 +73,7 @@ func writeCreatureTemplates(ctx context.Context, transaction *sql.Tx, installPat
 	if err != nil {
 		return fmt.Errorf("packageStat: %w", err)
 	}
-	pkg, err := dbpf.NewReader(r, fi.Size())
+	pkg, err := importPackageReader(ctx, r, fi.Size())
 	if err != nil {
 		return fmt.Errorf("packageRead: %w", err)
 	}

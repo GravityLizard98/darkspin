@@ -30,13 +30,13 @@ type RandomTeleportRequest struct {
 func ProjectPosition(
 	mesh *basenavigation.Mesh, position game.Vec3, footprintRadius float32,
 ) (game.Vec3, bool, error) {
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return game.Vec3{}, false, errors.New("position projection input invalid")
 	}
 	if mesh == nil {
 		return position, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(footprintRadius)
 	if !isLayerFound {
 		return position, false, nil
 	}
@@ -61,7 +61,7 @@ func RandomTeleportDestination(
 	random *sim.SimulatorRandom,
 	req RandomTeleportRequest,
 ) (game.Vec3, bool, error) {
-	if random == nil || req.FootprintRadius <= 0 ||
+	if random == nil || req.FootprintRadius < 0 ||
 		req.MinimumDistance <= 0 ||
 		req.NormalDistance < req.MinimumDistance ||
 		req.NormalDistance > req.MaximumDistance {
@@ -70,7 +70,7 @@ func RandomTeleportDestination(
 	if mesh == nil {
 		return req.SourcePosition, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(req.FootprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(req.FootprintRadius)
 	if !isLayerFound {
 		return req.SourcePosition, false, nil
 	}
@@ -127,14 +127,14 @@ func ConnectedTeleportDestination(
 	random *sim.SimulatorRandom,
 	req ConnectedTeleportRequest,
 ) (game.Vec3, bool, error) {
-	if random == nil || req.FootprintRadius <= 0 || req.Radius <= 0 ||
+	if random == nil || req.FootprintRadius < 0 || req.Radius <= 0 ||
 		req.MinimumDistance < 0 || req.AttemptCount == 0 {
 		return game.Vec3{}, false, errors.New("connected teleport input invalid")
 	}
 	if mesh == nil {
 		return req.SourcePosition, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(req.FootprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(req.FootprintRadius)
 	if !isLayerFound {
 		return req.SourcePosition, false, nil
 	}
@@ -186,13 +186,13 @@ func DirectMovementDestination(
 	desired game.Vec3,
 	footprintRadius float32,
 ) (game.Vec3, bool, error) {
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return game.Vec3{}, false, errors.New("direct movement input invalid")
 	}
 	if mesh == nil {
 		return source, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(footprintRadius)
 	if !isLayerFound {
 		return source, false, nil
 	}
@@ -222,13 +222,13 @@ func ReachableTeleportDestination(
 	desired game.Vec3,
 	footprintRadius float32,
 ) (game.Vec3, bool, error) {
-	if footprintRadius <= 0 {
+	if footprintRadius < 0 {
 		return game.Vec3{}, false, errors.New("reachable teleport input invalid")
 	}
 	if mesh == nil {
 		return source, false, nil
 	}
-	planLayer, isLayerFound := mesh.SelectLayer(footprintRadius, HeroHeight)
+	planLayer, isLayerFound := mesh.SelectFootprintLayer(footprintRadius)
 	if !isLayerFound {
 		return source, false, nil
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/sporenet"
+	zoneloot "github.com/darkspinnet/darkspin/server/zone/loot"
 )
 
 type EquipmentPickup struct {
@@ -16,6 +17,7 @@ type EquipmentPickup struct {
 	WinnerRewardRigblockID uint16
 	Rolls                  []EquipmentPickupRoll
 	Part                   sporenet.Part
+	PresentationPolicy     zoneloot.EquipmentPresentationPolicy
 	IsWinnerReward         bool
 	IsWinnerRewardBoss     bool
 	IsDestructorReward     bool

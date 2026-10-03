@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	contentstore "github.com/darkspinnet/darkspin/content/sqlite"
@@ -1119,6 +1120,32 @@ func Load(store *contentstore.Store) (zonecontent.Programs, error) {
 	if err != nil {
 		return zonecontent.Programs{}, fmt.Errorf("nounPhysics: %w", err)
 	}
+	spawnExtents, err := store.NounSpawnExtents(ctx)
+	if err != nil {
+		return zonecontent.Programs{}, fmt.Errorf("spawnExtents: %w", err)
+	}
+	spawnExtentsByNoun := make(map[string]game.Vec3, len(spawnExtents))
+	for _, extent := range spawnExtents {
+		spawnExtentsByNoun[strings.ToLower(extent.NounName)] = game.Vec3{
+			X: extent.X, Y: extent.Y, Z: extent.Z,
+		}
+	}
+	footprints, footprintErr := store.NounFootprints(ctx)
+	if footprintErr != nil {
+		return zonecontent.Programs{}, fmt.Errorf("navigationFootprints: %w", footprintErr)
+	}
+	navigationFootprintsByNoun := make(map[uint32]game.NavigationFootprint, len(footprints))
+	for _, footprint := range footprints {
+		if footprint.NounName == "" {
+			continue
+		}
+		navigationFootprintsByNoun[util.HashID(footprint.NounName)] = game.NavigationFootprint{
+			SizeClass: footprint.SizeClass,
+			Extents:   game.Vec3{X: footprint.ExtentX, Y: footprint.ExtentY, Z: footprint.ExtentZ},
+			Minimum:   game.Vec3{X: footprint.MinimumX, Y: footprint.MinimumY, Z: footprint.MinimumZ},
+			Maximum:   game.Vec3{X: footprint.MaximumX, Y: footprint.MaximumY, Z: footprint.MaximumZ},
+		}
+	}
 	npcDeathAnimations, err := store.NPCDeathAnimations(ctx)
 	if err != nil {
 		return zonecontent.Programs{}, fmt.Errorf("npcDeathAnimations: %w", err)
@@ -1196,10 +1223,37 @@ func Load(store *contentstore.Store) (zonecontent.Programs, error) {
 			return zonecontent.Programs{}, fmt.Errorf("orbPhysics[%s]: incomplete", assetName)
 		}
 	}
+	rewardTuning, err := store.RewardTuning(ctx)
+	if err != nil {
+		return zonecontent.Programs{}, fmt.Errorf("crystalProgression: %w", err)
+	}
+	if rewardTuning.Progression.MinorStageCount == 0 {
+		return zonecontent.Programs{}, errors.New("crystal minor stage count unavailable")
+	}
 	contentCrystalDefinitions, err := store.CrystalDefinitions(ctx)
 	if err != nil {
 		return zonecontent.Programs{}, fmt.Errorf("crystalDefinition: %w", err)
 	}
+	contentCrystalEffects, err := store.NounCrystalDefinitions(ctx)
+	if err != nil {
+		return zonecontent.Programs{}, fmt.Errorf("nounCrystalDefinition: %w", err)
+	}
+	crystalEffectsByAsset := make(map[uint32]zonecontent.CrystalEffect, len(contentCrystalEffects))
+	for _, entry := range contentCrystalEffects {
+		if entry.InstanceID > uint64(^uint32(0)) {
+			return zonecontent.Programs{}, fmt.Errorf("nounCrystalInstance[%d]: out of range", entry.ResourceID)
+		}
+		nounAsset := uint32(entry.InstanceID)
+		if _, isDuplicate := crystalEffectsByAsset[nounAsset]; isDuplicate {
+			return zonecontent.Programs{}, fmt.Errorf("nounCrystalInstance[%d]: duplicate", entry.ResourceID)
+		}
+		crystalEffectsByAsset[nounAsset] = zonecontent.CrystalEffect{
+			ResourceID: entry.ResourceID, NounAsset: nounAsset,
+			ModifierHash: entry.ModifierHash, ModifierName: entry.ModifierName,
+			Color: entry.Color, Rarity: entry.Rarity,
+		}
+	}
+	crystalEffectsByNoun := make(map[string]zonecontent.CrystalEffect, len(contentCrystalDefinitions))
 	crystalDefinitions := make([]sim.CrystalDefinition, 0, len(contentCrystalDefinitions))
 	for _, definition := range contentCrystalDefinitions {
 		if definition.MinimumLevel < 0 || definition.MaximumLevel < definition.MinimumLevel {
@@ -1212,12 +1266,22 @@ func Load(store *contentstore.Store) (zonecontent.Programs, error) {
 				definition.Ordinal, definition.NounReference,
 			)
 		}
+		nounAsset := util.HashID(strings.TrimSuffix(strings.ToLower(definition.NounReference), ".noun"))
+		effect, isEffectFound := crystalEffectsByAsset[nounAsset]
+		if !isEffectFound {
+			return zonecontent.Programs{}, fmt.Errorf("crystalEffect[%d]: missing noun %q", definition.Ordinal, definition.NounReference)
+		}
+		crystalEffectsByNoun[definition.NounReference] = effect
 		crystalDefinitions = append(crystalDefinitions, sim.CrystalDefinition{
 			NounName: definition.NounReference, CrystalType: int32(catalyst.Type),
 			Rarity:       int32(catalyst.Rarity),
 			MinimumLevel: uint32(definition.MinimumLevel),
 			MaximumLevel: uint32(definition.MaximumLevel), Weight: definition.Weight,
 		})
+	}
+	crystalTuning, err := store.CrystalTuning(ctx)
+	if err != nil {
+		return zonecontent.Programs{}, fmt.Errorf("crystalTuning: %w", err)
 	}
 	contentCrystalLevelOffsets, err := store.CrystalLevelOffsets(ctx)
 	if err != nil {
@@ -1636,51 +1700,57 @@ func Load(store *contentstore.Store) (zonecontent.Programs, error) {
 		objectiveInput = append(objectiveInput, loadedInput)
 	}
 	return zonecontent.Programs{
-		ChainLevel:             chainLevel,
-		ArenaLevels:            arenaLevels,
-		Critical:               critical,
-		Difficulty:             difficulty,
-		PlayerBasicAbility:     playerBasicAbility,
-		PlayerBasicUnsupported: playerBasicUnsupported,
-		HeroKits:               heroKits,
-		NonPlayerHitPoint:      nonPlayerHitPoint,
-		NonPlayerDefenses:      nonPlayerDefenses,
-		NonPlayerCritical:      nonPlayerCritical,
-		NounPhysics:            nounPhysics,
-		NounPhysicsByID:        nounPhysicsByID,
-		NPCDeathAnimations:     npcDeathAnimations,
-		ProjectileHalfExtent:   projectileHalfExtent,
-		QuadraFirstAggro:       program,
-		LightningBasic:         lightningBasic,
-		ElectronSphere:         electronSphere,
-		SupportHealerBasic:     supportHealerBasic,
-		SupportHealerPassive:   supportHealerPassiveDefinition,
-		SupportHealerPetBasic:  supportHealerPetBasic,
-		SentryDroneLaser:       sentryDroneLaser,
-		FireTempestPetBasic:    fireTempestPetBasic,
-		BeastPetBasic:          beastPetBasic,
-		PlasmaSentinelPetBasic: plasmaSentinelPetBasic,
-		PoisonMelee:            poisonMelee,
-		PoisonCloud:            poisonCloud,
-		PlasmaLightning:        plasmaLightning,
-		TailZap:                tailZap,
-		BurstShot:              burstShot,
-		InteractWithObelisk:    interactWithObelisk,
-		InteractHealthObelisk:  interactHealthObelisk,
-		SecurityTeleporter:     securityTeleporter,
-		TeleporterModifier:     teleporterModifier,
-		BossTeleporter:         bossTeleporter,
-		InvisibleBehavior:      invisibleLifecycle,
-		SpawnModifier:          spawnLifecycle,
-		SoloSupportUnlock:      soloSupportUnlock,
-		SupportUnlock:          supportUnlock,
-		OverdriveUnlock:        overdriveUnlock,
-		CatalystUnlock:         catalystUnlock,
-		CrystalPickup:          crystalPickup,
-		ObjectiveInitializers:  objectiveInitializers,
-		ObjectiveInput:         objectiveInput,
-		CrystalDefinitions:     crystalDefinitions,
-		CrystalLevelOffsets:    crystalLevelOffsets,
+		ChainLevel:                 chainLevel,
+		ArenaLevels:                arenaLevels,
+		Critical:                   critical,
+		Difficulty:                 difficulty,
+		PlayerBasicAbility:         playerBasicAbility,
+		PlayerBasicUnsupported:     playerBasicUnsupported,
+		HeroKits:                   heroKits,
+		NonPlayerHitPoint:          nonPlayerHitPoint,
+		NonPlayerDefenses:          nonPlayerDefenses,
+		NonPlayerCritical:          nonPlayerCritical,
+		NounPhysics:                nounPhysics,
+		NounPhysicsByID:            nounPhysicsByID,
+		NavigationFootprintsByNoun: navigationFootprintsByNoun,
+		SpawnExtentsByNoun:         spawnExtentsByNoun,
+		NPCDeathAnimations:         npcDeathAnimations,
+		ProjectileHalfExtent:       projectileHalfExtent,
+		QuadraFirstAggro:           program,
+		LightningBasic:             lightningBasic,
+		ElectronSphere:             electronSphere,
+		SupportHealerBasic:         supportHealerBasic,
+		SupportHealerPassive:       supportHealerPassiveDefinition,
+		SupportHealerPetBasic:      supportHealerPetBasic,
+		SentryDroneLaser:           sentryDroneLaser,
+		FireTempestPetBasic:        fireTempestPetBasic,
+		BeastPetBasic:              beastPetBasic,
+		PlasmaSentinelPetBasic:     plasmaSentinelPetBasic,
+		PoisonMelee:                poisonMelee,
+		PoisonCloud:                poisonCloud,
+		PlasmaLightning:            plasmaLightning,
+		TailZap:                    tailZap,
+		BurstShot:                  burstShot,
+		InteractWithObelisk:        interactWithObelisk,
+		InteractHealthObelisk:      interactHealthObelisk,
+		SecurityTeleporter:         securityTeleporter,
+		TeleporterModifier:         teleporterModifier,
+		BossTeleporter:             bossTeleporter,
+		InvisibleBehavior:          invisibleLifecycle,
+		SpawnModifier:              spawnLifecycle,
+		SoloSupportUnlock:          soloSupportUnlock,
+		SupportUnlock:              supportUnlock,
+		OverdriveUnlock:            overdriveUnlock,
+		CatalystUnlock:             catalystUnlock,
+		CrystalPickup:              crystalPickup,
+		ObjectiveInitializers:      objectiveInitializers,
+		ObjectiveInput:             objectiveInput,
+		CrystalDefinitions:         crystalDefinitions,
+		CrystalEffectsByNoun:       crystalEffectsByNoun,
+		CrystalLevelOffsets:        crystalLevelOffsets,
+		CrystalLineBonusPercent:    crystalTuning.ThreeInARowBonusPercent,
+		CrystalMinorStageCount:     rewardTuning.Progression.MinorStageCount,
+		TutorialMajorStageCount:    rewardTuning.Progression.MajorStageCount,
 		IntroAbilitySecond: zonecontent.MarkerProgram{
 			Program: abilitySecondProgram,
 			Trigger: sim.MarkerTrigger{

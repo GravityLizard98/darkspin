@@ -342,7 +342,7 @@ func (e *campaignScaldronCopterRun) strafe() ([][]byte, error) {
 		destination, isDestinationFound, _ =
 			zoneaction.NPCDirectMovementDestination(
 				peerSession.zone.Navigation(), source.Plan.Position, destination,
-				source.Plan.NPCProfile.FootprintRadius,
+				source.NavigationRadius(), source.Navigation,
 			)
 	}
 	if !isDestinationFound {

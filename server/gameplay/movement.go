@@ -50,6 +50,24 @@ func (e gameplayPeerSession) deployedCampaignFootprintRadius() float32 {
 	return campaignSecurityBlitzFootprintFallback
 }
 
+// Navigation uses the noun's size-class/custom bounds, not its combat radius.
+func (e gameplayPeerSession) deployedCampaignNavigationRadius() float32 {
+	if e.zone == nil || e.deployedCreatureIndex >= uint32(len(e.binding.Creatures)) {
+		return campaignSecurityBlitzFootprintFallback
+	}
+	noun := e.binding.Creatures[e.deployedCreatureIndex].Noun
+	footprint, isFound := e.zone.DirectorDefinition().NounFootprintsByNoun[noun]
+	if !isFound {
+		return e.deployedCampaignFootprintRadius()
+	}
+	radius, err := footprint.ActorRadius(1)
+	if err != nil {
+		log.Printf("campaign actor navigation noun=%#x: %v", noun, err)
+		return 0
+	}
+	return radius
+}
+
 type campaignSecurityTransferAuthority struct {
 	registry *gameplaySessionRegistry
 	logger   *log.Logger
@@ -526,16 +544,12 @@ func (r campaignMovementCommandRuntime) handle(
 		return response, nil
 	}
 	goal := command.Movement.GoalPosition
-	footprintRadius := campaignSecurityBlitzFootprintFallback
-	if commandSession.deployedCreatureIndex < uint32(len(commandSession.binding.Creatures)) {
-		creature := commandSession.binding.Creatures[commandSession.deployedCreatureIndex]
-		resolvedRadius, radiusErr := r.program.FootprintRadiusByNoun(creature.Noun)
-		if radiusErr == nil && resolvedRadius > 0 {
-			footprintRadius = resolvedRadius
-		}
-	}
+	footprintRadius := commandSession.deployedCampaignNavigationRadius()
+	navigationActor := commandSession.playerMotion.NavigationSettings()
+	navigationActor.Mode = uint8(commandSession.binding.Mode)
 	admission, admissionErr := action.AdmitMovement(
 		action.MovementCommand{
+			NavigationActor:  navigationActor,
 			ObjectID:         command.Common.ObjectID,
 			DeployedObjectID: commandSession.deployedObjectID,
 			Position: game.Vec3{
@@ -1171,7 +1185,8 @@ func (r campaignMovementCommandRuntime) handle(
 	}
 	for _, plan := range populationAggroPlans {
 		r.logger.Printf("RakNet campaign enemy acquired hero for %s object=%d noun=%q radius=%.1f",
-			packet.Address, plan.ObjectID, plan.NounName, campaignPopulationAggroRadius)
+			packet.Address, plan.ObjectID, plan.NounName,
+			zonenpc.EffectiveAggroRange(plan.NPCProfile, campaignPopulationAggroRadius))
 	}
 	for _, plan := range hordePlans {
 		r.logger.Printf("RakNet campaign horde enemy admitted for %s object=%d noun=%q marker_set=%q trigger=%d position=(%.3f,%.3f,%.3f)",
@@ -1651,6 +1666,46 @@ func (s campaignBossAdmissionStep) execute() {
 	)
 }
 
+type campaignSupportActivationStep struct {
+	runtime       campaignEncounterRuntime
+	zone          *zone.Zone
+	admission     campaignBossAdmissionStep
+	admissionKey  string
+	triggerMember zone.Member
+}
+
+func (s campaignSupportActivationStep) activate() error {
+	s.runtime.registry.mutex.Lock()
+	hero, isFound := s.zone.Hero().Snapshot(s.triggerMember.UserID, s.triggerMember.PeerGeneration)
+	isConnected := isConnectedTutorialMember(s.zone, s.triggerMember)
+	s.runtime.registry.mutex.Unlock()
+	if !isFound || !isConnected {
+		return nil
+	}
+	s.admission.targetObjectID = hero.ObjectID
+	// ActivateHordeSpawn is the script call. The subsequent boss admission is
+	// local server policy; the original delay between these events is unknown.
+	err := s.zone.Timeline().Schedule(
+		s.admissionKey, zoneboss.InitialAdmissionDelay,
+		s.admission.execute, s.runtime.timer.Schedule,
+	)
+	if err != nil {
+		return fmt.Errorf("supportAdmissionSchedule: %w", err)
+	}
+	return nil
+}
+
+func (s campaignSupportActivationStep) execute() {
+	s.runtime.logger.Printf("Campaign support ActivateHordeSpawn reached marker_set=%q",
+		s.admission.markerSetName)
+	err := s.activate()
+	if err == nil {
+		return
+	}
+	s.runtime.logger.Printf("Campaign support admission schedule failed marker_set=%q: %v",
+		s.admission.markerSetName, err)
+}
+
 func (r campaignEncounterRuntime) schedulePublications(
 	packet raknet.Packet, commandSession gameplayPeerSession, encounter campaignEncounterAdvance,
 ) ([][]byte, [][]byte, error) {
@@ -1798,63 +1853,38 @@ func (r campaignEncounterRuntime) schedulePublications(
 		return nil, nil, fmt.Errorf("campaignBossWarning: %w", err)
 	}
 	immediateBossPackets = append(immediateBossPackets, warningPacket)
-	bossDelay := zoneboss.InitialArmingDelay
-	abilityCount, isAbilityCountFound := commandSession.zone.AbilityCount(
-		zoneResultMember(commandSession),
-	)
-	isFullAbilityUnlockNeeded := !isAbilityCountFound ||
-		abilityCount < zoneunlock.FullAbilityBoundary
-	if isFullAbilityUnlockNeeded {
-		bossDelay = zoneunlock.FirstClearBossArmingDelay
-	}
-	bossStep := campaignBossAdmissionStep{
-		runtime: r, zone: commandSession.zone,
-		targetObjectID: commandSession.deployedObjectID,
-		plans:          encounter.bossPlans,
-		markerSetName:  encounter.bossPublication.MarkerSetName,
-	}
-	if isFullAbilityUnlockNeeded {
-		step := campaignFullAbilityUnlockStep{
-			runtime: r, zone: commandSession.zone,
-			member: zoneResultMember(commandSession), sessionKey: sessionKey,
-			slot: commandSession.binding.Slot,
-		}
-		producers := r.registry.producerGuard.scheduledProducers(
-			sessionKey, []raknet.ScheduledPacketProducer{{
-				Delay: zoneunlock.FirstClearSupportDelay, Produce: step.produce,
-			}},
-		)
-		scheduleErr := scheduleEncounterProducers(packet, producers)
-		if scheduleErr != nil {
-			unlockPackets, err := step.produce()
-			if err != nil {
-				return nil, nil, fmt.Errorf("campaignSupportUnlockFallback: %w", err)
-			}
-			immediateUnlockPackets = append(immediateUnlockPackets, unlockPackets...)
-		}
-	}
 	if commandSession.zone == nil ||
 		commandSession.zone.Timeline() == nil || r.timer == nil {
 		return nil, nil, errors.New("campaign boss timeline unavailable")
 	}
-	key := fmt.Sprintf("boss-admission:%d", encounter.bossPlans[0].ObjectID)
+	r.registry.mutex.Lock()
+	partyStep := r.newTutorialActivationLocked(commandSession, zonecallback.SoloSupportUnlock)
+	r.registry.mutex.Unlock()
+	activationDelay := zonehorde.SupportActivationDelay(partyStep.isAnyUnbeaten)
+	bossStep := campaignBossAdmissionStep{
+		runtime: r, zone: commandSession.zone,
+		plans: encounter.bossPlans, markerSetName: encounter.bossPublication.MarkerSetName,
+	}
+	if partyStep.isAnyUnbeaten {
+		mutationErr := partyStep.scheduleMutation(fmt.Sprintf("support-mutation:%d", encounter.bossPlans[0].ObjectID))
+		if mutationErr != nil {
+			return nil, nil, fmt.Errorf("supportMutation: %w", mutationErr)
+		}
+	}
+	activationStep := campaignSupportActivationStep{
+		runtime: r, zone: commandSession.zone, admission: bossStep,
+		triggerMember: zoneResultMember(commandSession),
+		admissionKey:  fmt.Sprintf("boss-admission:%d", encounter.bossPlans[0].ObjectID),
+	}
+	key := fmt.Sprintf("support-activation:%d", encounter.bossPlans[0].ObjectID)
 	scheduleErr := commandSession.zone.Timeline().Schedule(
-		key, bossDelay, bossStep.execute, r.timer.Schedule,
+		key, activationDelay, activationStep.execute, r.timer.Schedule,
 	)
 	if scheduleErr == nil {
 		return immediateUnlockPackets, immediateBossPackets, nil
 	}
-	err = bossStep.admitAndPublish()
-	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"campaignBossFallback: %w", errors.Join(scheduleErr, err),
-		)
-	}
-	r.logger.Printf(
-		"Campaign boss admitted and projected immediately after timeline failure marker_set=%q: %v",
-		encounter.bossPublication.MarkerSetName, scheduleErr,
-	)
-	return immediateUnlockPackets, immediateBossPackets, nil
+	commandSession.zone.Timeline().Cancel(fmt.Sprintf("support-mutation:%d", encounter.bossPlans[0].ObjectID))
+	return nil, nil, fmt.Errorf("supportActivation: %w", scheduleErr)
 }
 
 func (r campaignEncounterRuntime) scheduleOverdriveUnlock(
@@ -1948,6 +1978,8 @@ func (r campaignEncounterRuntime) advance(
 	objectID uint32, movementNow time.Time, previousPosition raknet.Vector3,
 	previous game.Vec3, current game.Vec3,
 ) (campaignEncounterAdvance, error) {
+	peerSession.tutorialActivationRuntime = &r
+	peerSession.tutorialActivationSourceTime = packet.SourceTime
 	result := campaignEncounterAdvance{current: current}
 	var err error
 	routeMovement, err := peerSession.zone.ConstrainRoute(previous, current)
@@ -2137,7 +2169,7 @@ func (r campaignEncounterRuntime) advance(
 					isAbilityCountFound &&
 					peerSession.binding.ChainProgression <
 						zoneunlock.SecondChainLevelIndex
-				if isUnlockNeeded {
+				if isUnlockNeeded && len(encounterPlan.Boss) == 0 {
 					if peerSession.campaignUnlockPresentationSession().Support() != nil {
 						return result, errors.New("moveCampaignSupportUnlock: already active")
 					}
@@ -2233,7 +2265,7 @@ func (r campaignEncounterRuntime) advance(
 						result.supportUnlockRun.Stop()
 						result.supportUnlockRun = nil
 					}
-					if errors.Is(bossErr, zoneboss.ErrSecondHordeIncomplete) {
+					if errors.Is(bossErr, zoneboss.ErrHordeActive) {
 						continue
 					}
 					return result, fmt.Errorf("moveCampaignBossArm: %w", bossErr)
@@ -2252,6 +2284,14 @@ func (r campaignEncounterRuntime) advance(
 				result.bossPlans = plannedBoss
 				result.bossPackets = append(plannedBossPackets, activePacket)
 				result.bossPublication = publication
+				continue
+			}
+			if zoneunlock.IsTutorialActivationCallback(publication.CallbackName) {
+				activationErr := r.startTutorialActivationLocked(peerSession,
+					zone.NamedBossPlan{Publication: publication, Actors: plannedHorde}, true)
+				if activationErr != nil {
+					return result, fmt.Errorf("hordeActivation: %w", activationErr)
+				}
 				continue
 			}
 			plannedPackets, marshalErr := npcraknet.TargetedSpawns(
@@ -2382,6 +2422,26 @@ func (s *gameplayPeerSession) admitCampaignGenericBossAfterHorde(
 func (s *gameplayPeerSession) admitCampaignGenericBossPlan(
 	encounterPlan zone.NamedBossPlan,
 ) ([]zonenpc.SpawnPlan, [][]byte, bool, error) {
+	if zoneunlock.IsTutorialActivationCallback(encounterPlan.Publication.CallbackName) {
+		if s.tutorialActivationRuntime == nil {
+			return nil, nil, false, errors.New("tutorial activation runtime unavailable")
+		}
+		err := s.tutorialActivationRuntime.startTutorialActivationLocked(s, encounterPlan, false)
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("tutorialActivation: %w", err)
+		}
+		return nil, nil, false, nil
+	}
+	plans, packets, isAdmitted, err := s.admitCampaignGenericBossNow(encounterPlan, s.deployedObjectID)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("genericBossNow: %w", err)
+	}
+	return plans, packets, isAdmitted, nil
+}
+
+func (s *gameplayPeerSession) admitCampaignGenericBossNow(
+	encounterPlan zone.NamedBossPlan, targetObjectID uint32,
+) ([]zonenpc.SpawnPlan, [][]byte, bool, error) {
 	namedPublication := encounterPlan.NamedPublication
 	publication := encounterPlan.Publication
 	plans := encounterPlan.Actors
@@ -2390,37 +2450,8 @@ func (s *gameplayPeerSession) admitCampaignGenericBossPlan(
 	if isCaptainWave {
 		livePlans = plans[1:]
 	}
-	var err error
-	var catalystUnlock *unlockraknet.CatalystRun
-	if publication.CallbackName == zonecallback.CatalystUnlock {
-		if s.campaignUnlockPresentationSession().Catalyst() != nil {
-			return nil, nil, false, errors.New("genericBossCatalyst: already active")
-		}
-		catalystUnlock, err = unlockraknet.NewCatalystRun(
-			s.zone.CatalystProgram(), uint8(s.binding.Slot),
-		)
-		if err != nil {
-			return nil, nil, false, fmt.Errorf("genericBossCatalyst: %w", err)
-		}
-	}
-	var overdriveUnlock *unlockraknet.Run
-	if publication.CallbackName == zonecallback.OverdriveUnlock &&
-		!s.binding.IsOverdriveUnlocked {
-		if s.campaignUnlockPresentationSession().Overdrive() != nil {
-			stopCampaignBossUnlocks(catalystUnlock, nil)
-			return nil, nil, false, errors.New("genericBossOverdrive: already active")
-		}
-		overdriveUnlock, err = unlockraknet.NewOverdriveRun(
-			s.zone.OverdriveProgram(), uint8(s.binding.Slot),
-		)
-		if err != nil {
-			stopCampaignBossUnlocks(catalystUnlock, nil)
-			return nil, nil, false, fmt.Errorf("genericBossOverdrive: %w", err)
-		}
-	}
-	packets, err := npcraknet.TargetedSpawns(livePlans, s.deployedObjectID)
+	packets, err := npcraknet.TargetedSpawns(livePlans, targetObjectID)
 	if err != nil {
-		stopCampaignBossUnlocks(catalystUnlock, overdriveUnlock)
 		return nil, nil, false, fmt.Errorf("genericBossMarshal: %w", err)
 	}
 	if !isCaptainWave && !isCampaignBossIntroDelayed(plans[0]) {
@@ -2428,41 +2459,15 @@ func (s *gameplayPeerSession) admitCampaignGenericBossPlan(
 			plans[0].ObjectID, zoneboss.IsFinalBossNoun(plans[0].NounName),
 		)
 		if activeErr != nil {
-			stopCampaignBossUnlocks(catalystUnlock, overdriveUnlock)
 			return nil, nil, false, fmt.Errorf("genericBossActive: %w", activeErr)
 		}
 		packets = append(packets, activePacket)
 	}
 	err = s.zone.AdmitNamedBossEncounter(
-		namedPublication, publication, s.deployedObjectID, plans,
+		namedPublication, publication, targetObjectID, plans,
 	)
 	if err != nil {
-		stopCampaignBossUnlocks(catalystUnlock, overdriveUnlock)
 		return nil, nil, false, fmt.Errorf("genericBossAdmit: %w", err)
-	}
-	if catalystUnlock != nil {
-		err = s.campaignUnlockPresentationSession().InstallCatalyst(catalystUnlock)
-		if err != nil {
-			rollbackErr := s.zone.NPCs().RollbackAdd(livePlans)
-			stopCampaignBossUnlocks(catalystUnlock, overdriveUnlock)
-			return nil, nil, false, fmt.Errorf(
-				"genericBossCatalystInstall: %w", errors.Join(err, rollbackErr),
-			)
-		}
-	}
-	if overdriveUnlock != nil {
-		err = s.campaignUnlockPresentationSession().InstallOverdrive(overdriveUnlock)
-		if err != nil {
-			s.campaignUnlockPresentationSession().ClearCatalyst(catalystUnlock)
-			rollbackErr := s.zone.NPCs().RollbackAdd(livePlans)
-			stopCampaignBossUnlocks(catalystUnlock, overdriveUnlock)
-			return nil, nil, false, fmt.Errorf(
-				"genericBossOverdriveInstall: %w", errors.Join(err, rollbackErr),
-			)
-		}
-		s.binding.IsOverdriveUnlocked = true
-		s.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
-		s.isOverdrivePersistencePending = true
 	}
 	return livePlans, packets, true, nil
 }

@@ -290,7 +290,7 @@ func (e quantumStateReactionStep) applyKnockbackLocked(
 	)
 	destination, isFound, err := zoneaction.NPCDirectMovementDestination(
 		peerSession.zone.Navigation(), target.Plan.Position, desired,
-		max(target.Plan.NPCProfile.FootprintRadius, float32(0.25)),
+		max(target.NavigationRadius(), float32(0.25)), target.Navigation,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("quantumStateKnockbackDestination: %w", err)

@@ -30,11 +30,16 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 		7: profile.DodgeRating, 9: profile.ResistRating,
 		10: profile.CriticalRating,
 	}
-	actionProfile, isActionKnown := zonenpc.ActionProfileForPlan(plan)
+	basePlan := plan
+	basePlan.MovementSpeedBuff = 0
+	actionProfile, isActionKnown := zonenpc.ActionProfileForPlan(basePlan)
 	isVisible := plan.Introduction == zonenpc.SpawnIntroductionFloorWarp ||
 		!isActionKnown || !actionProfile.IsSpawnStealthed
-	if isActionKnown && actionProfile.MovementSpeed > 0 {
+	if isActionKnown && (actionProfile.MovementSpeed > 0 || actionProfile.NonCombatMovementSpeed > 0) {
 		nonCombatMovementSpeed := actionProfile.NonCombatMovementSpeed
+		if profile.IdleMovementSpeed > 0 {
+			nonCombatMovementSpeed = profile.IdleMovementSpeed
+		}
 		if nonCombatMovementSpeed <= 0 {
 			nonCombatMovementSpeed = actionProfile.MovementSpeed
 		}
@@ -45,7 +50,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			attribute[11] = 0
 		}
 		attribute[12] = actionProfile.MovementSpeed
-		attribute[48] = 0
+		attribute[48] = plan.MovementSpeedBuff
 	}
 	if isActionKnown && actionProfile.PassiveEnergyDefense > 0 {
 		attribute[uint8(game.AttributeEnergyDefense)] +=
@@ -108,7 +113,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 		// HUD_NPCBar observes the modifier against an initialized agent.
 		messages = append(messages, raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, IsTargetable: profile.IsTargetable,
-			Stealth: uint8(actionStealthType(plan)),
+			IsInCombat: plan.IsArena,
+			Stealth:    uint8(actionStealthType(plan)),
 		})
 		messages = append(messages, raknet.ModifierCreatedMessage{
 			TargetID:          plan.ObjectID,
@@ -134,7 +140,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 		}
 		messages = append(messages, raknet.ModifierCreatedMessage{
 			TargetID:             plan.ObjectID,
-			ModifierGUID:         util.HashID(plan.BossIdentity.ModifierNames[affixIndex]),
+			ModifierGUID:         plan.BossIdentity.ModifierIDs[affixIndex],
 			InstanceID:           instanceID,
 			StartMilliseconds:    permanentModifierStartMilliseconds,
 			DurationMilliseconds: uint32(zonenpc.EliteModifierDuration.Milliseconds()),
@@ -144,6 +150,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	if isActionKnown && actionProfile.StealthType != 0 {
 		messages = append(messages, raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, Stealth: uint8(actionProfile.StealthType),
+			IsInCombat:   plan.IsArena,
 			IsTargetable: profile.IsTargetable,
 		})
 	}
@@ -204,8 +211,9 @@ func TargetedSpawn(
 	blackboardPacket, err := raknet.MarshalApplication(
 		raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, TargetID: targetObjectID,
-			IsInCombat: true, IsTargetable: plan.NPCProfile.IsTargetable,
-			Stealth: uint8(actionStealthType(plan)),
+			IsInCombat:   zonenpc.IsCombatMovementState(plan, targetObjectID),
+			IsTargetable: plan.NPCProfile.IsTargetable,
+			Stealth:      uint8(actionStealthType(plan)),
 		},
 	)
 	if err != nil {
@@ -261,6 +269,7 @@ func DormantSpawns(plans []zonenpc.SpawnPlan) ([][]byte, error) {
 		blackboardPacket, err := raknet.MarshalApplication(
 			raknet.AgentBlackboardUpdateMessage{
 				ObjectID:     plan.ObjectID,
+				IsInCombat:   plan.IsArena,
 				IsTargetable: plan.NPCProfile.IsTargetable,
 				Stealth:      uint8(actionStealthType(plan)),
 			},
@@ -287,7 +296,7 @@ func TargetUpdates(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 			raknet.AgentBlackboardUpdateMessage{
 				ObjectID:     snapshot.Plan.ObjectID,
 				TargetID:     snapshot.TargetObjectID,
-				IsInCombat:   snapshot.TargetObjectID != 0,
+				IsInCombat:   zonenpc.IsCombatMovementState(snapshot.Plan, snapshot.TargetObjectID),
 				IsTargetable: snapshot.Plan.NPCProfile.IsTargetable,
 				Stealth:      uint8(actionStealthType(snapshot.Plan)),
 			},

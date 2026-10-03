@@ -14,8 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/darkspinnet/darkspin/content/dbpf"
 )
 
 const nounAssetType = uint32(0x76a8f7d8)
@@ -107,7 +105,7 @@ func writeNounPhysics(ctx context.Context, transaction *sql.Tx, installPath stri
 	if err != nil {
 		return fmt.Errorf("packageStat: %w", err)
 	}
-	pkg, err := dbpf.NewReader(r, fi.Size())
+	pkg, err := importPackageReader(ctx, r, fi.Size())
 	if err != nil {
 		return fmt.Errorf("packageRead: %w", err)
 	}

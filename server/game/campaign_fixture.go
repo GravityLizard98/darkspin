@@ -15,14 +15,13 @@ const cryosGeyserLevel = "cryos_1"
 const cryosGeyserMarkerSet = "cryos_1_objects.markerset"
 const infinityFoundryLevel = "infinity_2"
 
-// CampaignTreeObjects composes Nocturna's authored root clusters around the
-// placements resolved as Nightmare Vines. Other levels retain their authored
-// weighted callback selection.
+// CampaignTreeObjects retains the selected map's authored tree callbacks.
+// Legacy unselected Nocturna layouts compose roots around resolved vines.
 func (e CampaignDirector) CampaignTreeObjects(
 	selectionID uint32,
 ) ([]CampaignScriptObject, error) {
 	const callbackName = "nLevelObject.OnTreeDeath"
-	if !e.isNocturnaLevel() {
+	if e.IsInitialLayoutSelected || !e.isNocturnaLevel() {
 		objects, err := e.CampaignCallbackObjects(selectionID, callbackName)
 		if err != nil {
 			return nil, fmt.Errorf("treeObjects: %w", err)
@@ -638,6 +637,9 @@ func (e CampaignDirector) CryosLavaCracks() []CampaignDirectorMarker {
 // VerdanthPopulationDirector keeps population anchors aligned with the same
 // smart-object layout projected to the client.
 func (e CampaignDirector) VerdanthPopulationDirector() CampaignDirector {
+	if e.IsInitialLayoutSelected {
+		return e
+	}
 	if !strings.EqualFold(e.Level, verdanthCypressLevel) {
 		return e
 	}

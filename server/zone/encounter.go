@@ -70,15 +70,19 @@ func (e *Zone) PlanInitialEncounter(
 	directorDefinition := e.info.DirectorDefinition
 	objectID := e.info.ObjectID
 	horde := e.info.Horde
+	population := e.info.Population
 	e.mu.RUnlock()
 	if objectID == nil {
 		return InitialEncounterPlan{}, errors.New("encounter planning allocator unavailable")
 	}
-	hordePlans, _, err := zonehorde.PlanFirstWave(
-		directorDefinition, publication, objectID.Next(), gameID,
+	hordePlans, nextHordeObjectID, err := zonehorde.PlanFirstWaveWithSections(
+		directorDefinition, publication, objectID.Next(), gameID, population.SectionRosters(),
 	)
 	if err != nil {
 		return InitialEncounterPlan{}, fmt.Errorf("initialHordePlan: %w", err)
+	}
+	if len(hordePlans) != 0 && nextHordeObjectID <= hordePlans[0].ObjectID {
+		return InitialEncounterPlan{}, errors.New("initial horde object range invalid")
 	}
 	hordePlans, err = e.AssignSpawnPlanIDs(hordePlans)
 	if err != nil {
@@ -98,7 +102,7 @@ func (e *Zone) PlanInitialEncounter(
 			return InitialEncounterPlan{}, errors.New("initial boss order unavailable")
 		}
 		err = zoneboss.ValidateInitialOrder(horde)
-		if errors.Is(err, zoneboss.ErrSecondHordeIncomplete) {
+		if errors.Is(err, zoneboss.ErrHordeActive) {
 			return InitialEncounterPlan{
 				Boss: bossPlans, IsBossDeferred: true,
 			}, nil
@@ -127,6 +131,7 @@ func (e *Zone) PlanHordeFollowup(
 	objectID := e.info.ObjectID
 	horde := e.info.Horde
 	npc := e.info.NPCs
+	population := e.info.Population
 	e.mu.RUnlock()
 	if objectID == nil || horde == nil || npc == nil {
 		return nil, errors.New("horde followup authority unavailable")
@@ -135,12 +140,15 @@ func (e *Zone) PlanHordeFollowup(
 	if !isFound {
 		return nil, errors.New("horde followup publication missing")
 	}
-	plans, _, err := zonehorde.PlanWave(
+	plans, nextHordeObjectID, err := zonehorde.PlanWaveWithSections(
 		directorDefinition, publication, objectID.Next(), gameID,
-		transition.NextWaveActorCount, transition.NextWaveOrdinal,
+		transition.NextWaveActorCount, transition.NextWaveOrdinal, population.SectionRosters(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("hordeFollowupPlan: %w", err)
+	}
+	if len(plans) != 0 && nextHordeObjectID <= plans[0].ObjectID {
+		return nil, errors.New("horde followup object range invalid")
 	}
 	plans, err = e.AssignSpawnPlanIDs(plans)
 	if err != nil {

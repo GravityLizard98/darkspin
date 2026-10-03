@@ -282,6 +282,10 @@ func (r gameplayStatusRuntime) startCampaign(
 	ctx context.Context, packet raknet.Packet, peerSession gameplayPeerSession,
 	status raknet.PlayerStatus,
 ) ([][]byte, error) {
+	startPacket, err := marshalZoneStart(peerSession.binding)
+	if err != nil {
+		return nil, fmt.Errorf("statusChainStart: %w", err)
+	}
 	if r.preparation.setup != nil &&
 		(peerSession.zone == nil ||
 			len(peerSession.zone.DirectorDefinition().Pools) == 0) {
@@ -323,10 +327,6 @@ func (r gameplayStatusRuntime) startCampaign(
 	statusRecipients := r.queueMemberStatus(
 		packet.Address.String(), peerSession, playerPacket,
 	)
-	startPacket, err := memberraknet.GameStart(0)
-	if err != nil {
-		return nil, fmt.Errorf("statusChainStart: %w", err)
-	}
 	pingPacket, err := developerraknet.Ping(uint64(time.Now().Unix()))
 	if err != nil {
 		return nil, fmt.Errorf("statusChainPing: %w", err)
@@ -358,6 +358,10 @@ func (r gameplayStatusRuntime) startArena(
 	packet raknet.Packet, peerSession gameplayPeerSession,
 	status raknet.PlayerStatus,
 ) ([][]byte, error) {
+	startPacket, err := marshalZoneStart(peerSession.binding)
+	if err != nil {
+		return nil, fmt.Errorf("statusArenaStart: %w", err)
+	}
 	playerPacket, err := memberraknet.Status(memberraknet.StatusRequest{
 		PlayerIndex: uint8(peerSession.binding.Slot),
 		Status:      status.Status, Progress: status.Progress,
@@ -381,10 +385,6 @@ func (r gameplayStatusRuntime) startArena(
 	statusRecipients := r.queueMemberStatus(
 		packet.Address.String(), peerSession, playerPacket,
 	)
-	startPacket, err := memberraknet.GameStart(0)
-	if err != nil {
-		return nil, fmt.Errorf("statusArenaStart: %w", err)
-	}
 	r.logger.Printf(
 		"RakNet Arena game start handshake sent to %s level=%q team=%d peers=%d",
 		packet.Address, peerSession.binding.Level, peerSession.binding.Team,

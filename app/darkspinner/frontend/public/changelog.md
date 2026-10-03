@@ -1,7 +1,107 @@
 # Changelog
 
+### 2026-10-02
+- Fix content.db import failures by passing the build context into combat, weapon, and spike resource readers.
+- Track content.db import stage durations, index resource identities before projections, reuse bounded package readers, and remove unused duplicate raw resource blobs while retaining Lua and navigation payloads.
+- Fix campaign startup going black when a seeded zelems_1 layout has no obelisks by replacing the legacy fixed-count requirement with the authored selection.
+- Use each Orcus servant's complete authored, difficulty-adjusted NPC profile in place of the hard-coded stat scaffold, including defenses, AI graph and drop metadata.
+- Apply Merak's authored rank thresholds of 15%, 10% and 5%, retain accrued damage at equality, and spend earned add budgets before capacity limiting.
+- Fix content.db verification from requiring all catalyst noun definitions to equal the 192 drop candidates to checking candidate coverage while retaining additional authored definitions; advance the import recipe to 88.
+- Recover percent-named AI conditions from exact authored graph references during content.db import, preserving spaces and punctuation and rebuilding older imports with recipe 87.
+- Change catalyst pickup, movement and removal from contiguous slot limits to the native grid unlock order, preserving tutorial gates and saved and replicated slot identities.
+- Share Nashira's 12-fiend budget across the original and duplicates through explicit passive membership, removing the separate fiend cooldown and preserving registration, rollback and owner teardown across checkpoints.
+- Resolve Nashira fiend stats, AI and loot metadata from the full rank-selected child noun profile, preserving run scaling and diagnosing missing definitions.
+- Resolve teleport endpoints from all seeded selected marker definitions instead of filtered director placements, preserving full IDs, later-selected duplicate overwrites and missing-destination behavior.
+- Retain authored catalyst noun modifier identity and line-bonus tuning in content.db, exposing both to pickup and effect consumers without changing current effect calculations.
+- Route campaign named events by full simulator event hash across selected live listener owners, retaining duplicate subscriptions, empty dispatches and native swap-removal on owner destruction.
+
+- Separate scaled actor navigation footprints from unscaled noun spawn radii, retaining actor navigation layers across movement and restore while preserving combat footprints.
+- Retain authored NPC AI graphs and gambit overrides, initialize the first start phase without RNG, and preserve node/gambit cursors through version-6 checkpoints without inferring phase execution behavior.
+- Select navigation layers from imported NavPower tuning radii with the native backward scan, including oversized actors and the Arena radius cap.
+- Use party completion and imported campaign bounds for support, catalyst and overdrive tutorial activation, rechecking unbeaten players at mutation time and resolving the triggering player�s current hero after the authored waits.
+- Expire shared catalyst and orb pickups from their original zone deadline, stop cleanup at zone completion, and prevent reconnects, full-inventory hops or delayed collection from extending pickup life.
+- Use the shared simulator RNG for native Lua random bounds and float32 draws, preserving equal-bound draws and correcting Corruptor portals from one-or-two attempts to one.
+- Filter generated equipment catalogs by native slot/science intersections, inclusive item levels and rarity flags, selecting affixes from the chosen base item science mask instead of hero class/science.
+- Land ordinary loot from elapsed lob duration at the exact destination with zero movement, retaining flight state for shared pickup validation and rejoin while preserving projectile collision locomotion.
+- Require the imported equipment-enable setting and equipment category mask before NPC or object equipment RNG draws, preserving independent drop categories and explicit developer guarantees.
+- Reject unsupported ordinary equipment rarities before world registration or presentation and on rejoin, preserving inventory and unique reward ground drops through explicit server policies.
+- Preserve native ground-only flight flags for orb, DNA and equipment drops while keeping ordinary catalyst flight flags false.
+- Calculate equipment levels from authored LootPreferences and explicit boss source context instead of granting every fourth mission a boss bonus, preserving unique-rarity and Cash Out chain adjustments.
+- Let same-position loot drops hop vertically with the recovered lob fallback, and serialize adjusted height for upward destinations.
+- Preserve next-stage reward previews when a campaign chain ends, using the separate continuation limit to force Cash Out at terminal stages and the five-planet server cap.
+- Reproduce catalyst level and noun selection with configured campaign minor counts, authored-order float32 draws and cumulative weights, preserving empty-pool draws and no-pickup tails with explicit server pity policy.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Resolve spawned NPC affix modifiers from imported asset names and stored IDs instead of synthesized names, correcting Spiky and persistent-aura bindings while preserving explicit parent/child co-occurrence.
+- Separate NPC perception queries from acquisition, using authored aggro/alert ranges and an owner-centered pet offset derived from level yaw and retained across restore.
+- Show catalog asset and source identities for levels and selected marker sets in map diagnostics while keeping authored layout reference order.
+- Separate ordinary catalyst drops from tutorial attempts, rejecting stages below the minimum before the chance draw and selecting once without a stage clamp or extra guaranteed roll.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Change campaign resurrection capsules from picker-only full-squad restoration to each eligible party member's first fallen slot, using authored recovery fractions and recipient orb effectiveness with party rollback and ally resource publication.
+- Fix catalyst pity from a maximum 1% chance to percentage-point boosts and a guaranteed chance roll after 55 misses, preserving native truncation and explicit zero overrides.
+- Separate NPC loot and XP suppression, retain loot-only resurrection and Doppler clone flags, preserve both Nashira duplicate flags, and allow ordinary summons to reward independently of encounter cleanup.
+- Preserve packaged catalog order when selecting campaign equipment bases, prefixes, and suffixes, appending entries without catalog ordinals after authored entries.
+- Gate campaign equipment drop categories by authored mission-stage minimums instead of account level, unlocking feet at stage 9 and graspers at stage 17 while preserving item-level checks.
+- Select a second prefix for epic campaign equipment with repeated distinct-index draws, retaining duplicate prefixes when the eligible pool contains one entry.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Resolve interactable zero challenge budgets from authored noun definitions instead of ability-specific 500/100 defaults, preserving whole marker overrides and nonzero budgets.
+- Carry authored noun-category IDs into spawn metadata and validate loot creation and rejoin projections against native categories, keeping DNA and equipment payloads explicit.
+- Reject incomplete generated campaign equipment before world pickup or inventory publication, preserving the selected rarity and base item when catalog definitions are missing.
+- Unlock campaign weapon implicit stats from signed item-derived campaign stages and the first authored weapon owner, preserving Arena weapon calculations.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Move equipment winner selection, materialization, and collection from pre-wait selection and 400 ms grants to the 100 ms commit boundary, starting the picker animation immediately and retaining release at 400 ms.
+- Calculate item stat bonuses from positive combined affix attributes instead of including standard slot stats, preserving signed cancellation and float32 addition order.
+- Preserve native item-price float32 boundaries, signed truncation, and integer increment rounding when calculating new prices, retaining invalid-value fallback and overflow saturation.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import complete marker and noun interactable definitions, preserving ability and emitted-event slots while removing false listener subscriptions.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve authored combatant death-event bindings separately from noun combatant admission, including non-combatant scenery definitions.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import marker spawn triggers and ordered event listeners from reflected records, preserving geometry, timing, flags, callback slots, hashes and overrides instead of guessing from strings.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve noun pickup triggers and event listeners in content.db, and expose authored resurrection health fractions with a separate missing-property fallback.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import NPC affix definitions with modifier mappings and parent/child links, and preserve captain-affix difficulty bounds through structural class decoding.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Allow server startup with authored affixes whose eligibility lists are empty, preserving their identity and stats while requiring nonempty category matches during selection.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Validate asset-catalog links from authored entries to packaged resources, allowing uncataloged package assets during content preparation.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve finite authored noun bounds with reversed endpoints in content.db instead of rejecting shipped assets during content preparation.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix content preparation when a marker's noun-shaped name differs from its noun reference, keeping adjacent component bindings out of the marker count.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix content preparation for marker sets with adjacent component bindings and repeated noun-name references, preventing spurious extra markers.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix content preparation for affixes with modifier-grant or ability-improvement arrays by decoding their complete reflected tails.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import the campaign minor-stage count and recipient sidekicking settings into content.db, exposing validated reward tuning with separate authored values and native defaults.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix content preparation for teleporters with custom marker names by reading both authored references before their component data.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import ordered asset identities, DNA reward properties, affix slot eligibility, and every noun's lifetime and projectile-definition presence into content.db with source provenance.
+- Prefix errors copied from the launcher with the Darkspinner version.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve authored movement tuning, door interaction inputs, generic teleporter definitions and the packaged equipment-drop gate in content.db, retaining absent definitions and settings.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Allow launcher content preparation to retain unresolved noun AI references instead of rejecting shipped nouns whose AI definition is absent.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Expose navigation-obstacle inputs for every noun in content.db, including unnamed resources and nouns without NPC classes, while preserving authored enums and bounds.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix launcher content preparation by decoding level roster headers from authored presence fields instead of ambiguous header scanning.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve absent level cameras instead of decoding filename text, and expose authored AI graphs, idle/death hooks, cooldown operands, elite settings, and reward tuning through content.db readers.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Scale orb drop budgets by the authored stage tuning and roll every 100-point attempt, including guaranteed drops, retaining and expiring all emitted pickups.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import authored NPC aggro modes and gate explicit alerts and added threat, preserving duplicate alerts, first-alert state, and reciprocal attacker tracking.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Align NPC idle and combat movement with authored speeds and movement buffs, and replicate combat state consistently with target acquisition and Arena mode.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Change Corruptor portals from boss-wide batch filling to individual timed spawn attempts with per-portal live counts and authored roster/cap overrides.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Gate enemy orb, catalyst, equipment, and DNA rewards by authored drop-category masks before their individual reward rolls.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Replace portal summons from a fixed ring to eight scatter attempts using a separate native LCG, authored size-class bounds, navigation and collision checks, and origin fallback.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Select Corruptor portal enemies from each phase's authored LevelConfig and the TNX-173 default using stage-eligible uniform random draws instead of inferred rank rosters and cyclic selection, including entries excluded from hordes.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Move mission 1-1 support activation from a 13-second boss admission estimate to the scripted 15-second first-clear or 2-second replay call, retaining the 6-second first-clear unlock.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Compose horde groups from authored minion and special rosters with challenge budgets, stage-dependent special ceilings, section-pool expansion, and a 15-member limit.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Compose budgeted spike groups from section rosters and authored challenge costs, replacing forced captains with mixed minion, special, and conditional agent selection.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Extend native seeded layout selection from mission 1-1 to every loaded map, sharing selected marker sets across NPCs, destructibles, obelisks, and teleporters while preserving empty alternatives.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Remove ordinary spike markers that overlap authored horde-trigger or boss exclusion volumes before campaign group planning.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import the director's consumed ServerData composition properties and load group-cost scaling from the packaged 0.2 override instead of executable fallback or fixed server constants.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Select first-time campaign enemy rosters from every party member's progress instead of only the requesting player's, falling back to normal composition when no first-time minion qualifies.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Share minion and special roster bags across campaign sections A/B/C, refilling each only after its eligible archetypes have been drawn.
+- Resolve NPC profiles from authored noun and class references instead of shared stat filenames, preserving captain identities and ZelemSpecialThree_3's rank-3 awareness ranges.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import external planet and science enemy rosters and compose campaign enemies from local-only selection to authored mixed sources, including the stage-25 and stage-49 transitions.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Replace spike group sizing from a fixed 2–6 estimate to challenge-budget composition with repeat-eligible noun draws, float32 group costs, and a 15-member cap.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import authored normal and first-time enemy rosters for every map with local configuration data, replacing string-scanned pools while preserving stage limits and horde eligibility.
+- Select campaign section buckets from the stage's chapter instead of always using chapter 1, while retaining full-stage enemy roster limits.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Persist HELIX's pending mission introduction in the active session so it can play after hero arrival.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Remove Haster buffs from defeated enemies and prevent delayed buff expiry from deleting a reused modifier.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Stop promoting first-clear 1-1 special-roster enemies to captains with elite stats and affixes; retain elite treatment for authored captain entries.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Fix mission 1-1's black loading screen by retaining every authored marker set during map-layout selection, including obelisks, script-only sets, and empty alternatives.
+
 ### 2026-10-01
 
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Align 1-1 destructibles, obelisks, and ordinary enemy placement variants with the client's map seed, replacing independent layout rolls and the forced first-clear health-obelisk position.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Select 1-1's authored horde alternative, including the empty variant, remove boss prerequisites on unselected hordes, and preserve horde and boss-add choices from the run seed across restoration.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Correct mission prepare/start packets from player slots and party masks to campaign stages and map conditions, with a shared map seed preserved through rejoin and checkpoint restore.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Preserve authored creature type, drop-type choices, combat speed, planet-config references, director difficulty tuning, and marker-set conditions in campaign content; use authored combat speed for NPC movement.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import authored NPC type and noncombat movement speed for campaign enemies, using the speed for mobile idle movement while keeping preplaced dormant enemies stationary.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Replace the fixed 12-unit campaign enemy aggro boundary across all levels with each noun's authored NonPlayerClass range, including bosses and scripted adds, retaining 12 only for missing ranges.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Import authored SectionConfig buckets and use their difficulty-1 archetype counts to give first-run 1-1 sections distinct enemy rosters while retaining the provisional entrance placement.
+- [#43](https://github.com/darkspinnet/darkspin/issues/43) Make first-run opening enemy selection repeatable for every chain mission, with per-level seeds and spawn-point logging for placement checks.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43)  Remove Vex's Time Bubble visual and affected-target modifiers when an aura is stopped by a reset or scheduling failure, using the same client cleanup as normal expiry.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43) Restore Vex's Time Lapse from a single-target melee hit to a nearby area attack that repeats each enemy's last 10 seconds of damage up to its Dexterity-scaled cap, with the authored hit effects.
 - [#43](https://github.com/darkspinnet/darkspin/issues/43) Recheck melee reach at impact for Protonic Sword and other melee basics, preventing damage to targets that have moved out of reach and using the hero's current position for cleave selection.
@@ -16,7 +116,7 @@
 -[#42](https://github.com/darkspinnet/darkspin/issues/42) Defer HELIX's mission introduction until dungeon setup commits and hero arrival finishes, instead of sending it in the first gameplay frame; log delivery for playback diagnosis.
 - Run launcher self-updates first through the Patch button and Auto Patch; startup only checks availability, and an update restarts the launcher before game patching begins.
 - [#41](https://github.com/darkspinnet/darkspin/issues/41) Restore authored targetable destructibles across missions 1-1 through 6-4 with matching scenery layouts and shared destruction state.
-- [#42](https://github.com/darkspinnet/darkspin/issues/42) Move mission 1-1's first-clear population from synthetic formations to authored spawn candidates and roster pools, including horde and boss adds; preserve marker sections and weighted alternatives, restore its first standing repair mob and nearby elite group, and beam in a separate opening special at an authored spike point.
+- [#42](https://github.com/darkspinnet/darkspin/issues/42) Move mission 1-1's first-clear population from synthetic formations to authored spawn candidates and roster pools, including horde and boss adds; preserve marker sections and weighted alternatives, restore its first standing repair mob and nearby elite group, and replace the speculative on-screen Haster beam-in with standing section population.
 - [#37](https://github.com/darkspinnet/darkspin/issues/37) Update content verification from 2,288 to all 2,408 shipped loot definitions, including the 120 restored weapons.
 - [#37](https://github.com/darkspinnet/darkspin/issues/37) Allow shipped loot definitions with empty level ranges such as 999..100 through content parsing and database storage, rebuild older content schemas, and exclude these items from generated drops and nearest-level fallback.
 - [#40](https://github.com/darkspinnet/darkspin/issues/40) Expand hordes from Outer Rings onward to three independently spawned waves with a final Mutation Agent that promotes nearby enemies to elites; close authored arena gates, publish horde state through completion and reconnect, and move HELIX's Zelem reinfection cue to mission 2-3.

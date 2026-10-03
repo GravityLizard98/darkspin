@@ -264,8 +264,10 @@ type chainPeerRuntime struct {
 }
 
 type zoneMembership struct {
-	generation uint64
-	zone       *zone.Zone
+	tutorialActivationRuntime    *campaignEncounterRuntime
+	tutorialActivationSourceTime uint64
+	generation                   uint64
+	zone                         *zone.Zone
 }
 
 type controlledHeroState struct {
@@ -580,7 +582,6 @@ type gameplayPeerSession struct {
 	campaignNashiraSplitObjectIDs        map[uint32][]uint32
 	campaignNashiraSplitPendingObjectIDs map[uint32]uint32
 	campaignNashiraPanicReadiness        map[uint32]uint64
-	campaignNashiraFiendReadiness        map[uint32]uint64
 	campaignMerakPassiveStates           map[uint32]campaignMerakPassiveState
 }
 
@@ -1135,7 +1136,6 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNashiraSplitObjectIDs)
 	clear(s.campaignNashiraSplitPendingObjectIDs)
 	clear(s.campaignNashiraPanicReadiness)
-	clear(s.campaignNashiraFiendReadiness)
 	clear(s.campaignMerakPassiveStates)
 	for objectID, run := range s.campaignNPCShielderShields {
 		run.stop()
@@ -1261,7 +1261,7 @@ func (e *gameplayPeerSession) advancePlayerMovementMode(
 		moveSpeed *= 1 + increase
 	}
 	if e.zone != nil {
-		e.playerMotion.SetNavigation(e.zone.Navigation(), e.deployedCampaignFootprintRadius())
+		e.playerMotion.SetActorNavigation(e.zone.Navigation(), e.deployedCampaignNavigationRadius(), e.deployedObjectID, uint8(e.binding.Mode))
 	}
 	previous := sim.Position{}
 	position := sim.Position{}
@@ -1317,7 +1317,7 @@ func (e *gameplayPeerSession) advancePlayerPosition(
 	}
 	correctionRange := zonePlayerPoseCorrectionRange
 	if e.zone != nil {
-		e.playerMotion.SetNavigation(e.zone.Navigation(), e.deployedCampaignFootprintRadius())
+		e.playerMotion.SetActorNavigation(e.zone.Navigation(), e.deployedCampaignNavigationRadius(), e.deployedObjectID, uint8(e.binding.Mode))
 	}
 	position, err := e.playerMotion.AdvancePosition(
 		now, toSimPosition(reportedPosition),
@@ -1371,7 +1371,7 @@ func (e *gameplayPeerSession) startEnemyFearMovement(
 		}
 		e.playerMotion = motion
 	}
-	e.playerMotion.SetNavigation(e.zone.Navigation(), e.deployedCampaignFootprintRadius())
+	e.playerMotion.SetActorNavigation(e.zone.Navigation(), e.deployedCampaignNavigationRadius(), e.deployedObjectID, uint8(e.binding.Mode))
 	moveSpeed := zonePlayerMoveSpeed * (1 + max(float32(-0.9), movementIncrease+e.enemyMovementSpeedBuff()))
 	previous, position, err := e.playerMotion.Advance(
 		now, toSimPosition(e.playerPosition), toSimPosition(destination),
@@ -1407,7 +1407,7 @@ func (e *gameplayPeerSession) teleportPlayer(
 			game.Vec3{
 				X: destination.X, Y: destination.Y, Z: destination.Z,
 			},
-			e.deployedCampaignFootprintRadius(),
+			e.deployedCampaignNavigationRadius(),
 		)
 		if err != nil {
 			return fmt.Errorf("teleportNavigation: %w", err)

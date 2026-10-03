@@ -189,7 +189,7 @@ func (r campaignNPCActionRuntime) produceVerdanthBasicOozeGrowth(
 	retreatPosition := oozeRetreatPosition(source.Plan.Position, target.Plan.Position)
 	projectedPosition, _, err := zoneaction.NPCProjectPosition(
 		peerSession.zone.Navigation(), retreatPosition,
-		source.Plan.NPCProfile.FootprintRadius,
+		source.NavigationRadius(), source.Navigation,
 	)
 	if err != nil {
 		r.registry.mutex.Unlock()

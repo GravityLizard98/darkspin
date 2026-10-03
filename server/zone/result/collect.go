@@ -11,10 +11,12 @@ const maximumCashOutBonusAttempts = 3
 var ErrCashOutBonusChanged = errors.New("campaign cashout bonus changed")
 
 type RewardSubject struct {
-	ClassType    string
-	ElementType  string
-	AccountLevel uint32
-	Alternates   []RewardSubject
+	ClassType     string
+	ElementType   string
+	AccountLevel  uint32
+	CampaignStage uint32
+	ChainArgument uint32
+	Alternates    []RewardSubject
 }
 
 type RewardPart struct {
@@ -103,6 +105,8 @@ func CollectCashOut(
 		return CollectResult{}, errors.New("campaign cashout commit busy")
 	}
 	defer session.RollbackCashOutCommit(snapshot.ResultID)
+	command.Subject.CampaignStage = snapshot.CompletedIndex
+	command.Subject.ChainArgument = uint32(snapshot.PlanetsCompleted)
 	rewardCount := RewardCount(snapshot.PlanetsCompleted)
 	rewardLevel := RewardLevel(snapshot.Difficulty, snapshot.PlanetsCompleted)
 	for attempt := 0; attempt < maximumCashOutBonusAttempts; attempt++ {

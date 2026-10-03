@@ -90,25 +90,21 @@ func BuildOrbDropWorldRequest(input OrbDropInput) (OrbDropWorldRequest, error) {
 			Pickups:    make([]OrbPickupRequest, 0, maximumDrop),
 		},
 	}
-	for index := uint32(0); index < dropCount; index++ {
-		err = builder.append(index)
-		if err != nil {
-			return OrbDropWorldRequest{}, fmt.Errorf("guaranteedDrop: %w", err)
+	// sub_9D3110 consumes a simulator draw for every positive remaining
+	// budget, including guaranteed attempts, then subtracts 100.
+	remainingBudget := int64(input.ScaledBudget)
+	for index := uint32(0); remainingBudget > 0; index++ {
+		chance, drawErr := input.Random.Index(orbBudgetUnit)
+		if drawErr != nil {
+			return OrbDropWorldRequest{}, fmt.Errorf("orbDraw[%d]: %w", index, drawErr)
 		}
-	}
-	if remainder == 0 {
-		return builder.request, nil
-	}
-	chance, err := input.Random.Index(orbBudgetUnit)
-	if err != nil {
-		return OrbDropWorldRequest{}, fmt.Errorf("remainderDraw: %w", err)
-	}
-	if chance >= remainder {
-		return builder.request, nil
-	}
-	err = builder.append(dropCount)
-	if err != nil {
-		return OrbDropWorldRequest{}, fmt.Errorf("remainderDrop: %w", err)
+		if int64(chance) < remainingBudget {
+			err = builder.append(index)
+			if err != nil {
+				return OrbDropWorldRequest{}, fmt.Errorf("orbDrop[%d]: %w", index, err)
+			}
+		}
+		remainingBudget -= int64(orbBudgetUnit)
 	}
 	return builder.request, nil
 }
@@ -136,6 +132,7 @@ func (e *orbDropBuilder) append(index uint32) error {
 	if err != nil {
 		return fmt.Errorf("lob[%d]: %w", index, err)
 	}
+	lob.IsGroundCollisionOnly = true
 	nounName := "HealthOrb.Noun"
 	eventName := "health_orb_drop.ServerEventDef"
 	if kind == ManaOrbDrop {

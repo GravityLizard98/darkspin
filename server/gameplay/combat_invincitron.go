@@ -66,16 +66,22 @@ func (r campaignNPCActionRuntime) ensureInvincitronDrone(
 	if footprintErr != nil || footprintRadius <= 0 {
 		footprintRadius = 0.5
 	}
+	authoredProfile := peerSession.zone.DirectorDefinition().NPCProfilesByNoun["nomaddrone.noun"]
 	plan := zonenpc.SpawnPlan{
 		ObjectID: objectID, OwnerObjectID: ownerObjectID,
 		NounName: "NomadDrone.Noun", Position: invincitronDronePosition(owner.Plan.Position, 0),
 		LocusID: owner.Plan.LocusID, MarkerSetName: owner.Plan.MarkerSetName,
-		IsRewardSuppressed: true,
+		IsEncounterAuxiliary: true,
 		NPCProfile: game.CampaignNPCProfile{
 			NPCRank:      owner.Plan.NPCProfile.NPCRank,
+			NPCType:      authoredProfile.NPCType,
+			IsClassKnown: authoredProfile.IsClassKnown,
 			IsTargetable: false, HitPoint: hitPoint,
-			Mind:          owner.Plan.NPCProfile.Mind,
-			GraphicsScale: 1, FootprintRadius: footprintRadius,
+			AggroRange: authoredProfile.AggroRange, AlertRange: authoredProfile.AlertRange,
+			DropAggroRange:    authoredProfile.DropAggroRange,
+			IdleMovementSpeed: authoredProfile.IdleMovementSpeed,
+			Mind:              owner.Plan.NPCProfile.Mind,
+			GraphicsScale:     1, FootprintRadius: footprintRadius,
 			DifficultyDamageMultiplier: owner.Plan.NPCProfile.DifficultyDamageMultiplier,
 			IsKnown:                    true,
 		},

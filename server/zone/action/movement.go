@@ -13,6 +13,7 @@ import (
 )
 
 type MovementCommand struct {
+	NavigationActor  basenavigation.ActorNavigation
 	ObjectID         uint32
 	DeployedObjectID uint32
 	Position         game.Vec3
@@ -38,7 +39,7 @@ func AdmitMovement(command MovementCommand) (MovementAdmission, error) {
 		return admission, nil
 	}
 	err := zonenavigation.ValidateMovement(
-		command.Navigation, command.Position, command.Goal, command.FootprintRadius,
+		command.Navigation, command.Position, command.Goal, command.FootprintRadius, command.NavigationActor,
 	)
 	if err != nil {
 		return admission, fmt.Errorf("movementNavigation: %w", err)

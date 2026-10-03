@@ -408,11 +408,10 @@ func (s *Session) ApplyHaste(
 			float64(profile.Cooldown) / float64(1+attackSpeed) *
 				float64(1-cooldownReduction),
 		)
-		profile.MovementSpeed *= 1 + movementSpeedBuff
-		profile.NonCombatMovementSpeed *= 1 + movementSpeedBuff
 		npc.Plan.ActionProfile = profile
 		npc.Plan.IsActionKnown = true
 	}
+	npc.Plan.MovementSpeedBuff = movementSpeedBuff
 	s.npcs[objectID] = npc
 	return nil
 }
@@ -431,6 +430,7 @@ func (s *Session) ClearHaste(objectID uint32, expiresAt time.Time) {
 	npc.status.hasteAttackSpeed = 0
 	npc.status.hasteCooldownReduction = 0
 	npc.status.hasteMovementSpeedBuff = 0
+	npc.Plan.MovementSpeedBuff = 0
 	if npc.status.isHasteProfileStored {
 		npc.Plan.ActionProfile = npc.status.hasteActionProfile
 		npc.Plan.IsActionKnown = npc.status.isHasteActionKnown

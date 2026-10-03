@@ -1870,7 +1870,7 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 			projected, isProjected, projectionErr := zonenavigation.ReachableTeleportDestination(
 				peerSession.zone.Navigation(), sourcePosition,
 				game.Vec3{X: center.X, Y: center.Y, Z: center.Z},
-				peerSession.deployedCampaignFootprintRadius(),
+				peerSession.deployedCampaignNavigationRadius(),
 			)
 			if projectionErr != nil {
 				r.registry.mutex.Unlock()

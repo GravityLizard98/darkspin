@@ -19,7 +19,7 @@ import (
 	zonesecurity "github.com/darkspinnet/darkspin/server/zone/security"
 )
 
-const Version = uint32(5)
+const Version = uint32(7)
 
 type Reason string
 
@@ -209,6 +209,10 @@ func Validate(
 		}
 	}
 	for index, npc := range snapshot.NPCs {
+		err := npc.State.GraphState.Validate(npc.State.Plan.NPCProfile.AIGraph)
+		if err != nil {
+			return fmt.Errorf("checkpointGraph[%d]: %w", index, err)
+		}
 		objectID := npc.State.Plan.ObjectID
 		if objectID == 0 {
 			return fmt.Errorf("checkpointNPC[%d]: object invalid", index)
@@ -217,6 +221,14 @@ func Validate(
 			return fmt.Errorf("checkpointNPC[%d]: duplicate object", index)
 		}
 		npcsByObjectID[objectID] = npc.State
+	}
+	fiendSnapshots := make([]zonenpc.Snapshot, 0, len(snapshot.NPCs))
+	for _, npc := range snapshot.NPCs {
+		fiendSnapshots = append(fiendSnapshots, npc.State)
+	}
+	err = zonenpc.ValidateNashiraFiends(fiendSnapshots)
+	if err != nil {
+		return fmt.Errorf("checkpointFiends: %w", err)
 	}
 	experienceObjectIDs := make(map[uint32]struct{}, len(snapshot.ExperienceAwards))
 	experienceTotals := make(map[uint64]uint32, len(snapshot.Members))
@@ -230,7 +242,7 @@ func Validate(
 		}
 		npc, isNPCFound := npcsByObjectID[award.ObjectID]
 		if !isNPCFound || !npc.IsDefeated || npc.HitPoint > 0 ||
-			npc.Plan.IsFixture || npc.Plan.IsRewardSuppressed ||
+			npc.Plan.IsFixture || npc.Plan.IsExperienceSuppressed ||
 			npc.Plan.Experience != award.BaseExperience {
 			return fmt.Errorf("checkpointExperience[%d]: npc mismatch", index)
 		}

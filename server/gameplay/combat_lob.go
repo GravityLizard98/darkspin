@@ -354,7 +354,6 @@ func (e campaignNPCLobSchedule) landing() ([][]byte, error) {
 				X: e.toss.Destination.X, Y: e.toss.Destination.Y,
 				Z: e.toss.Destination.Z,
 			},
-			e.landingTimestamp(),
 		)
 		if spawnErr != nil {
 			e.runtime.registry.mutex.Unlock()

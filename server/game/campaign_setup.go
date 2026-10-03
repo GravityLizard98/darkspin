@@ -28,19 +28,33 @@ const MaxCampaignNPCAffixCount = 6
 // packaged non-player ClassAttributes resource. Encounter policy decides
 // whether that noun is selected as a captain, elite, or boss.
 type CampaignNPCIdentity struct {
-	DisplayName   string
-	NPCAffixNames [MaxCampaignNPCAffixCount]string
-	IsKnown       bool
+	DisplayName           string
+	NPCAffixNames         [MaxCampaignNPCAffixCount]string
+	NPCAffixModifierNames [MaxCampaignNPCAffixCount]string
+	NPCAffixModifierIDs   [MaxCampaignNPCAffixCount]uint32
+	IsKnown               bool
 }
 
 // CampaignNPCProfile is the transport- and storage-neutral authored
 // baseline for one director noun.
 type CampaignNPCProfile struct {
+	AIGraph                *CampaignAIGraph
+	IsClassKnown           bool
+	NounType               NounType
+	AggroType              uint32
 	ChallengeValue         int32
 	NPCRank                int32
+	NPCType                uint32
+	CreatureType           uint32
+	DropTypes              []uint32
 	IsTargetable           bool
 	IsPlayerPet            bool
 	PlayerCountHealthScale float32
+	AggroRange             float32
+	AlertRange             float32
+	DropAggroRange         float32
+	IdleMovementSpeed      float32
+	BaseCombatSpeed        float32
 	HitPoint               float32
 	PowerPoint             float32
 	Strength               float32
@@ -84,19 +98,27 @@ type CampaignDirectorPool struct {
 // CampaignDirectorEvent is one authored listener or trigger binding on a
 // director marker. Campaign setup carries it without executing it.
 type CampaignDirectorEvent struct {
-	Ordinal           int
-	ComponentName     string
-	EventKind         string
-	EventSlot         string
-	EventName         string
-	CallbackName      string
-	TriggerRadius     float32
-	IsTriggerOnceOnly bool
-	IsServerOnly      bool
+	EventHash          uint32
+	NativeCallbackHash uint32
+	LuaCallbackName    *string
+	Ordinal            int
+	ComponentName      string
+	EventKind          string
+	EventSlot          string
+	EventName          string
+	CallbackName       string
+	TriggerRadius      float32
+	IsTriggerOnceOnly  bool
+	IsServerOnly       bool
 }
 
 // CampaignDirectorMarker is one authored placement owned by a marker set.
 type CampaignDirectorMarker struct {
+	NounType                NounType
+	Interactable            *CampaignInteractableDefinition
+	Combatant               *CampaignCombatantDefinition
+	SpawnTrigger            *CampaignSpawnTriggerDefinition
+	EventListener           *CampaignEventListenerDefinition
 	Ordinal                 int
 	MarkerID                uint32
 	MarkerSetName           string
@@ -116,6 +138,9 @@ type CampaignDirectorMarker struct {
 	IsCollisionEnabled      bool
 	TargetMarkerID          uint32
 	TeleporterTriggerRadius float32
+	SpatialRadius           float32
+	ExclusionRadius         float32
+	IsExclusionVolume       bool
 	NPCProfile              CampaignNPCProfile
 	Events                  []CampaignDirectorEvent
 }
@@ -142,28 +167,46 @@ type CampaignHordeBarrierSet struct {
 // CampaignDirectorTrigger is one authored player-entry trigger carried as
 // immutable setup metadata. It does not publish its named event by itself.
 type CampaignDirectorTrigger struct {
-	Ordinal  int
-	MarkerID uint32
-	Name     string
-	NounName string
-	Position Vec3
-	Events   []CampaignDirectorEvent
+	Interactable      *CampaignInteractableDefinition
+	Combatant         *CampaignCombatantDefinition
+	SpawnTrigger      *CampaignSpawnTriggerDefinition
+	EventListener     *CampaignEventListenerDefinition
+	ExclusionRadius   float32
+	IsExclusionVolume bool
+	Ordinal           int
+	MarkerID          uint32
+	Name              string
+	NounName          string
+	Position          Vec3
+	Events            []CampaignDirectorEvent
 }
 
 // CampaignDirectorMarkerSet preserves one authored placement-set boundary.
 type CampaignDirectorMarkerSet struct {
-	Ordinal   int
-	Name      string
-	GroupName string
-	Weight    uint32
-	Markers   []CampaignDirectorMarker
-	Triggers  []CampaignDirectorTrigger
+	Definitions  []CampaignMarkerDefinition
+	Ordinal      int
+	Name         string
+	CatalogAsset CampaignAssetIdentity
+	GroupName    string
+	Weight       uint32
+	Conditions   []uint32
+	Markers      []CampaignDirectorMarker
+	Triggers     []CampaignDirectorTrigger
+}
+
+// CampaignAssetIdentity records catalog provenance for diagnostics only.
+type CampaignAssetIdentity struct {
+	Ordinal    *uint32
+	AssetName  string
+	SourceName string
 }
 
 // CampaignScriptBinding identifies one imported callback attached to an
 // authored level event. Runtime operations must still validate any intent
 // produced by the referenced script.
 type CampaignScriptBinding struct {
+	Interactable          *CampaignInteractableDefinition
+	NounInteractable      *CampaignInteractableDefinition
 	MarkerSetOrdinal      int
 	MarkerSetName         string
 	MarkerSetWeight       uint32
@@ -191,6 +234,7 @@ type CampaignScriptBinding struct {
 // script callback. Multiple Lua chunks on the same callback do not duplicate
 // the replicated object candidate.
 type CampaignScriptObject struct {
+	Interactable          *CampaignInteractableDefinition
 	MarkerSetOrdinal      int
 	MarkerSetName         string
 	MarkerSetWeight       uint32
@@ -211,15 +255,57 @@ type CampaignScriptObject struct {
 
 // CampaignDirector is the immutable level input accepted by campaign setup.
 type CampaignDirector struct {
-	Level                 string
-	IsFirstClear          bool
-	EntryPositions        []Vec3
-	Pools                 []CampaignDirectorPool
-	StandaloneBossEntries []CampaignDirectorEntry
-	MarkerSets            []CampaignDirectorMarkerSet
-	Scripts               []CampaignScriptBinding
-	NPCProfilesByNoun     map[string]CampaignNPCProfile
-	NPCIdentitiesByNoun   map[string]CampaignNPCIdentity
+	selectedDefinitionsByMarkerID map[uint32]CampaignMarkerDefinition
+	IsEquipmentDropEnabled        bool
+	PickupTuning                  CampaignPickupTuning
+	Level                         string
+	LevelCatalogAsset             CampaignAssetIdentity
+	PlanetConfigName              string
+	PrimaryType                   uint32
+	SecondaryType                 uint32
+	TertiaryType                  uint32
+	Difficulty                    uint32
+	CompositionTuning             CampaignCompositionTuning
+	OrbDifficultyScales           []float32
+	// IsFirstClear retains the requesting player's personal campaign state.
+	IsFirstClear bool
+	// Enabling this mode is server policy, not a recovered original-server decision.
+	IsFirstTimeDirectorEnabled bool
+	// IsFirstTimeRosterSelected records the party-progress branch after checking
+	// that at least one first-time minion qualifies for the full stage number.
+	IsFirstTimeRosterSelected bool
+	// IsInitialLayoutSelected identifies the map's native placement choices.
+	IsInitialLayoutSelected   bool
+	CameraYawOverride         float32
+	MapVariantSeed            uint32
+	EntryPositions            []Vec3
+	Pools                     []CampaignDirectorPool
+	ExternalPools             []CampaignDirectorPool
+	SectionBuckets            []CampaignSectionBucket
+	StandaloneBossEntries     []CampaignDirectorEntry
+	MarkerSets                []CampaignDirectorMarkerSet
+	Scripts                   []CampaignScriptBinding
+	NPCProfilesByNoun         map[string]CampaignNPCProfile
+	NounFootprintsByNoun      map[uint32]NavigationFootprint
+	NounFootprintsByInstance  map[uint32]NavigationFootprint
+	NounTypesByInstance       map[uint32]NounType
+	NounProjectilesByInstance map[uint32]bool
+	NPCIdentitiesByNoun       map[string]CampaignNPCIdentity
+}
+
+// CampaignCompositionTuning supplies authored group-cost settings without
+// exposing property hashes or storage encodings to gameplay.
+type CampaignCompositionTuning struct {
+	GroupChallengeMultiplier float32
+}
+
+// CampaignSectionBucket is one source-authored SectionConfig archetype choice.
+type CampaignSectionBucket struct {
+	Ordinal      int
+	Difficulty   int
+	MinionCount  int
+	SpecialCount int
+	Chance       float32
 }
 
 // MarkerObjectIDs returns authored client-owned objects from one marker set
@@ -248,9 +334,7 @@ func (d CampaignDirector) MarkerObjectIDs(
 }
 
 const (
-	campaignLootObeliskChallenge   = int32(500)
-	campaignHealthObeliskChallenge = int32(100)
-	initialChainRegulatorNoun      = "DEST_prefab_islands_instrument_scitech_11.Noun"
+	initialChainRegulatorNoun = "DEST_prefab_islands_instrument_scitech_11.Noun"
 )
 
 // TutorialActors returns the fixed non-player placements from Cryos' authored
@@ -292,6 +376,13 @@ func (d CampaignDirector) InitialChainDestructibles(selectionID uint32) (
 ) {
 	if !strings.EqualFold(d.Level, InitialChainLevel) {
 		return nil, nil, fmt.Errorf("fixtureLevel: %q", d.Level)
+	}
+	if d.IsInitialLayoutSelected {
+		markers, deletedObjectIDs, err := d.MapDestructibles()
+		if err != nil {
+			return nil, nil, fmt.Errorf("fixtureLayout: %w", err)
+		}
+		return markers, deletedObjectIDs, nil
 	}
 	selectedSet := fmt.Sprintf("zelems_1_smart_objects_%d.markerset", selectionID%3+1)
 	fixtures := make([]CampaignDirectorMarker, 0)
@@ -459,6 +550,18 @@ func (d CampaignDirector) ScriptObjects() ([]CampaignScriptObject, error) {
 	objects := make([]CampaignScriptObject, 0)
 	objectIndexByMarkerID := make(map[uint32]int)
 	for scriptIndex, script := range d.Scripts {
+		interactable, err := resolveCampaignInteractable(script.Interactable, script.NounInteractable)
+		if err != nil {
+			return nil, fmt.Errorf("scriptInteractable[%d]: %w", scriptIndex, err)
+		}
+		if interactable != nil {
+			script.InteractableAbility = ""
+			if interactable.AbilityName != nil {
+				script.InteractableAbility = *interactable.AbilityName
+			}
+			script.InteractableUseLimit = interactable.UseLimit
+			script.InteractableChallenge = interactable.Challenge
+		}
 		if script.MarkerID == 0 || script.MarkerName == "" || script.NounName == "" ||
 			script.CallbackName == "" || !isFiniteCampaignPosition(script.Position) ||
 			!isFiniteCampaignPosition(script.Rotation) || script.Scale <= 0 ||
@@ -468,6 +571,7 @@ func (d CampaignDirector) ScriptObjects() ([]CampaignScriptObject, error) {
 		objectIndex, isFound := objectIndexByMarkerID[script.MarkerID]
 		if !isFound {
 			objects = append(objects, CampaignScriptObject{
+				Interactable:     interactable,
 				MarkerSetOrdinal: script.MarkerSetOrdinal, MarkerSetName: script.MarkerSetName,
 				MarkerSetWeight: script.MarkerSetWeight, MarkerOrdinal: script.MarkerOrdinal,
 				MarkerID: script.MarkerID, MarkerName: script.MarkerName, NounName: script.NounName,
@@ -511,10 +615,9 @@ func (d CampaignDirector) ScriptObjects() ([]CampaignScriptObject, error) {
 	return objects, nil
 }
 
-// InitialChainInteractables selects one of 1-1's three equal-weight authored
-// obelisk variants. The retail random-source implementation is unavailable, so
-// the match ID supplies a stable local selection without materializing all
-// mutually exclusive variants.
+// InitialChainInteractables preserves the seeded layout's authored obelisks,
+// including empty alternatives. Legacy match-ID selection retains its fixed
+// three-loot/two-health composition check.
 func (d CampaignDirector) InitialChainInteractables(matchID uint32) ([]CampaignScriptObject, error) {
 	if !strings.EqualFold(d.Level, InitialChainLevel) {
 		return nil, fmt.Errorf("interactableLevel: %q", d.Level)
@@ -522,6 +625,9 @@ func (d CampaignDirector) InitialChainInteractables(matchID uint32) ([]CampaignS
 	selected, err := d.CampaignInteractables(matchID)
 	if err != nil {
 		return nil, fmt.Errorf("interactableSelect: %w", err)
+	}
+	if d.IsInitialLayoutSelected {
+		return selected, nil
 	}
 	lootCount := 0
 	healthCount := 0
@@ -562,8 +668,8 @@ func (d CampaignDirector) InitialChainFirstClearInteractables() ([]CampaignScrip
 	return objects, nil
 }
 
-// CampaignInteractables deterministically selects one authored weighted
-// interactable marker-set variant for a match.
+// CampaignInteractables uses the selected layout when available. Legacy
+// callers retain an independently weighted interactable variant for a match.
 func (d CampaignDirector) CampaignInteractables(matchID uint32) ([]CampaignScriptObject, error) {
 	objects, err := d.ScriptObjects()
 	if err != nil {
@@ -571,22 +677,20 @@ func (d CampaignDirector) CampaignInteractables(matchID uint32) ([]CampaignScrip
 	}
 	objectsByOrdinal := make(map[int][]CampaignScriptObject)
 	weightByOrdinal := make(map[int]uint32)
+	selectedObjects := make([]CampaignScriptObject, 0)
 	for _, object := range objects {
 		if object.InteractableAbility == "" {
 			continue
 		}
 		switch object.InteractableAbility {
-		case "InteractWithObelisk":
-			if object.InteractableChallenge == 0 {
-				object.InteractableChallenge = campaignLootObeliskChallenge
-			}
-		case "InteractHealthObelisk":
-			if object.InteractableChallenge == 0 {
-				object.InteractableChallenge = campaignHealthObeliskChallenge
-			}
+		case "InteractWithObelisk", "InteractHealthObelisk":
 		default:
 			return nil, fmt.Errorf("interactableAbility[%d]: %q",
 				object.MarkerID, object.InteractableAbility)
+		}
+		if d.IsInitialLayoutSelected {
+			selectedObjects = append(selectedObjects, object)
+			continue
 		}
 		if object.MarkerSetWeight == 0 {
 			return nil, fmt.Errorf("interactableWeight[%d]: %d",
@@ -601,6 +705,9 @@ func (d CampaignDirector) CampaignInteractables(matchID uint32) ([]CampaignScrip
 		objectsByOrdinal[object.MarkerSetOrdinal] = append(
 			objectsByOrdinal[object.MarkerSetOrdinal], object,
 		)
+	}
+	if d.IsInitialLayoutSelected {
+		return selectedObjects, nil
 	}
 	if len(objectsByOrdinal) == 0 {
 		return []CampaignScriptObject{}, nil
@@ -641,9 +748,8 @@ func (d CampaignDirector) CampaignInteractables(matchID uint32) ([]CampaignScrip
 	return slices.Clone(objectsByOrdinal[selectedOrdinal]), nil
 }
 
-// CampaignCallbackObjects deterministically selects one authored weighted
-// marker-set variant containing the requested callback. This is used for
-// client-presented level objects whose authored callback is client-owned.
+// CampaignCallbackObjects preserves callbacks from the selected map layout.
+// Legacy callers without a selection retain one weighted callback variant.
 func (d CampaignDirector) CampaignCallbackObjects(
 	matchID uint32, callbackName string,
 ) ([]CampaignScriptObject, error) {
@@ -653,6 +759,15 @@ func (d CampaignDirector) CampaignCallbackObjects(
 	objects, err := d.ScriptObjects()
 	if err != nil {
 		return nil, fmt.Errorf("callbackObjects: %w", err)
+	}
+	if d.IsInitialLayoutSelected {
+		selectedObjects := make([]CampaignScriptObject, 0)
+		for _, object := range objects {
+			if slices.Contains(object.CallbackNames, callbackName) {
+				selectedObjects = append(selectedObjects, object)
+			}
+		}
+		return selectedObjects, nil
 	}
 	objectsByOrdinal := make(map[int][]CampaignScriptObject)
 	weightsByOrdinal := make(map[int]uint32)
@@ -713,39 +828,41 @@ func (d CampaignDirector) TriggerCount() int {
 	return count
 }
 
-// TeleportRoutes resolves authored tunnel destinations without assigning any
-// server-owned coordinates or traversal order.
-func (d CampaignDirector) TeleportRoutes() []CampaignTeleportRoute {
-	positionsByMarkerID := make(map[uint32]Vec3)
-	for _, markerSet := range d.MarkerSets {
-		for _, marker := range markerSet.Markers {
-			positionsByMarkerID[marker.MarkerID] = marker.Position
-		}
-	}
+// TeleportRoutes uses selected definitions for both endpoints. Route eligibility
+// remains separate from lookup membership: invisible and non-director markers
+// can still be destinations, and absent selected destinations produce no route.
+func (e CampaignDirector) TeleportRoutes() []CampaignTeleportRoute {
 	routes := make([]CampaignTeleportRoute, 0)
-	for _, markerSet := range d.MarkerSets {
-		for _, marker := range markerSet.Markers {
-			isTraversal := strings.EqualFold(marker.NounName, "Teleporter.Noun") ||
+	resolvedMarkerIDs := make(map[uint32]struct{})
+	for _, set := range e.MarkerSets {
+		for _, definition := range set.Definitions {
+			if _, isResolved := resolvedMarkerIDs[definition.MarkerID]; isResolved {
+				continue
+			}
+			resolvedMarkerIDs[definition.MarkerID] = struct{}{}
+			marker, isFound := e.SelectedMarkerDefinition(definition.MarkerID)
+			if !isFound || marker.Teleporter == nil {
+				continue
+			}
+			isTraversal := marker.Teleporter.isTraversalCallback() ||
+				strings.EqualFold(marker.NounName, "Teleporter.Noun") ||
 				strings.EqualFold(marker.NounName, "TunnelTeleporter.Noun")
 			isBoss := strings.EqualFold(marker.NounName, "BossSecurityTeleporter.Noun")
 			isSecurity := strings.EqualFold(marker.NounName, "SecurityTeleporter.Noun") || isBoss
-			if (!isTraversal && !isSecurity) || marker.TargetMarkerID == 0 {
+			if !isTraversal && !isSecurity {
 				continue
 			}
-			if isSecurity && strings.EqualFold(d.Level, InitialChainLevel) {
+			if isSecurity && strings.EqualFold(e.Level, InitialChainLevel) {
 				continue
 			}
-			destination, isFound := positionsByMarkerID[marker.TargetMarkerID]
+			destination, isFound := e.TeleportDestination(marker.MarkerID)
 			if !isFound {
 				continue
 			}
 			routes = append(routes, CampaignTeleportRoute{
-				MarkerID: marker.MarkerID, DestinationMarkerID: marker.TargetMarkerID,
-				Source:        marker.Position,
-				Destination:   destination,
-				TriggerRadius: marker.TeleporterTriggerRadius,
-				IsSecurity:    isSecurity,
-				IsBoss:        isBoss,
+				MarkerID: marker.MarkerID, DestinationMarkerID: marker.Teleporter.DestinationMarkerID,
+				Source: marker.Position, Destination: destination,
+				TriggerRadius: marker.TeleporterTriggerRadius, IsSecurity: isSecurity, IsBoss: isBoss,
 			})
 		}
 	}
@@ -767,13 +884,21 @@ func (d CampaignDirector) EligibleEntries(
 			continue
 		}
 		pool := &d.Pools[index]
-		if d.IsFirstClear && strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
-			matchedPool = pool
-			break
+		if strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
+			if d.IsFirstTimeRosterSelected {
+				matchedPool = pool
+				break
+			}
+			continue
 		}
 		if matchedPool == nil || strings.EqualFold(pool.ConfigurationName, "levelConfig") {
 			matchedPool = pool
 		}
+	}
+	if d.IsFirstTimeRosterSelected &&
+		(strings.EqualFold(poolKindName, "minion") || strings.EqualFold(poolKindName, "special")) &&
+		(matchedPool == nil || !strings.EqualFold(matchedPool.ConfigurationName, "firstTimeConfig")) {
+		return nil, nil
 	}
 	if matchedPool == nil {
 		return nil, fmt.Errorf("eligible entries: pool %q missing", poolKindName)
@@ -790,7 +915,7 @@ func (d CampaignDirector) EligibleEntries(
 
 // CampaignDirectorSource is the content port consumed by campaign setup.
 type CampaignDirectorSource interface {
-	LoadCampaignDirector(context.Context, string) (CampaignDirector, error)
+	LoadCampaignDirector(context.Context, string, uint32) (CampaignDirector, error)
 }
 
 // CampaignSetup validates one authorized campaign binding and loads its
@@ -823,15 +948,22 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 	if binding.Level == "" {
 		return CampaignDirector{}, errors.New("campaign setup: empty level")
 	}
-	director, err := o.directorSource.LoadCampaignDirector(ctx, binding.Level)
+	difficulty := binding.Difficulty
+	if difficulty == 0 {
+		difficulty = MinimumCampaignDifficulty
+	}
+	if difficulty < MinimumCampaignDifficulty || difficulty > MaximumCampaignDifficulty {
+		return CampaignDirector{}, fmt.Errorf("setupDifficulty[%d]: %w", difficulty, ErrGameplayDifficulty)
+	}
+	director, err := o.directorSource.LoadCampaignDirector(ctx, binding.Level, difficulty)
 	if err != nil {
 		return CampaignDirector{}, fmt.Errorf("setupLoad: %w", err)
 	}
 	if !isCampaignDirectorLevel(binding, director.Level) {
 		return CampaignDirector{}, fmt.Errorf("setupLevel: got %q, want %q", director.Level, binding.Level)
 	}
-	director.IsFirstClear = !binding.IsWarped && binding.ChainLevelIndex == 1 &&
-		binding.ChainProgression < 1 && strings.EqualFold(director.Level, InitialChainLevel)
+	director.IsFirstClear = binding.IsFirstRunLevel()
+	director.IsFirstTimeDirectorEnabled = binding.IsFirstTimeDirectorEnabled
 	if !binding.IsWarped && len(director.Pools) == 0 {
 		return CampaignDirector{}, errors.New("campaign setup: empty director pools")
 	}
@@ -887,13 +1019,15 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 			}
 		}
 	}
-	difficulty := binding.Difficulty
-	if difficulty == 0 {
-		difficulty = MinimumCampaignDifficulty
+	director.Difficulty = difficulty
+	chapter := (difficulty-1)/4 + 1
+	selectedBuckets := make([]CampaignSectionBucket, 0, len(director.SectionBuckets))
+	for _, bucket := range director.SectionBuckets {
+		if uint32(bucket.Difficulty) == chapter {
+			selectedBuckets = append(selectedBuckets, bucket)
+		}
 	}
-	if difficulty < MinimumCampaignDifficulty || difficulty > MaximumCampaignDifficulty {
-		return CampaignDirector{}, fmt.Errorf("setupDifficulty[%d]: %w", difficulty, ErrGameplayDifficulty)
-	}
+	director.SectionBuckets = selectedBuckets
 	for poolIndex := range director.Pools {
 		pool := &director.Pools[poolIndex]
 		eligibleEntries := make([]CampaignDirectorEntry, 0, len(pool.Entries))
@@ -904,6 +1038,12 @@ func (o *CampaignSetup) Execute(ctx context.Context, binding GameplayBinding) (C
 			eligibleEntries = append(eligibleEntries, entry)
 		}
 		pool.Entries = eligibleEntries
+	}
+	if !binding.IsWarped {
+		director, err = composeCampaignRoster(director, binding.RunSeed, binding.PartyCompletedStages)
+		if err != nil {
+			return CampaignDirector{}, fmt.Errorf("setupRoster: %w", err)
+		}
 	}
 	return director, nil
 }

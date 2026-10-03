@@ -165,7 +165,7 @@ func (e *gameplayPeerSession) spawnArcturusScarab(boss zonenpc.Snapshot, center 
 	plans := []zonenpc.SpawnPlan{{ObjectID: objectID, OwnerObjectID: boss.Plan.ObjectID,
 		NounName: fmt.Sprintf("CitadelBossMinon_v%d.Noun", rank), Position: position,
 		LocusID: boss.Plan.LocusID, MarkerSetName: boss.Plan.MarkerSetName,
-		IsRewardSuppressed: true, NPCProfile: profile, ActionProfile: action, IsActionKnown: true}}
+		IsEncounterAuxiliary: true, NPCProfile: profile, ActionProfile: action, IsActionKnown: true}}
 	packets, err := npcraknet.TargetedSpawn(plans[0], boss.TargetObjectID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("scarabMarshal: %w", err)

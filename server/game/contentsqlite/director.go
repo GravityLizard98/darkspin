@@ -9,6 +9,7 @@ import (
 
 	contentsqlite "github.com/darkspinnet/darkspin/content/sqlite"
 	"github.com/darkspinnet/darkspin/server/game"
+	"github.com/darkspinnet/darkspin/server/util"
 )
 
 // DirectorSource loads campaign director inputs from content.db.
@@ -19,6 +20,20 @@ type DirectorSource struct {
 type levelDirectorStore interface {
 	LevelDirector(context.Context, string) (contentsqlite.LevelDirector, error)
 	NonPlayerNounProfiles(context.Context) ([]contentsqlite.NonPlayerNounProfile, error)
+	NPCAffixes(context.Context) ([]contentsqlite.NPCAffix, error)
+	NounNavigationEntries(context.Context) ([]contentsqlite.NounNavigation, error)
+	NounFootprints(context.Context) ([]contentsqlite.NounFootprint, error)
+	DirectorCompositionTuning(context.Context) (contentsqlite.DirectorCompositionTuning, error)
+	DirectorTunings(context.Context) ([]contentsqlite.DirectorTuning, error)
+	EquipmentDropSetting(context.Context) (contentsqlite.EquipmentDropSetting, error)
+	AIAssets(context.Context) ([]contentsqlite.AIAsset, error)
+	AIDefinition(context.Context, uint32) (contentsqlite.AIDefinition, error)
+	AIPhase(context.Context, uint32) (contentsqlite.AIPhase, error)
+	AICondition(context.Context, uint32) (contentsqlite.AICondition, error)
+}
+
+type sectionBucketStore interface {
+	SectionBuckets(context.Context, uint32) ([]contentsqlite.SectionBucket, error)
 }
 
 // build103CampaignNPCProfile contains physical profiles recovered from the
@@ -127,15 +142,97 @@ func NewDirectorSource(store levelDirectorStore) (*DirectorSource, error) {
 }
 
 func (s *DirectorSource) LoadCampaignDirector(
-	ctx context.Context, levelName string,
+	ctx context.Context, levelName string, stage uint32,
 ) (game.CampaignDirector, error) {
 	director, err := s.store.LevelDirector(ctx, levelName)
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorRead: %w", err)
 	}
+	compositionTuning, err := s.store.DirectorCompositionTuning(ctx)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorComposition: %w", err)
+	}
+	tunings, err := s.store.DirectorTunings(ctx)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorOrbScales: %w", err)
+	}
+	equipmentSetting, err := s.store.EquipmentDropSetting(ctx)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorEquipmentGate: %w", err)
+	}
+	if equipmentSetting.SourceResourceID == nil {
+		return game.CampaignDirector{}, errors.New("equipment gate source resource missing")
+	}
+	// An absent property follows the native false lookup. A missing import
+	// resource is handled above rather than silently enabling equipment.
+	isEquipmentDropEnabled := equipmentSetting.IsEquipmentDropEnabled != nil &&
+		*equipmentSetting.IsEquipmentDropEnabled
+	orbDifficultyScales := make([]float32, len(tunings))
+	for index, tuning := range tunings {
+		if tuning.Difficulty != index+1 {
+			return game.CampaignDirector{}, fmt.Errorf("orbScaleStage[%d]: %d", index, tuning.Difficulty)
+		}
+		orbDifficultyScales[index] = tuning.OrbDifficultyScale
+	}
 	profiles, err := s.store.NonPlayerNounProfiles(ctx)
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorProfiles: %w", err)
+	}
+	graphsByID, err := campaignAIGraphs(ctx, s.store)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorGraphs: %w", err)
+	}
+	affixes, err := s.store.NPCAffixes(ctx)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorAffixes: %w", err)
+	}
+	affixesByName := make(map[string]contentsqlite.NPCAffix, len(affixes))
+	for _, affix := range affixes {
+		affixKey := strings.ToLower(affix.AssetName)
+		if _, isFound := affixesByName[affixKey]; isFound {
+			return game.CampaignDirector{}, fmt.Errorf("directorAffixDuplicate: %q", affix.AssetName)
+		}
+		affixesByName[affixKey] = affix
+	}
+	nouns, err := s.store.NounNavigationEntries(ctx)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorNounTypes: %w", err)
+	}
+	footprints, footprintErr := s.store.NounFootprints(ctx)
+	if footprintErr != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorFootprints: %w", footprintErr)
+	}
+	nounFootprintsByNoun := make(map[uint32]game.NavigationFootprint, len(footprints))
+	nounFootprintsByInstance := make(map[uint32]game.NavigationFootprint, len(footprints))
+	for _, footprint := range footprints {
+		nounFootprintsByInstance[footprint.InstanceID] = game.NavigationFootprint{
+			SizeClass: footprint.SizeClass,
+			Extents:   game.Vec3{X: footprint.ExtentX, Y: footprint.ExtentY, Z: footprint.ExtentZ},
+			Minimum:   game.Vec3{X: footprint.MinimumX, Y: footprint.MinimumY, Z: footprint.MinimumZ},
+			Maximum:   game.Vec3{X: footprint.MaximumX, Y: footprint.MaximumY, Z: footprint.MaximumZ},
+		}
+		if footprint.NounName != "" {
+			nounFootprintsByNoun[util.HashID(footprint.NounName)] = nounFootprintsByInstance[footprint.InstanceID]
+		}
+	}
+	nounProjectilesByInstance := make(map[uint32]bool, len(nouns))
+	nounTypesByInstance := make(map[uint32]game.NounType, len(nouns))
+	nounInteractablesByID := make(map[uint32]*game.CampaignInteractableDefinition, len(nouns))
+	for _, noun := range nouns {
+		if noun.InstanceID > uint64(^uint32(0)) {
+			return game.CampaignDirector{}, fmt.Errorf("nounTypeID[%d]: out of range", noun.ResourceID)
+		}
+		nounID := uint32(noun.InstanceID)
+		nounType := game.NounType(noun.NounType)
+		previousType, isFound := nounTypesByInstance[nounID]
+		if isFound && previousType != nounType {
+			return game.CampaignDirector{}, fmt.Errorf("nounTypeDuplicate[%#x]: conflicting category", nounID)
+		}
+		nounTypesByInstance[nounID] = nounType
+		if noun.IsProjectilePresent != nil {
+			nounProjectilesByInstance[nounID] = *noun.IsProjectilePresent
+		}
+		nounInteractablesByID[nounID] = campaignInteractable(noun.Interactable)
 	}
 	profileByNoun := make(map[string]contentsqlite.NonPlayerNounProfile, len(profiles))
 	for _, profile := range profiles {
@@ -155,7 +252,26 @@ func (s *DirectorSource) LoadCampaignDirector(
 		profileByNoun[nounName] = authoredProfile
 	}
 	result := game.CampaignDirector{
-		Level:             director.Name,
+		IsEquipmentDropEnabled:    isEquipmentDropEnabled,
+		NounFootprintsByNoun:      nounFootprintsByNoun,
+		NounFootprintsByInstance:  nounFootprintsByInstance,
+		NounTypesByInstance:       nounTypesByInstance,
+		NounProjectilesByInstance: nounProjectilesByInstance,
+		OrbDifficultyScales:       orbDifficultyScales,
+		CompositionTuning: game.CampaignCompositionTuning{
+			GroupChallengeMultiplier: compositionTuning.GroupChallengeMultiplier,
+		},
+		PickupTuning: game.CampaignPickupTuning{
+			ResurrectionHealthFraction: compositionTuning.ResurrectionPickup.HealthFraction,
+		},
+		Level: director.Name,
+		LevelCatalogAsset: game.CampaignAssetIdentity{
+			Ordinal: director.CatalogOrdinal, AssetName: director.CatalogAssetName,
+			SourceName: director.CatalogSourceName,
+		},
+		PlanetConfigName: director.PlanetConfigName,
+		PrimaryType:      director.PrimaryType, SecondaryType: director.SecondaryType,
+		TertiaryType:      director.TertiaryType,
 		EntryPositions:    make([]game.Vec3, 0, len(director.EntryPositions)),
 		Pools:             make([]game.CampaignDirectorPool, 0, len(director.Pools)),
 		MarkerSets:        make([]game.CampaignDirectorMarkerSet, 0, len(director.MarkerSets)),
@@ -165,23 +281,49 @@ func (s *DirectorSource) LoadCampaignDirector(
 			map[string]game.CampaignNPCIdentity, len(profileByNoun),
 		),
 	}
+	if bucketStore, isAvailable := s.store.(sectionBucketStore); isAvailable {
+		chapter := (stage-1)/4 + 1
+		buckets, bucketErr := bucketStore.SectionBuckets(ctx, chapter)
+		if bucketErr != nil {
+			return game.CampaignDirector{}, fmt.Errorf("directorSectionBuckets: %w", bucketErr)
+		}
+		for _, bucket := range buckets {
+			result.SectionBuckets = append(result.SectionBuckets, game.CampaignSectionBucket{
+				Ordinal: bucket.Ordinal, Difficulty: bucket.Difficulty,
+				MinionCount: bucket.MinionCount, SpecialCount: bucket.SpecialCount,
+				Chance: bucket.Chance,
+			})
+		}
+	}
+	if director.Camera != nil {
+		result.CameraYawOverride = director.Camera.Yaw
+	}
 	for nounName, profile := range profileByNoun {
 		result.NPCProfilesByNoun[nounName] = game.CampaignNPCProfile{
+			AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
+			NounType:       result.NounTypeForAsset(nounName),
+			AggroType:      profile.AggroType,
 			ChallengeValue: profile.ChallengeValue, NPCRank: profile.NPCRank,
-			IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet,
+			NPCType: profile.NPCType, CreatureType: profile.CreatureType,
+			DropTypes:    profile.DropTypes,
+			IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet, IsClassKnown: profile.IsClassKnown,
 			PlayerCountHealthScale: profile.PlayerCountHealthScale,
-			HitPoint:               profile.HitPoint, PowerPoint: profile.PowerPoint,
+			AggroRange:             profile.AggroRange, AlertRange: profile.AlertRange,
+			DropAggroRange:    profile.DropAggroRange,
+			IdleMovementSpeed: profile.IdleMovementSpeed,
+			BaseCombatSpeed:   profile.BaseCombatSpeed,
+			HitPoint:          profile.HitPoint, PowerPoint: profile.PowerPoint,
 			Strength: profile.Strength, Dexterity: profile.Dexterity, Mind: profile.Mind,
 			DodgeRating: profile.DodgeRating, ResistRating: profile.ResistRating,
 			CriticalRating: profile.CriticalRating, GraphicsScale: profile.GraphicsScale,
 			FootprintRadius: profile.FootprintRadius, IsKnown: true,
 		}
 		if strings.TrimSpace(profile.DisplayName) != "" {
-			result.NPCIdentitiesByNoun[nounName] = game.CampaignNPCIdentity{
-				DisplayName:   profile.DisplayName,
-				NPCAffixNames: profile.NPCAffixNames,
-				IsKnown:       true,
+			identity, identityErr := campaignNPCIdentity(profile, affixesByName)
+			if identityErr != nil {
+				return game.CampaignDirector{}, fmt.Errorf("directorIdentity[%s]: %w", nounName, identityErr)
 			}
+			result.NPCIdentitiesByNoun[nounName] = identity
 		}
 	}
 	for _, position := range director.EntryPositions {
@@ -189,7 +331,10 @@ func (s *DirectorSource) LoadCampaignDirector(
 			X: position[0], Y: position[1], Z: position[2],
 		})
 	}
-	for _, pool := range director.Pools {
+	pools := make([]contentsqlite.LevelDirectorPool, 0, len(director.Pools)+len(director.ExternalPools))
+	pools = append(pools, director.Pools...)
+	pools = append(pools, director.ExternalPools...)
+	for poolIndex, pool := range pools {
 		configKind := resolvedConfigurationKind(
 			pool.ConfigKind, pool.ConfigurationOrdinal,
 		)
@@ -232,10 +377,19 @@ func (s *DirectorSource) LoadCampaignDirector(
 				NounName: entry.NounName, MinimumDifficulty: entry.MinimumDifficulty,
 				MaximumDifficulty: entry.MaximumDifficulty, IsHordeLegal: entry.IsHordeLegal,
 				NPCProfile: game.CampaignNPCProfile{
+					AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
+					NounType:       result.NounTypeForAsset(entry.NounName),
+					AggroType:      profile.AggroType,
 					ChallengeValue: profile.ChallengeValue, NPCRank: profile.NPCRank,
-					IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet,
+					NPCType: profile.NPCType, CreatureType: profile.CreatureType,
+					DropTypes:    profile.DropTypes,
+					IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet, IsClassKnown: profile.IsClassKnown,
 					PlayerCountHealthScale: profile.PlayerCountHealthScale,
-					HitPoint:               profile.HitPoint, PowerPoint: profile.PowerPoint,
+					AggroRange:             profile.AggroRange, AlertRange: profile.AlertRange,
+					DropAggroRange:    profile.DropAggroRange,
+					IdleMovementSpeed: profile.IdleMovementSpeed,
+					BaseCombatSpeed:   profile.BaseCombatSpeed,
+					HitPoint:          profile.HitPoint, PowerPoint: profile.PowerPoint,
 					Strength: profile.Strength, Dexterity: profile.Dexterity, Mind: profile.Mind,
 					DodgeRating: profile.DodgeRating, ResistRating: profile.ResistRating,
 					CriticalRating: profile.CriticalRating, GraphicsScale: profile.GraphicsScale,
@@ -243,18 +397,41 @@ func (s *DirectorSource) LoadCampaignDirector(
 				},
 			})
 		}
-		result.Pools = append(result.Pools, mapped)
+		if poolIndex < len(director.Pools) {
+			result.Pools = append(result.Pools, mapped)
+		} else {
+			result.ExternalPools = append(result.ExternalPools, mapped)
+		}
 	}
 	for _, markerSet := range director.MarkerSets {
 		mapped := game.CampaignDirectorMarkerSet{
 			Ordinal: markerSet.Ordinal, Name: markerSet.Name,
+			CatalogAsset: game.CampaignAssetIdentity{
+				Ordinal: markerSet.CatalogOrdinal, AssetName: markerSet.CatalogAssetName,
+				SourceName: markerSet.CatalogSourceName,
+			},
 			GroupName: markerSet.GroupName, Weight: markerSet.Weight,
-			Markers:  make([]game.CampaignDirectorMarker, 0, len(markerSet.Markers)),
-			Triggers: make([]game.CampaignDirectorTrigger, 0, len(markerSet.Triggers)),
+			Conditions: markerSet.Conditions,
+			Markers:    make([]game.CampaignDirectorMarker, 0, len(markerSet.Markers)),
+			Triggers:   make([]game.CampaignDirectorTrigger, 0, len(markerSet.Triggers)),
+		}
+		for _, definition := range markerSet.Definitions {
+			mapped.Definitions = append(mapped.Definitions, game.CampaignMarkerDefinition{
+				Ordinal: definition.Ordinal, MarkerID: definition.MarkerID, NounName: definition.NounName,
+				Position:                game.Vec3{X: definition.PositionX, Y: definition.PositionY, Z: definition.PositionZ},
+				Rotation:                game.Vec3{X: definition.RotationX, Y: definition.RotationY, Z: definition.RotationZ},
+				TeleporterTriggerRadius: definition.TeleporterTriggerRadius,
+				Teleporter:              campaignTeleporter(definition.Teleporter),
+			})
 		}
 		for _, marker := range markerSet.Markers {
 			mappedMarker := game.CampaignDirectorMarker{
-				Ordinal: marker.Ordinal, MarkerID: marker.MarkerID, MarkerSetName: markerSet.Name,
+				NounType:      result.NounTypeForAsset(marker.NounName),
+				SpawnTrigger:  campaignSpawnTrigger(marker.SpawnTrigger),
+				EventListener: campaignEventListener(marker.EventListener),
+				Interactable:  campaignInteractable(marker.Interactable),
+				Combatant:     campaignCombatant(marker.Combatant),
+				Ordinal:       marker.Ordinal, MarkerID: marker.MarkerID, MarkerSetName: markerSet.Name,
 				Name:     marker.Name,
 				NounName: marker.NounName, SpawnKind: marker.SpawnKind, PoolKind: marker.PoolKind,
 				IsSpawnKindKnown:    marker.IsSpawnKindKnown,
@@ -267,7 +444,9 @@ func (s *DirectorSource) LoadCampaignDirector(
 				IsCollisionEnabled:      marker.IsCollisionEnabled,
 				TargetMarkerID:          marker.TargetMarkerID,
 				TeleporterTriggerRadius: marker.TeleporterTriggerRadius,
-				Events:                  make([]game.CampaignDirectorEvent, 0, len(marker.Events)),
+				SpatialRadius:           marker.SpatialRadius, ExclusionRadius: marker.ExclusionRadius,
+				IsExclusionVolume: marker.IsExclusionVolume,
+				Events:            make([]game.CampaignDirectorEvent, 0, len(marker.Events)),
 			}
 			nounKey := strings.ToLower(marker.NounName)
 			profileKey := campaignMarkerProfileKey(nounKey)
@@ -284,10 +463,19 @@ func (s *DirectorSource) LoadCampaignDirector(
 				}
 			}
 			mappedMarker.NPCProfile = game.CampaignNPCProfile{
+				AIGraph:        campaignAIGraph(profile.AIDefinitionInstanceID, graphsByID),
+				NounType:       mappedMarker.NounType,
+				AggroType:      profile.AggroType,
 				ChallengeValue: profile.ChallengeValue, NPCRank: profile.NPCRank,
-				IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet,
+				NPCType: profile.NPCType, CreatureType: profile.CreatureType,
+				DropTypes:    profile.DropTypes,
+				IsTargetable: profile.IsTargetable, IsPlayerPet: profile.IsPlayerPet, IsClassKnown: profile.IsClassKnown,
 				PlayerCountHealthScale: profile.PlayerCountHealthScale,
-				HitPoint:               profile.HitPoint, PowerPoint: profile.PowerPoint,
+				AggroRange:             profile.AggroRange, AlertRange: profile.AlertRange,
+				DropAggroRange:    profile.DropAggroRange,
+				IdleMovementSpeed: profile.IdleMovementSpeed,
+				BaseCombatSpeed:   profile.BaseCombatSpeed,
+				HitPoint:          profile.HitPoint, PowerPoint: profile.PowerPoint,
 				Strength: profile.Strength, Dexterity: profile.Dexterity, Mind: profile.Mind,
 				DodgeRating: profile.DodgeRating, ResistRating: profile.ResistRating,
 				CriticalRating: profile.CriticalRating, GraphicsScale: profile.GraphicsScale,
@@ -295,6 +483,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 			}
 			for _, event := range marker.Events {
 				mappedMarker.Events = append(mappedMarker.Events, game.CampaignDirectorEvent{
+					EventHash: event.EventHash, NativeCallbackHash: event.NativeCallbackHash, LuaCallbackName: event.LuaCallbackName,
 					Ordinal: event.Ordinal, ComponentName: event.ComponentName,
 					EventKind: event.EventKind, EventSlot: event.EventSlot,
 					EventName: event.EventName, CallbackName: event.CallbackName,
@@ -306,6 +495,11 @@ func (s *DirectorSource) LoadCampaignDirector(
 		}
 		for _, trigger := range markerSet.Triggers {
 			mappedTrigger := game.CampaignDirectorTrigger{
+				SpawnTrigger:    campaignSpawnTrigger(trigger.SpawnTrigger),
+				EventListener:   campaignEventListener(trigger.EventListener),
+				Interactable:    campaignInteractable(trigger.Interactable),
+				Combatant:       campaignCombatant(trigger.Combatant),
+				ExclusionRadius: trigger.ExclusionRadius, IsExclusionVolume: trigger.IsExclusionVolume,
 				Ordinal: trigger.Ordinal, MarkerID: trigger.MarkerID, Name: trigger.Name,
 				NounName: trigger.NounName,
 				Position: game.Vec3{X: trigger.PositionX, Y: trigger.PositionY, Z: trigger.PositionZ},
@@ -313,6 +507,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 			}
 			for _, event := range trigger.Events {
 				mappedTrigger.Events = append(mappedTrigger.Events, game.CampaignDirectorEvent{
+					EventHash: event.EventHash, NativeCallbackHash: event.NativeCallbackHash, LuaCallbackName: event.LuaCallbackName,
 					Ordinal: event.Ordinal, ComponentName: event.ComponentName,
 					EventKind: event.EventKind, EventSlot: event.EventSlot,
 					EventName: event.EventName, CallbackName: event.CallbackName,
@@ -326,6 +521,8 @@ func (s *DirectorSource) LoadCampaignDirector(
 	}
 	for _, script := range director.Scripts {
 		result.Scripts = append(result.Scripts, game.CampaignScriptBinding{
+			Interactable:     campaignInteractable(script.Interactable),
+			NounInteractable: nounInteractablesByID[util.HashID(script.NounName)],
 			MarkerSetOrdinal: script.MarkerSetOrdinal, MarkerSetName: script.MarkerSetName,
 			MarkerSetWeight: script.MarkerSetWeight, MarkerOrdinal: script.MarkerOrdinal,
 			MarkerID: script.MarkerID, MarkerName: script.MarkerName, NounName: script.NounName,
@@ -396,9 +593,20 @@ func retainCampaignClassMetadata(
 		profile.ChallengeValue = authored.ChallengeValue
 	}
 	profile.NPCRank = authored.NPCRank
+	profile.AIDefinitionInstanceID = authored.AIDefinitionInstanceID
+	profile.AggroType = authored.AggroType
+	profile.NPCType = authored.NPCType
+	profile.CreatureType = authored.CreatureType
+	profile.DropTypes = authored.DropTypes
 	profile.IsTargetable = authored.IsTargetable
 	profile.IsPlayerPet = authored.IsPlayerPet
+	profile.IsClassKnown = authored.IsClassKnown
 	profile.PlayerCountHealthScale = authored.PlayerCountHealthScale
+	profile.AggroRange = authored.AggroRange
+	profile.AlertRange = authored.AlertRange
+	profile.DropAggroRange = authored.DropAggroRange
+	profile.IdleMovementSpeed = authored.IdleMovementSpeed
+	profile.BaseCombatSpeed = authored.BaseCombatSpeed
 	return profile
 }
 

@@ -26,19 +26,18 @@ type OrcusSpawnDefinition struct {
 func OrcusSpawnProfile(nounName string) (OrcusSpawnDefinition, bool) {
 	servantNoun := ""
 	maximumServant := 0
-	hitPoint := float32(0)
 	movementSpeed := float32(0)
 	nonCombatMovementSpeed := float32(0)
 	switch strings.ToLower(nounName) {
 	case "verdanthboss.noun":
 		servantNoun, maximumServant = "Verdanth_Boss_Spawn.Noun", 10
-		hitPoint, movementSpeed, nonCombatMovementSpeed = 20, 6, 3
+		movementSpeed, nonCombatMovementSpeed = 6, 3
 	case "verdanthboss_2.noun":
 		servantNoun, maximumServant = "Verdanth_Boss_Spawn2.Noun", 15
-		hitPoint, movementSpeed, nonCombatMovementSpeed = 30, 9, 4
+		movementSpeed, nonCombatMovementSpeed = 9, 4
 	case "verdanthboss_3.noun":
 		servantNoun, maximumServant = "Verdanth_Boss_Spawn3.Noun", 20
-		hitPoint, movementSpeed, nonCombatMovementSpeed = 40, 12, 5
+		movementSpeed, nonCombatMovementSpeed = 12, 5
 	default:
 		return OrcusSpawnDefinition{}, false
 	}
@@ -47,11 +46,6 @@ func OrcusSpawnProfile(nounName string) (OrcusSpawnDefinition, bool) {
 		ServantCountPerCast: 3, FirstSpawnDelay: 769999981 * time.Nanosecond,
 		SpawnInterval: 1370000005 * time.Nanosecond, Cooldown: 18 * time.Second,
 		AnimationName: "boss_lf_spawneater_attack1",
-		ServantProfile: game.CampaignNPCProfile{
-			IsTargetable: true, HitPoint: hitPoint, PowerPoint: 75,
-			Strength: 10, Dexterity: 10, Mind: 10, CriticalRating: 5,
-			GraphicsScale: 1, FootprintRadius: 0.75, IsKnown: true,
-		},
 		ServantAction: ActionProfile{
 			Family: ActionMelee, AbilityName: "VerdanthBossMinionMelee",
 			AnimationName:           "cast_tailzap",

@@ -23,7 +23,7 @@ const (
 func (s *Session) PlanSpawns(
 	director game.CampaignDirector, decisions []Decision, firstObjectID uint32,
 ) ([]zonenpc.SpawnPlan, uint32, error) {
-	return s.planSpawns(director, decisions, firstObjectID, 0)
+	return s.planSpawns(director, decisions, firstObjectID, 0, GroupCompositionContext{})
 }
 
 // PlanCampaignSpawns applies campaign-only population policies.
@@ -31,12 +31,21 @@ func (s *Session) PlanCampaignSpawns(
 	director game.CampaignDirector, decisions []Decision, firstObjectID uint32,
 	chainLevelIndex uint32,
 ) ([]zonenpc.SpawnPlan, uint32, error) {
-	return s.planSpawns(director, decisions, firstObjectID, chainLevelIndex)
+	return s.planSpawns(director, decisions, firstObjectID, chainLevelIndex, GroupCompositionContext{})
+}
+
+// PlanCampaignSpawnsWithContext supplies live party and agent counts for the
+// conditional mixed-group agent branch.
+func (s *Session) PlanCampaignSpawnsWithContext(
+	director game.CampaignDirector, decisions []Decision, firstObjectID uint32,
+	chainLevelIndex uint32, compositionContext GroupCompositionContext,
+) ([]zonenpc.SpawnPlan, uint32, error) {
+	return s.planSpawns(director, decisions, firstObjectID, chainLevelIndex, compositionContext)
 }
 
 func (s *Session) planSpawns(
 	director game.CampaignDirector, decisions []Decision, firstObjectID uint32,
-	chainLevelIndex uint32,
+	chainLevelIndex uint32, compositionContext GroupCompositionContext,
 ) ([]zonenpc.SpawnPlan, uint32, error) {
 	if s == nil || s.Random() == nil {
 		return nil, firstObjectID, errors.New("spawnPlan: nil population session")
@@ -46,10 +55,7 @@ func (s *Session) planSpawns(
 	}
 	minionEntries := PoolEntries(director, "minion")
 	captainEntries := PoolEntries(director, "captain")
-	if director.IsFirstClear && strings.EqualFold(director.Level, game.InitialChainLevel) {
-		captainEntries = PoolEntries(director, "special")
-	}
-	requestedCount, err := requestedSpawnCount(decisions)
+	requestedCount, err := maximumSpawnCount(decisions)
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("spawnCount: %w", err)
 	}
@@ -58,7 +64,6 @@ func (s *Session) planSpawns(
 	}
 	err = validateSpawnPools(
 		director, decisions, minionEntries, captainEntries,
-		firstObjectID, requestedCount,
 	)
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("spawnValidate: %w", err)
@@ -68,6 +73,9 @@ func (s *Session) planSpawns(
 	for _, decision := range decisions {
 		firstDecisionPlanIndex := len(plans)
 		if len(decision.ProvisionalNounNames) > 0 {
+			if len(decision.ProvisionalNounNames) > int(zoneobject.ProjectileIDStart-nextObjectID) {
+				return nil, firstObjectID, errors.New("spawnAuthoredID: exhausted")
+			}
 			var planErr error
 			plans, nextObjectID, planErr = appendAuthoredPlans(
 				plans, director, decision, nextObjectID,
@@ -86,10 +94,25 @@ func (s *Session) planSpawns(
 			applySpawnIntroductions(plans[firstDecisionPlanIndex:], decision)
 			continue
 		}
+		var selectedMembers []groupMember
 		count, captainCount, countErr := decisionSpawnCount(decision)
+		if decision.Kind == sim.DirectorLocusSpike && decision.ProvisionalCount == 0 {
+			selectedMembers, countErr = s.composeSpikeGroup(
+				director, decision, compositionContext,
+			)
+			count = len(selectedMembers)
+		}
 		if countErr != nil {
 			return nil, firstObjectID,
 				fmt.Errorf("spawnDecision: %w", countErr)
+		}
+		for _, member := range selectedMembers {
+			if member.isAgent {
+				compositionContext.ActiveAgentCount++
+			}
+		}
+		if count > int(zoneobject.ProjectileIDStart-nextObjectID) {
+			return nil, firstObjectID, errors.New("spawnGroupID: exhausted")
 		}
 		positions := GroupPositions(decision.Positions, count)
 		for index := 0; index < count; index++ {
@@ -98,10 +121,17 @@ func (s *Session) planSpawns(
 			if isCaptain {
 				entries = captainEntries
 			}
-			selectedEntry, selectionErr := s.selectPopulationEntry(entries)
-			if selectionErr != nil {
-				return nil, firstObjectID,
-					fmt.Errorf("spawnPlanNoun[%d]: %w", index, selectionErr)
+			var selectedEntry game.CampaignDirectorEntry
+			if len(selectedMembers) > 0 {
+				selectedEntry = selectedMembers[index].entry
+				isCaptain = selectedMembers[index].isCaptain
+			} else {
+				var selectionErr error
+				selectedEntry, selectionErr = s.selectPopulationEntry(entries)
+				if selectionErr != nil {
+					return nil, firstObjectID,
+						fmt.Errorf("spawnPlanNoun[%d]: %w", index, selectionErr)
+				}
 			}
 			profile := selectedEntry.NPCProfile
 			bossIdentity := zonenpc.BossIdentity{}
@@ -215,7 +245,9 @@ func isExploderScarabNoun(nounName string) bool {
 	return normalized == exploderScarabNounSpecies
 }
 
-func requestedSpawnCount(decisions []Decision) (int, error) {
+// maximumSpawnCount reserves capacity without consuming composition draws.
+// Object-ID limits are checked against each group's actual accepted members.
+func maximumSpawnCount(decisions []Decision) (int, error) {
 	requestedCount := 0
 	for _, decision := range decisions {
 		if len(decision.ProvisionalNounNames) > 0 {
@@ -232,7 +264,9 @@ func requestedSpawnCount(decisions []Decision) (int, error) {
 				requestedCount += int(decision.Wanderer.ClumpSize)
 			}
 		case sim.DirectorLocusSpike:
-			requestedCount += SpikeGroupSize(decision.Challenge)
+			if decision.Challenge != 0 {
+				requestedCount += maximumGroupMemberCount
+			}
 		default:
 			return 0, fmt.Errorf("spawnPlanKind: %d", decision.Kind)
 		}
@@ -244,7 +278,6 @@ func validateSpawnPools(
 	director game.CampaignDirector, decisions []Decision,
 	minionEntries []game.CampaignDirectorEntry,
 	captainEntries []game.CampaignDirectorEntry,
-	firstObjectID uint32, requestedCount int,
 ) error {
 	if len(minionEntries) == 0 {
 		return errors.New("spawnPlanMinion: empty pool")
@@ -252,9 +285,6 @@ func validateSpawnPools(
 	err := validateEntryProfiles("spawnPlanMinionProfile", minionEntries)
 	if err != nil {
 		return fmt.Errorf("spawnMinion: %w", err)
-	}
-	if requestedCount > int(zoneobject.ProjectileIDStart-firstObjectID) {
-		return errors.New("spawnPlanObjectID: exhausted")
 	}
 	for _, decision := range decisions {
 		err = validateDecision(director, decision, captainEntries)
@@ -278,8 +308,7 @@ func validateDecision(
 			return fmt.Errorf("spawnPlanFixtureProfile[%s]: missing", nounName)
 		}
 	}
-	isCaptainNeeded := decision.IsProvisionalCaptain ||
-		(decision.Kind == sim.DirectorLocusSpike && decision.Challenge != 0)
+	isCaptainNeeded := decision.IsProvisionalCaptain && len(decision.ProvisionalNounNames) == 0
 	if isCaptainNeeded && len(captainEntries) == 0 {
 		return errors.New("spawnPlanCaptain: empty pool")
 	}
@@ -302,6 +331,9 @@ func validateEntryProfiles(
 		if !entry.NPCProfile.IsKnown {
 			return fmt.Errorf("%s[%s]: missing", errorName, entry.NounName)
 		}
+		if entry.NPCProfile.ChallengeValue < 0 {
+			return fmt.Errorf("%s[%s]: negative challenge", errorName, entry.NounName)
+		}
 	}
 	return nil
 }
@@ -319,9 +351,9 @@ func appendAuthoredPlans(
 			return nil, nextObjectID,
 				fmt.Errorf("spawnPlanFixtureNoun[%d]: %s", index, nounName)
 		}
-		isCaptain := strings.EqualFold(configKind, "captain") ||
-			(director.IsFirstClear && decision.IsProvisionalCaptain &&
-				strings.EqualFold(configKind, "special"))
+		// A special-roster enemy is an archetype, not an elite rank. The
+		// provisional encounter role must not add captain stats or affixes.
+		isCaptain := strings.EqualFold(configKind, "captain")
 		profile := selectedEntry.NPCProfile
 		bossIdentity := zonenpc.BossIdentity{}
 		if isCaptain {
@@ -392,11 +424,8 @@ func decisionSpawnCount(decision Decision) (int, int, error) {
 		}
 		return int(decision.Wanderer.ClumpSize), 0, nil
 	case sim.DirectorLocusSpike:
-		count := SpikeGroupSize(decision.Challenge)
-		if count == 0 {
-			return 0, 0, nil
-		}
-		return count, 1, nil
+		// Budgeted spikes select their entries through composeSpikeGroup.
+		return 0, 0, nil
 	default:
 		return 0, 0, fmt.Errorf("spawnPlanKind: %d", decision.Kind)
 	}
@@ -410,14 +439,17 @@ func PoolEntries(
 		if !strings.EqualFold(pool.ConfigKind, configKind) {
 			continue
 		}
-		if director.IsFirstClear && strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
-			return pool.Entries
+		if strings.EqualFold(pool.ConfigurationName, "firstTimeConfig") {
+			if director.IsFirstTimeRosterSelected {
+				return pool.Entries
+			}
+			continue
 		}
 		if selectedEntries == nil || strings.EqualFold(pool.ConfigurationName, "levelConfig") {
 			selectedEntries = pool.Entries
 		}
 	}
-	if director.IsFirstClear && strings.EqualFold(director.Level, game.InitialChainLevel) &&
+	if director.IsFirstTimeRosterSelected &&
 		(strings.EqualFold(configKind, "minion") || strings.EqualFold(configKind, "special")) {
 		return nil
 	}
@@ -451,13 +483,6 @@ func EntryByNoun(
 		}
 	}
 	return game.CampaignDirectorEntry{}, "", false
-}
-
-func SpikeGroupSize(challenge uint32) int {
-	if challenge == 0 {
-		return 0
-	}
-	return int(min(uint32(6), max(uint32(2), (challenge+19)/20)))
 }
 
 func GroupPositions(authored []game.Vec3, count int) []game.Vec3 {

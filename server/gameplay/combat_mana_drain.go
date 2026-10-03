@@ -346,7 +346,7 @@ func (r campaignNPCActionRuntime) publishNPCSelfDeath(
 	defeatedSource.IsDefeated = true
 	defeatedSource.HitPoint = 0
 	lootPackets, err := r.spawnLoot(
-		packet, sessionKey, generation, defeatedSource, timestamp,
+		sessionKey, generation, defeatedSource, timestamp,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("npcSelfDeathLoot: %w", err)

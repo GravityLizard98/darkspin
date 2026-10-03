@@ -107,10 +107,12 @@ type campaignCrystalDropBag struct {
 
 func (e campaignCrystalDropBag) chanceThreshold(baseThreshold float32) float32 {
 	if e.missCount >= campaignCrystalPityMaximumMisses {
-		return 1
+		return 100
 	}
+	// This deliberate pity policy boosts the truncated native baseline in
+	// percentage points, matching the shared Index(100) chance draw.
 	boost := 1 + float32(e.missCount)*campaignCrystalPityScalePerMiss
-	return min(float32(1), baseThreshold*boost)
+	return min(float32(100), baseThreshold*boost)
 }
 
 func (e *campaignCrystalDropBag) recordDrop(isDropped bool) {

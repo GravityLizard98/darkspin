@@ -42,7 +42,6 @@ import (
 	zonehorde "github.com/darkspinnet/darkspin/server/zone/horde"
 	zoneinteract "github.com/darkspinnet/darkspin/server/zone/interact"
 	zoneloot "github.com/darkspinnet/darkspin/server/zone/loot"
-	lootraknet "github.com/darkspinnet/darkspin/server/zone/loot/raknet103"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 	npcraknet "github.com/darkspinnet/darkspin/server/zone/npc/raknet103"
 	zoneobject "github.com/darkspinnet/darkspin/server/zone/object"
@@ -850,7 +849,15 @@ func (r gameplayCrystalRuntime) handle(packet raknet.Packet) ([][]byte, error) {
 		return r.result(command, false)
 	}
 	slotCount := int(peerSession.binding.CatalystSlotCount)
+	if !sim.IsCrystalSlotAvailable(int(command.SourceSlot), slotCount) {
+		r.registry.mutex.Unlock()
+		return r.result(command, false)
+	}
 	if command.Operation == raknet.CrystalDragIntoSlot {
+		if !sim.IsCrystalSlotAvailable(int(command.DestinationSlot), slotCount) {
+			r.registry.mutex.Unlock()
+			return r.result(command, false)
+		}
 		isMoved := inventory.Move(int(command.SourceSlot), int(command.DestinationSlot), slotCount)
 		if isMoved {
 			err = peerSession.zone.SetCrystalInventory(
@@ -908,10 +915,11 @@ func (r gameplayCrystalRuntime) handle(packet raknet.Packet) ([][]byte, error) {
 		CrystalType: slot.CrystalType, CrystalLevel: slot.CrystalLevel, Rarity: slot.Rarity,
 		Position: source, Destination: destination, Lob: lob,
 	}
-	worldPackets, err := lootraknet.MarshalCrystalDrop(request, objectID)
+	worldPackets, err := peerSession.marshalCrystalDrop(request, objectID)
 	if err == nil {
 		err = peerSession.registerCampaignPickup(
 			zoneinteract.PickupCrystal, objectID, source, destination,
+			peerSession.pickupFlight(request.NounName, source, destination, request.Lob),
 		)
 	}
 	if err == nil {
@@ -3191,8 +3199,9 @@ func (r gameplayPendingRuntime) spawnDeveloperNPC(
 	position.X += 5
 	plan := zonenpc.SpawnPlan{
 		NounName: command.NounName, Position: position,
-		IsCaptain:          strings.Contains(strings.ToLower(command.NounName), "_captain"),
-		IsRewardSuppressed: true, NPCProfile: profile,
+		IsCaptain:            strings.Contains(strings.ToLower(command.NounName), "_captain"),
+		IsArena:              currentSession.binding.Mode == game.ModeArena,
+		IsEncounterAuxiliary: true, IsLootSuppressed: true, IsExperienceSuppressed: true, NPCProfile: profile,
 	}
 	if strings.EqualFold(command.NounName, zonenpc.MutationAgentNounName) {
 		bodyNounName, isBodyFound := developerMutationAgentBodyNoun(director)
@@ -4553,21 +4562,6 @@ func helloPlayerResponses(ctx context.Context, gameplayJoin *game.GameplayJoin, 
 	return [][]byte{helloPacket}, binding, nil
 }
 
-func marshalZoneSetup(binding game.GameplayBinding) ([]byte, error) {
-	levelAsset := strings.TrimSuffix(binding.Level, "_v2")
-	message := raknet.PrepareForStartMessage{
-		Level:      util.HashID(levelAsset + ".Level"),
-		Markerset:  util.HashID(levelAsset + "_ai.Markerset"),
-		PlayerMask: binding.PlayerMask,
-		LevelIndex: uint32(binding.Slot),
-	}
-	packet, err := raknet.MarshalApplication(message)
-	if err != nil {
-		return nil, fmt.Errorf("setupMarshal: %w", err)
-	}
-	return packet, nil
-}
-
 func marshalZoneChainVote(
 	binding game.GameplayBinding, director game.CampaignDirector,
 ) ([]byte, error) {
@@ -4727,6 +4721,23 @@ func (e campaignPopulationRuntime) activateOpening(
 			decision.NavigationComponentID, decision.IsFloorIntroduction,
 			decision.IsAmbush, spawnCount,
 		)
+	}
+	isFirstRunLevel := peerSession.binding.IsFirstRunLevel()
+	e.logger.Printf(
+		"RakNet campaign population setup for %s level=%q first_run=%t progression=%d chain_level=%d difficulty=%d planned=%d",
+		packet.Address, peerSession.binding.Level, isFirstRunLevel,
+		peerSession.binding.ChainProgression, peerSession.binding.ChainLevelIndex,
+		peerSession.binding.Difficulty, len(result.spawnPlans),
+	)
+	if isFirstRunLevel {
+		for _, plan := range result.spawnPlans {
+			e.logger.Printf(
+				"RakNet campaign opening enemy for %s object=%d noun=%q marker_set=%q locus=%d captain=%t introduction=%d position=(%.3f,%.3f,%.3f)",
+				packet.Address, plan.ObjectID, plan.NounName, plan.MarkerSetName,
+				plan.LocusID, plan.IsCaptain, plan.Introduction,
+				plan.Position.X, plan.Position.Y, plan.Position.Z,
+			)
+		}
 	}
 	return result, nil
 }
@@ -4943,8 +4954,14 @@ func (r gameplaySetupRuntime) publishCampaign(
 	response = append(response, remnantPackets...)
 	// Initialize objectives now, but defer HELIX until after setup commits and
 	// the arrival window ends. Packet order alone still delivers this on frame 1.
-	peerSession.missionVoiceID = zonepreview.CampaignMissionVoice(peerSession.binding.Level)
-	peerSession.missionVoiceReadyAt = time.Time{}
+	r.registry.mutex.Lock()
+	voiceSession, isVoiceSessionFound := r.registry.sessions[packet.Address.String()]
+	if isVoiceSessionFound && voiceSession.generation == peerSession.generation {
+		voiceSession.missionVoiceID = zonepreview.CampaignMissionVoice(peerSession.binding.Level)
+		voiceSession.missionVoiceReadyAt = time.Time{}
+		r.registry.sessions[packet.Address.String()] = voiceSession
+	}
+	r.registry.mutex.Unlock()
 	objectiveMessages, err := campaignObjectiveMessages(
 		peerSession.zone.Objective().State(), uint8(peerSession.binding.Slot),
 		0,
@@ -5335,6 +5352,7 @@ func (r gameplaySetupRuntime) publishDungeon(
 	}
 	r.registry.sessions[packet.Address.String()] = peerSession
 	r.registry.mutex.Unlock()
+	r.startCampaignPickupSweep(peerSession.zone)
 	packet.SourceTime = advanceHeroArrivalTimestamp(
 		packet.SourceTime, setupStartedAt, r.now(),
 	)
@@ -5485,13 +5503,17 @@ func newCampaignPopulationSession(
 	mesh *navigation.Mesh,
 ) (*zonepopulation.Session, error) {
 	selectionID := binding.GameID
-	if zoneunlock.IsFirstClear(binding) {
+	isFirstTimeRosterSelected := director.IsFirstTimeRosterSelected
+	if isFirstTimeRosterSelected {
 		selectionID = 0
 	}
 	seed := selectionID ^ (binding.Difficulty << 24) ^ 0x103
+	if isFirstTimeRosterSelected {
+		seed ^= (binding.ChainLevelIndex - 1) << 16
+	}
 	var session *zonepopulation.Session
 	var err error
-	if zoneunlock.IsFirstClear(binding) {
+	if isFirstTimeRosterSelected {
 		session, err = zonepopulation.NewFirstClearSessionWithNavigation(
 			director, seed, mesh,
 		)
@@ -5520,9 +5542,17 @@ func (p campaignPreparation) loadDirector(
 	if p.setup == nil {
 		return game.CampaignDirector{}, errors.New("campaign director unavailable")
 	}
+	binding, err := p.bindPartyRoster(ctx, binding)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorParty: %w", err)
+	}
 	director, err := p.setup.Execute(ctx, binding)
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorLoad: %w", err)
+	}
+	director, err = p.selectInitialMapLayout(director, binding)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorLayout: %w", err)
 	}
 	if binding.Mode == game.ModeChain && !binding.IsWarped {
 		director, err = zoneboss.PrepareNamedBossDirector(
@@ -5697,7 +5727,7 @@ func (p campaignPreparation) initialize(
 	var scriptObjects []game.CampaignScriptObject
 	var objectErr error
 	if strings.EqualFold(binding.Level, game.InitialChainLevel) &&
-		zoneunlock.IsFirstClear(binding) {
+		zoneunlock.IsFirstClear(binding) && !director.IsInitialLayoutSelected {
 		scriptObjects, objectErr = director.InitialChainFirstClearInteractables()
 	} else {
 		scriptObjects, objectErr = zoneobjective.LevelScriptObjects(
@@ -5714,52 +5744,9 @@ func (p campaignPreparation) initialize(
 	if planErr != nil {
 		return fmt.Errorf("statusChainScriptObjectPlans: %w", planErr)
 	}
-	sceneryMarkers, sceneryDeleteObjectIDs, sceneryErr := director.VerdanthScenery()
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainScenery: %w", sceneryErr)
-	}
-	cryosSceneryMarkers, cryosDeleteObjectIDs, sceneryErr := director.CryosCaveScenery()
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainCryosScenery: %w", sceneryErr)
-	}
-	sceneryMarkers = append(sceneryMarkers, cryosSceneryMarkers...)
-	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosDeleteObjectIDs...)
-	cryosOneSceneryMarkers, cryosOneDeleteObjectIDs, sceneryErr :=
-		director.CryosSmartScenery(contentSelectionID)
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainCryosOneScenery: %w", sceneryErr)
-	}
-	sceneryMarkers = append(sceneryMarkers, cryosOneSceneryMarkers...)
-	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosOneDeleteObjectIDs...)
-	nocturnaSceneryMarkers, nocturnaDeleteObjectIDs, sceneryErr :=
-		director.NocturnaScenery(contentSelectionID)
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainNocturnaScenery: %w", sceneryErr)
-	}
-	sceneryMarkers = append(sceneryMarkers, nocturnaSceneryMarkers...)
-	sceneryDeleteObjectIDs = append(
-		sceneryDeleteObjectIDs, nocturnaDeleteObjectIDs...,
-	)
-	infinitySceneryMarkers, infinityDeleteObjectIDs, sceneryErr :=
-		director.InfinityScenery(contentSelectionID)
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainInfinityScenery: %w", sceneryErr)
-	}
-	sceneryMarkers = append(sceneryMarkers, infinitySceneryMarkers...)
-	sceneryDeleteObjectIDs = append(
-		sceneryDeleteObjectIDs, infinityDeleteObjectIDs...,
-	)
-	scaldronSceneryMarkers, scaldronDeleteObjectIDs, sceneryErr :=
-		director.ScaldronScenery(contentSelectionID)
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainScaldronScenery: %w", sceneryErr)
-	}
-	sceneryMarkers = append(sceneryMarkers, scaldronSceneryMarkers...)
-	sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, scaldronDeleteObjectIDs...)
-	sceneryPlans, sceneryErr := zoneobject.PlanScenery(sceneryMarkers)
-	if sceneryErr != nil {
-		return fmt.Errorf("statusChainSceneryPlans: %w", sceneryErr)
-	}
+	// The prepare packet and director share the native map selection. Static
+	// scenery stays client-owned; no independently selected layout is republished.
+	sceneryPlans := make([]zoneobject.SceneryPlan, 0)
 	tutorialCapsulePlans := make([]tutorialCapsulePlan, 0)
 	if binding.Mode == game.ModeTutorial {
 		tutorialCapsulePlans, nextObjectID, planErr = planTutorialCapsules(
@@ -5800,107 +5787,9 @@ func (p campaignPreparation) initialize(
 			return fmt.Errorf("statusTutorialHordePlans: %w", markerErr)
 		}
 	}
-	fixtureMarkers := make([]game.CampaignDirectorMarker, 0)
-	var fixtureErr error
-	if strings.EqualFold(binding.Level, game.InitialChainLevel) {
-		var initialDeleteObjectIDs []uint32
-		fixtureMarkers, initialDeleteObjectIDs, fixtureErr =
-			director.InitialChainDestructibles(contentSelectionID)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, initialDeleteObjectIDs...)
-	} else if binding.Mode == game.ModeChain {
-		if strings.EqualFold(binding.Level, "nocturna_1") ||
-			strings.EqualFold(binding.Level, "nocturna_2") ||
-			strings.EqualFold(binding.Level, "nocturna_3") ||
-			strings.EqualFold(binding.Level, "nocturna_4") {
-			fixtureMarkers, fixtureErr = director.NocturnaSelectedFixtures(contentSelectionID)
-		} else {
-			fixtureMarkers, fixtureErr = director.NocturnaFixtures()
-		}
-		if fixtureErr == nil {
-			var verdanthFixtureMarkers []game.CampaignDirectorMarker
-			var verdanthDeleteObjectIDs []uint32
-			verdanthFixtureMarkers, verdanthDeleteObjectIDs, fixtureErr =
-				director.VerdanthFixtures(contentSelectionID)
-			fixtureMarkers = append(fixtureMarkers, verdanthFixtureMarkers...)
-			sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, verdanthDeleteObjectIDs...)
-		}
-	}
+	fixtureMarkers, sceneryDeleteObjectIDs, fixtureErr := director.MapDestructibles()
 	if fixtureErr != nil {
-		return fmt.Errorf("statusChainFixtures: %w", fixtureErr)
-	}
-	if binding.Mode == game.ModeChain {
-		graviticMarkers, graviticDeleteObjectIDs, graviticErr :=
-			director.GraviticFixtures(contentSelectionID)
-		if graviticErr != nil {
-			return fmt.Errorf("statusGraviticFixtures: %w", graviticErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, graviticMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, graviticDeleteObjectIDs...)
-		cryosFourMarkers, cryosFourDeleteObjectIDs, cryosFourErr :=
-			director.CryosFourFixtures(contentSelectionID)
-		if cryosFourErr != nil {
-			return fmt.Errorf("statusCryosFourFixtures: %w", cryosFourErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, cryosFourMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosFourDeleteObjectIDs...)
-		cryosOneMarkers, cryosOneDeleteObjectIDs, cryosOneErr :=
-			director.CryosOneFixtures(contentSelectionID)
-		if cryosOneErr != nil {
-			return fmt.Errorf("statusCryosOneFixtures: %w", cryosOneErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, cryosOneMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosOneDeleteObjectIDs...)
-		cryosTwoMarkers, cryosTwoDeleteObjectIDs, cryosTwoErr :=
-			director.CryosTwoFixtures(contentSelectionID)
-		if cryosTwoErr != nil {
-			return fmt.Errorf("statusCryosTwoFixtures: %w", cryosTwoErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, cryosTwoMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosTwoDeleteObjectIDs...)
-		infinityMarkers, infinityDeleteObjectIDs, infinityErr :=
-			director.InfinityFixtures(contentSelectionID)
-		if infinityErr != nil {
-			return fmt.Errorf("statusInfinityFixtures: %w", infinityErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, infinityMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityDeleteObjectIDs...)
-		infinityThreeMarkers, infinityThreeDeleteObjectIDs, infinityThreeErr :=
-			director.InfinityThreeFixtures(contentSelectionID)
-		if infinityThreeErr != nil {
-			return fmt.Errorf("statusInfinityThreeFixtures: %w", infinityThreeErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, infinityThreeMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityThreeDeleteObjectIDs...)
-		infinityOneMarkers, infinityOneDeleteObjectIDs, infinityOneErr :=
-			director.InfinityOneFixtures(contentSelectionID)
-		if infinityOneErr != nil {
-			return fmt.Errorf("statusInfinityOneFixtures: %w", infinityOneErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, infinityOneMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityOneDeleteObjectIDs...)
-		infinityFourMarkers, infinityFourDeleteObjectIDs, infinityFourErr :=
-			director.InfinityFourFixtures(contentSelectionID)
-		if infinityFourErr != nil {
-			return fmt.Errorf("statusInfinityFourFixtures: %w", infinityFourErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, infinityFourMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, infinityFourDeleteObjectIDs...)
-		scaldronMarkers, scaldronDeleteObjectIDs, scaldronErr :=
-			director.ScaldronFixtures(contentSelectionID)
-		if scaldronErr != nil {
-			return fmt.Errorf("statusScaldronFixtures: %w", scaldronErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, scaldronMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, scaldronDeleteObjectIDs...)
-	}
-	if binding.Mode == game.ModeChain {
-		cryosCaveMarkers, cryosCaveDeleteObjectIDs, cryosCaveErr :=
-			director.CryosCaveFixtures()
-		if cryosCaveErr != nil {
-			return fmt.Errorf("statusCryosCaveFixtures: %w", cryosCaveErr)
-		}
-		fixtureMarkers = append(fixtureMarkers, cryosCaveMarkers...)
-		sceneryDeleteObjectIDs = append(sceneryDeleteObjectIDs, cryosCaveDeleteObjectIDs...)
+		return fmt.Errorf("statusMapFixtures: %w", fixtureErr)
 	}
 	if len(fixtureMarkers) != 0 {
 		fixturePlans, nextObjectID, fixtureErr = zonenpc.PlanFixtures(
@@ -6012,55 +5901,55 @@ func (p campaignPreparation) initialize(
 			CreatureFootprints: creatureFootprints,
 		},
 		zone.ZoneInfo{
-			Level:                  binding.Level,
-			Difficulty:             binding.Difficulty,
-			RunSeed:                binding.RunSeed,
-			ChainLevelIndex:        binding.ChainLevelIndex,
-			MemberLimit:            binding.MemberLimit,
-			DirectorDefinition:     director,
-			Navigation:             campaignNav,
-			HordeBarrierPlans:      hordeBarrierPlans,
-			ScriptObjects:          scriptObjects,
-			ScriptObjectPlans:      scriptObjectPlans,
-			SceneryPlans:           sceneryPlans,
-			SceneryDeleteObjectIDs: sceneryDeleteObjectIDs,
-			InitialNPCPlans:        initialNPCPlans,
-			FixturePlans:           fixturePlans,
-			CatalystProgram:        p.program.CatalystUnlock,
-			OverdriveProgram:       p.program.OverdriveUnlock,
-			CrystalDefinitions:     p.program.CrystalDefinitions,
-			CrystalLevelOffsets:    p.program.CrystalLevelOffsets,
-			Security:               zonesecurity.NewSession(securityObjectID),
-			Effect:                 zoneeffect.NewInventory(),
-			NPCs:                   enemySession,
-			Hero:                   zonehero.NewSession(),
-			Companion:              zonecompanion.NewSession(),
-			Interactable:           zoneinteract.NewUseSession(),
-			Pickups:                zoneinteract.NewPickupRegistry(),
-			PickupPayload:          zoneinteract.NewPickupPayloadRegistry(),
-			Orbs:                   zoneinteract.NewOrbRegistry(),
-			Loot:                   zoneloot.NewSession(),
-			DNA:                    zoneloot.NewDNASession(),
-			Population:             populationSession,
-			Director:               directorSession,
-			Script:                 scriptRegistry,
-			Encounter:              zoneencounter.NewStageSession(),
-			Horde:                  zonehorde.NewCampaignSession(binding.ChainLevelIndex),
-			Boss:                   zoneboss.NewSession(),
-			Death:                  zonedeath.NewSession(),
-			Objective:              objectiveSession,
-			ObjectiveProgress:      objectiveProgress,
-			ObjectID:               objectIDSession,
-			ProjectileID:           projectileIDSession,
-			Outcome:                zoneoutcome.NewSession(),
-			Result:                 zoneresult.NewLedger(),
+			Level:                   binding.Level,
+			Difficulty:              binding.Difficulty,
+			RunSeed:                 binding.RunSeed,
+			ChainLevelIndex:         binding.ChainLevelIndex,
+			MemberLimit:             binding.MemberLimit,
+			DirectorDefinition:      director,
+			Navigation:              campaignNav,
+			HordeBarrierPlans:       hordeBarrierPlans,
+			ScriptObjects:           scriptObjects,
+			ScriptObjectPlans:       scriptObjectPlans,
+			SceneryPlans:            sceneryPlans,
+			SceneryDeleteObjectIDs:  sceneryDeleteObjectIDs,
+			InitialNPCPlans:         initialNPCPlans,
+			FixturePlans:            fixturePlans,
+			CatalystProgram:         p.program.CatalystUnlock,
+			OverdriveProgram:        p.program.OverdriveUnlock,
+			CrystalDefinitions:      p.program.CrystalDefinitions,
+			CrystalLevelOffsets:     p.program.CrystalLevelOffsets,
+			CrystalMinorStageCount:  p.program.CrystalMinorStageCount,
+			TutorialMajorStageCount: p.program.TutorialMajorStageCount,
+			Security:                zonesecurity.NewSession(securityObjectID),
+			Effect:                  zoneeffect.NewInventory(),
+			NPCs:                    enemySession,
+			Hero:                    zonehero.NewSession(),
+			Companion:               zonecompanion.NewSession(),
+			Interactable:            zoneinteract.NewUseSession(),
+			Pickups:                 zoneinteract.NewPickupRegistry(),
+			PickupPayload:           zoneinteract.NewPickupPayloadRegistry(),
+			Orbs:                    zoneinteract.NewOrbRegistry(),
+			Loot:                    zoneloot.NewSession(),
+			DNA:                     zoneloot.NewDNASession(),
+			Population:              populationSession,
+			Director:                directorSession,
+			Script:                  scriptRegistry,
+			Encounter:               zoneencounter.NewStageSession(),
+			Horde:                   zonehorde.NewCampaignSession(binding.ChainLevelIndex),
+			Boss:                    zoneboss.NewSession(),
+			Death:                   zonedeath.NewSession(),
+			Objective:               objectiveSession,
+			ObjectiveProgress:       objectiveProgress,
+			ObjectID:                objectIDSession,
+			ProjectileID:            projectileIDSession,
+			Outcome:                 zoneoutcome.NewSession(),
+			Result:                  zoneresult.NewLedger(),
 
 			ResultVote: zoneresult.NewVoteSession(),
 			Timeline:   zonetimeline.NewSession(),
 			Timer:      p.timer,
-			NPCRandom: sim.NewSimulatorRandom(
-				binding.GameID ^ (binding.Difficulty << 24) ^ 0xd20e,
-			),
+			NPCRandom:  dropRandom,
 			DropRandom: dropRandom,
 			Checkpoint: p.checkpoint,
 			Restore:    restoreSnapshot,

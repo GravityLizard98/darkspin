@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	maximumCashOutRewards   = 4
-	continueUnlockedOrdinal = 5
+	maximumCashOutRewards = 4
+	// Native sentinel five bypasses the continuation limit; it does not
+	// establish the server's separate five-planet run policy.
+	bypassContinuationLimit = int32(5)
 )
 
 type CashOutReceiptRequest struct {
@@ -57,8 +59,11 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 		return nil, errors.New("vote snapshot invalid")
 	}
 	nextDifficulty := snapshot.CompletedIndex + 1
+	continuationLimit := bypassContinuationLimit
 	if snapshot.IsTerminal {
-		nextDifficulty = snapshot.CompletedIndex
+		// The client prices completed loot from NextDifficulty-1. Stop
+		// continuation through its independent limit, preserving that preview.
+		continuationLimit = 0
 	}
 	presentation := zonepreview.CampaignPresentation(
 		snapshot.CompletedIndex, true,
@@ -81,8 +86,8 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 			presentation.CurrentMovie,
 			currentVoice,
 		},
-		FirstVoice:    presentation.CurrentVoice,
-		UnlockOrdinal: continueUnlockedOrdinal,
+		FirstVoice:        presentation.CurrentVoice,
+		ContinuationLimit: continuationLimit,
 		NextPresentation: [3]uint32{
 			0,
 			presentation.NextMovie,

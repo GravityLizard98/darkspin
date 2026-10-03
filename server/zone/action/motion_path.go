@@ -14,13 +14,31 @@ import (
 // SetNavigation supplies the same immutable mesh and footprint used by command
 // admission. Reconciliation rebuilds the remaining route from the accepted pose.
 func (e *Motion) SetNavigation(mesh *navigation.Mesh, footprintRadius float32) {
+	e.SetActorNavigation(mesh, footprintRadius, 0, 0)
+}
+
+func (e *Motion) SetActorNavigation(mesh *navigation.Mesh, footprintRadius float32, objectID uint32, mode uint8) {
 	if e == nil {
 		return
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	isSameActor := objectID != 0 && objectID == e.navigationObjectID
+	if e.navigation == mesh && e.navigationActor.IsPresent &&
+		(isSameActor || (objectID == 0 && e.footprintRadius == footprintRadius)) {
+		return
+	}
+	e.navigationObjectID = objectID
 	e.navigation = mesh
 	e.footprintRadius = footprintRadius
+	e.navigationActor = navigation.ActorNavigation{Radius: footprintRadius, Mode: mode}
+	if mesh != nil {
+		planLayer, isFound := mesh.SelectFootprintLayer(footprintRadius, mode)
+		if isFound {
+			e.navigationActor.PlanLayer = planLayer
+			e.navigationActor.IsPresent = true
+		}
+	}
 }
 
 func (e *Motion) setGoal(
@@ -35,9 +53,7 @@ func (e *Motion) setGoal(
 		}
 		return result, nil
 	}
-	planLayer, isLayerFound := e.navigation.SelectLayer(
-		e.footprintRadius, zonenavigation.HeroHeight,
-	)
+	planLayer, isLayerFound := e.navigation.ActorLayer(e.footprintRadius, e.navigationActor)
 	if !isLayerFound {
 		return sim.Position{}, errors.New("movement layer unavailable")
 	}
@@ -86,7 +102,7 @@ func (e *Motion) reconcilePosition(
 		return position, false, nil
 	}
 	position = movement.Snapshot().Position
-	planLayer, isLayerFound := e.navigation.SelectLayer(e.footprintRadius, zonenavigation.HeroHeight)
+	planLayer, isLayerFound := e.navigation.ActorLayer(e.footprintRadius, e.navigationActor)
 	if !isLayerFound {
 		return position, false, nil
 	}
@@ -118,4 +134,13 @@ func (e *Motion) reconcilePosition(
 		return sim.Position{}, false, fmt.Errorf("routeReconcile: %w", err)
 	}
 	return position, isAccepted, nil
+}
+
+func (e *Motion) NavigationSettings() navigation.ActorNavigation {
+	if e == nil {
+		return navigation.ActorNavigation{}
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.navigationActor
 }

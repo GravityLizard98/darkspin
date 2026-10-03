@@ -132,7 +132,7 @@ func (r campaignNPCActionRuntime) produceRezzerFallback(
 		func(candidate game.Vec3) (game.Vec3, bool, error) {
 			return zoneaction.NPCDirectMovementDestination(
 				peerSession.zone.Navigation(), source.Plan.Position, candidate,
-				source.Plan.NPCProfile.FootprintRadius,
+				source.NavigationRadius(), source.Navigation,
 			)
 		},
 	)
@@ -200,7 +200,7 @@ func (e campaignResurrectionSchedule) hit() ([][]byte, error) {
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
-	revived, isRevived, err := peerSession.zone.ResurrectNPC(
+	revived, isRevived, err := peerSession.zone.ResurrectNPCWithoutLoot(
 		context.Background(), e.targetObjectID, e.profile.HealFraction,
 	)
 	if err != nil {

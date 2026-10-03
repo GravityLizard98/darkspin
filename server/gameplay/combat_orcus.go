@@ -3,6 +3,7 @@ package gameplay
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/raknet"
@@ -295,7 +296,7 @@ func (e campaignOrcusServantStep) spawn() ([][]byte, error) {
 	plan := zonenpc.SpawnPlan{
 		ObjectID: e.objectID, OwnerObjectID: e.orcusObjectID,
 		NounName: e.definition.ServantNoun, Position: orcus.Plan.Position,
-		IsRewardSuppressed: true, NPCProfile: e.definition.ServantProfile,
+		IsEncounterAuxiliary: true, NPCProfile: e.definition.ServantProfile,
 		ActionProfile: e.definition.ServantAction, IsActionKnown: true,
 	}
 	err := peerSession.zone.NPCs().Add(
@@ -350,6 +351,17 @@ func (r campaignNPCActionRuntime) produceOrcusSpawn(
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
+	director := peerSession.zone.DirectorDefinition()
+	nounKey := strings.ToLower(definition.ServantNoun)
+	authoredProfile, isAuthoredProfileFound := director.NPCProfilesByNoun[nounKey]
+	if !isAuthoredProfileFound || !authoredProfile.IsKnown || !authoredProfile.IsClassKnown ||
+		authoredProfile.HitPoint <= 0 {
+		r.registry.mutex.Unlock()
+		return nil, true, fmt.Errorf("orcusServantDefinition: unavailable %q", definition.ServantNoun)
+	}
+	// ProjectDirector has already applied the selected run difficulty to this
+	// child's authored profile. The servant action and placement remain separate.
+	definition.ServantProfile = authoredProfile
 	isAbilityAvailable := peerSession.isCampaignNPCActionActiveAt(
 		generation, objectID, r.now(),
 	) && peerSession.zone.NPCs().SilenceRemaining(objectID, r.now()) == 0
@@ -365,16 +377,6 @@ func (r campaignNPCActionRuntime) produceOrcusSpawn(
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
-	footprintRadius := definition.ServantProfile.FootprintRadius
-	importedFootprintRadius, err := r.program.FootprintRadius(definition.ServantNoun)
-	if err != nil && footprintRadius <= 0 {
-		r.registry.mutex.Unlock()
-		return nil, true, fmt.Errorf("orcusServantFootprint: %w", err)
-	}
-	if err == nil {
-		footprintRadius = importedFootprintRadius
-	}
-	definition.ServantProfile.FootprintRadius = footprintRadius
 	ownedCount := peerSession.zone.NPCs().OwnedActiveCount(objectID)
 	spawnCount := min(definition.ServantCountPerCast, definition.MaximumServant-ownedCount)
 	if spawnCount <= 0 {

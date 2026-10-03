@@ -72,6 +72,9 @@ type Session struct {
 	policy                   *sim.DirectorPolicyState
 	spikeHistory             *sim.SpikeHistory
 	random                   *sim.SimulatorRandom
+	groupChallengeMultiplier float32
+	mixedRandom              *mixedGroupRandom
+	sectionRosters           []SectionRoster
 }
 
 func (s *Session) Random() *sim.SimulatorRandom {
@@ -132,7 +135,16 @@ func newSession(
 	if director.Level == "" {
 		return nil, errors.New("populationCreate: empty level")
 	}
+	multiplier := director.CompositionTuning.GroupChallengeMultiplier
+	if math.IsNaN(float64(multiplier)) || math.IsInf(float64(multiplier), 0) || multiplier < 0 {
+		return nil, errors.New("populationCreate: invalid group multiplier")
+	}
 	director.IsFirstClear = isFirstClear
+	sectionRosters, sectionErr := loadSectionRosters(director, sim.NewSimulatorRandom(seed^0x53454354))
+	if sectionErr != nil {
+		return nil, fmt.Errorf("populationSections: %w", sectionErr)
+	}
+	volumes := spawnExclusionVolumes(director)
 	random := sim.NewSimulatorRandom(seed)
 	selectedSpikeSets := make(map[string]int)
 	groupWeights := make(map[string]uint32)
@@ -148,7 +160,8 @@ func newSession(
 		if strings.Contains(strings.ToLower(markerSet.Name), "_ai_horde_") {
 			continue
 		}
-		if markerSet.GroupName != "" && !strings.EqualFold(markerSet.GroupName, "none") &&
+		if !director.IsInitialLayoutSelected &&
+			markerSet.GroupName != "" && !strings.EqualFold(markerSet.GroupName, "none") &&
 			strings.Contains(strings.ToLower(markerSet.Name), "_ai_spike") {
 			groupName := strings.ToLower(markerSet.GroupName)
 			roll, isSelected := selectedSpikeSets[groupName]
@@ -193,6 +206,9 @@ func newSession(
 				}
 				candidates = append(candidates, candidate)
 			case 8:
+				if isSpikeExcluded(marker, volumes) {
+					continue
+				}
 				spike := spikesBySection[section]
 				if spike == nil {
 					spike = &candidate{
@@ -218,7 +234,8 @@ func newSession(
 	}
 	if strings.EqualFold(director.Level, game.InitialChainLevel) {
 		var planErr error
-		candidates, planErr = applyInitialChainPopulationPlan(candidates, director, isFirstClear, random)
+		candidates, planErr = applyInitialChainPopulationPlan(candidates, director, isFirstClear,
+			random, sim.NewSimulatorRandom(seed^0x53454354))
 		if planErr != nil {
 			return nil, fmt.Errorf("populationInitialPlan: %w", planErr)
 		}
@@ -276,7 +293,10 @@ func newSession(
 		return nil, fmt.Errorf("populationPolicy: %w", err)
 	}
 	return &Session{
-		candidates: candidates, insideStates: make(map[uint32]bool, len(candidates)),
+		groupChallengeMultiplier: multiplier,
+		mixedRandom:              &mixedGroupRandom{state: seed ^ 0x4d495845},
+		sectionRosters:           sectionRosters,
+		candidates:               candidates, insideStates: make(map[uint32]bool, len(candidates)),
 		resolvedDirectorPointIDs: make(map[uint32]bool, len(candidates)),
 		enteredComponents:        make(map[uint32]bool, floorComponentCount),
 		navigation:               mesh,
@@ -287,7 +307,7 @@ func newSession(
 }
 
 // PrimeOpening resolves standing map population before exploration. Selected
-// first-clear spikes and horde marker sets remain encounter-triggered.
+// spike ambushes and horde marker sets remain encounter-triggered.
 func (e *Session) PrimeOpening(position game.Vec3) ([]Decision, error) {
 	if e == nil {
 		return nil, errors.New("populationPrime: nil session")
@@ -520,10 +540,6 @@ var initialChainSecondEncounterAnchor = game.Vec3{
 	X: -172.795, Y: -63.524, Z: 0.088,
 }
 
-var initialChainBeamAnchor = game.Vec3{
-	X: -152.01, Y: -28.20, Z: 0.088,
-}
-
 type campaignPopulationTheme struct {
 	minionNouns     []string
 	lieutenantNouns []string
@@ -544,7 +560,7 @@ var initialChainBarracudaTheme = campaignPopulationTheme{
 // a local approximation until the native director policy is recovered.
 func applyInitialChainPopulationPlan(
 	candidates []candidate, director game.CampaignDirector, isFirstClear bool,
-	random *sim.SimulatorRandom,
+	random *sim.SimulatorRandom, sectionRandom *sim.SimulatorRandom,
 ) ([]candidate, error) {
 	if random == nil {
 		return nil, errors.New("nil initial population random")
@@ -565,6 +581,17 @@ func applyInitialChainPopulationPlan(
 			firstTimeTheme.lieutenantNouns = append(firstTimeTheme.lieutenantNouns, entry.NounName)
 		}
 	}
+	sectionThemes := make(map[sim.DirectorRouteSection]campaignPopulationTheme)
+	if isFirstClear && director.Difficulty == 1 && len(director.SectionBuckets) != 4 {
+		return nil, fmt.Errorf("difficultyOneSectionBuckets: got %d, want 4", len(director.SectionBuckets))
+	}
+	if isFirstClear && len(director.SectionBuckets) > 0 {
+		var err error
+		sectionThemes, err = selectSectionThemes(director.SectionBuckets, firstTimeTheme, sectionRandom)
+		if err != nil {
+			return nil, fmt.Errorf("sectionThemes: %w", err)
+		}
+	}
 	if !canPlanCampaignFloorPopulation(candidates) {
 		if isFirstClear {
 			return nil, errors.New("first-time spawn points incomplete")
@@ -583,9 +610,13 @@ func applyInitialChainPopulationPlan(
 				sectionCandidate = append(sectionCandidate, candidate)
 			}
 		}
+		sectionTheme := firstTimeTheme
+		if selectedTheme, isSelected := sectionThemes[section]; isSelected {
+			sectionTheme = selectedTheme
+		}
 		if isFirstClear && section == sim.DirectorRouteSectionA {
 			floorPlan, err := planInitialChainFirstClearOpening(
-				sectionCandidate, firstTimeTheme, random,
+				sectionCandidate, firstTimeTheme, sectionTheme, random,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("openingFloor: %w", err)
@@ -593,7 +624,7 @@ func applyInitialChainPopulationPlan(
 			planned = append(planned, floorPlan...)
 			continue
 		}
-		theme := firstTimeTheme
+		theme := sectionTheme
 		if !isFirstClear {
 			theme = initialChainRepairTheme
 		}
@@ -636,40 +667,31 @@ func applyInitialChainPopulationPlan(
 }
 
 // planInitialChainFirstClearOpening fixes the two encounters visible at the
-// entrance to authored points. Later A encounters still use the first-time
-// roster and the local floor budget.
+// entrance to authored points. Later A encounters use the selected first-time
+// roster and are published with the rest of the standing floor population.
 func planInitialChainFirstClearOpening(
 	candidates []candidate, theme campaignPopulationTheme,
+	laterTheme campaignPopulationTheme,
 	random *sim.SimulatorRandom,
 ) ([]candidate, error) {
 	wanderers := make([]candidate, 0)
-	var openingSpike candidate
 	for _, candidate := range candidates {
 		if candidate.kind == sim.DirectorLocusWanderer && len(candidate.positions) == 1 {
 			wanderers = append(wanderers, candidate)
 		}
-		if strings.EqualFold(candidate.markerSetName, "zelems_1_AI_SpikeA.Markerset") {
-			openingSpike = candidate
-		}
 	}
-	if len(wanderers) < 4 || len(openingSpike.positions) == 0 {
+	if len(wanderers) < 4 {
 		return nil, errors.New("opening candidates incomplete")
 	}
-	repairNoun, err := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicRepair")
-	if err != nil {
-		return nil, fmt.Errorf("openingRepair: %w", err)
-	}
-	hybridNoun, err := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicHybrid")
-	if err != nil {
-		return nil, fmt.Errorf("openingHybrid: %w", err)
-	}
-	eliteNoun, err := initialChainFirstClearNoun(theme.lieutenantNouns, "NomadWithDrone")
-	if err != nil {
-		return nil, fmt.Errorf("openingElite: %w", err)
-	}
-	beamNoun, err := initialChainFirstClearNoun(theme.lieutenantNouns, "ZelemSpecialHaster")
-	if err != nil {
-		return nil, fmt.Errorf("openingBeam: %w", err)
+	repairNoun, repairErr := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicRepair")
+	hybridNoun, hybridErr := initialChainFirstClearNoun(theme.minionNouns, "ZelemBasicHybrid")
+	eliteNoun, eliteErr := initialChainFirstClearNoun(theme.lieutenantNouns, "NomadWithDrone")
+	if repairErr != nil || hybridErr != nil || eliteErr != nil {
+		// The visual reference and its named roster apply to difficulty 1-24.
+		return planCampaignFloor(
+			candidates, laterTheme, random, CampaignFloorPopulationTarget,
+			3, &initialChainOpeningAnchor, false,
+		)
 	}
 	firstMob, remaining := nearestCampaignCandidates(wanderers, initialChainEntryAnchor, 1)
 	firstMob[0].provisionalCount = 1
@@ -685,39 +707,28 @@ func planInitialChainFirstClearOpening(
 		nearby[index].provisionalCount = 1
 		nearby[index].provisionalNounNames = []string{hybridNoun}
 	}
-	beamPosition := nearestCampaignPosition(openingSpike.positions, initialChainBeamAnchor)
-	beam, isFound := campaignSpikeAt(candidates, beamPosition)
-	if !isFound {
-		return nil, errors.New("opening beam point missing")
-	}
-	beam.provisionalCount = 1
-	beam.isProvisionalCaptain = true
-	beam.isAmbush = true
-	beam.provisionalNounNames = []string{beamNoun}
 	usedIDs := make(map[uint32]bool, 2+len(nearby))
 	usedIDs[firstMob[0].locusID] = true
 	usedIDs[elite[0].locusID] = true
 	for _, candidate := range nearby {
 		usedIDs[candidate.locusID] = true
 	}
-	laterCandidates := make([]candidate, 0, len(candidates)-len(usedIDs)-1)
+	laterCandidates := make([]candidate, 0, len(candidates)-len(usedIDs))
 	for _, candidate := range candidates {
-		if usedIDs[candidate.locusID] ||
-			strings.EqualFold(candidate.markerSetName, openingSpike.markerSetName) {
+		if usedIDs[candidate.locusID] {
 			continue
 		}
 		laterCandidates = append(laterCandidates, candidate)
 	}
 	laterPlan, err := planCampaignFloor(
-		laterCandidates, theme, random, 10, 2, nil, true,
+		laterCandidates, laterTheme, random, 11, 2, nil, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("openingLaterFloor: %w", err)
 	}
-	plans := make([]candidate, 0, 1+1+len(nearby)+1+len(laterPlan))
+	plans := make([]candidate, 0, 1+1+len(nearby)+len(laterPlan))
 	plans = append(plans, firstMob[0], elite[0])
 	plans = append(plans, nearby...)
-	plans = append(plans, beam)
 	plans = append(plans, laterPlan...)
 	return plans, nil
 }

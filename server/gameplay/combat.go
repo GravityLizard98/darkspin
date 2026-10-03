@@ -682,7 +682,7 @@ func (r campaignDamageRuntime) publishAreaResults(
 			defeatedEnemy := result.Snapshot
 			defeatedEnemy.IsDefeated = true
 			lootPackets, err := r.npc.spawnLoot(
-				packet, sessionKey, generation, defeatedEnemy, timestamp,
+				sessionKey, generation, defeatedEnemy, timestamp,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("areaLoot: %w", err)
@@ -1629,7 +1629,13 @@ func (r campaignDamageRuntime) publishTransition(
 	}
 	packets := make([][]byte, 0, len(transition.immediatePackets)+1)
 	var fearCleanupPackets [][]byte
+	var hasteCleanupPackets [][]byte
 	if transition.fearCleanupObjectID != 0 {
+		hastePackets, err := r.stopNPCHaste(sessionKey, generation, transition.fearCleanupObjectID)
+		if err != nil {
+			return nil, fmt.Errorf("transitionHasteCleanup: %w", err)
+		}
+		hasteCleanupPackets = hastePackets
 		fearPackets, err := r.stopHeroNPCFear(
 			sessionKey, generation, transition.fearCleanupObjectID,
 		)
@@ -1770,6 +1776,7 @@ func (r campaignDamageRuntime) publishTransition(
 	// transition snapshots attached status presentation, so deleting Terrified
 	// first can leave its visual copied onto the defeated actor.
 	packets = append(packets, fearCleanupPackets...)
+	packets = append(packets, hasteCleanupPackets...)
 	packets = append(packets, healingCleanupPackets...)
 	if len(transition.bossCompletionPacket) != 0 {
 		step := campaignBossCompletionStep{
@@ -2682,7 +2689,7 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 			return campaignDamageTransition{},
 				fmt.Errorf("selfResurrectPassiveRemove: %w", marshalErr)
 		}
-		revived, resurrectErr := s.zone.NPCs().Resurrect(result.ObjectID, 0.4)
+		revived, resurrectErr := s.zone.NPCs().ResurrectWithoutLoot(result.ObjectID, 0.4)
 		if resurrectErr != nil {
 			return campaignDamageTransition{},
 				fmt.Errorf("selfResurrectApply: %w", resurrectErr)
@@ -2852,7 +2859,9 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 	}
 	if isPlayerKill && result.IsDefeated && isDefeatedNPCFound &&
 		!defeatedNPC.Plan.IsFixture {
-		transition.experience = defeatedNPC.Plan.Experience
+		if !defeatedNPC.Plan.IsExperienceSuppressed {
+			transition.experience = defeatedNPC.Plan.Experience
+		}
 		_, isPassiveChanged := s.applyPassiveKill()
 		if isPassiveChanged {
 			passivePackets, passiveErr := s.syncSoulRavagerPresentation()
@@ -2946,6 +2955,7 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 					return campaignDamageTransition{}, fmt.Errorf("hordeBarrierComplete: %w", err)
 				}
 				transition.immediatePackets = append(transition.immediatePackets, packet)
+				s.zone.DestroyHordeBarrierListeners(hordeTransition.MarkerSetName)
 			}
 		}
 		if hordeTransition.NextWaveActorCount != 0 {
@@ -3122,40 +3132,11 @@ func campaignDeathTarget(target zoneNPCDeathDefinition) deathraknet.Target {
 	}
 }
 
-type campaignOrbExpiryProducer struct {
-	registry   *gameplaySessionRegistry
-	sessionKey string
-	generation uint64
-	objectID   uint32
-}
-
-func (p campaignOrbExpiryProducer) produce() ([][]byte, error) {
-	p.registry.mutex.Lock()
-	peerSession, isFound := p.registry.sessions[p.sessionKey]
-	isCurrent := isFound && peerSession.generation == p.generation
-	if !isCurrent {
-		p.registry.mutex.Unlock()
-		return nil, nil
-	}
-	expiryPacket, err := peerSession.expireCampaignOrb(p.objectID)
-	if err == nil {
-		p.registry.sessions[p.sessionKey] = peerSession
-	}
-	p.registry.mutex.Unlock()
-	if err != nil {
-		return nil, fmt.Errorf("enemyOrbExpire: %w", err)
-	}
-	if expiryPacket == nil {
-		return nil, nil
-	}
-	return [][]byte{expiryPacket}, nil
-}
-
 func (r campaignNPCActionRuntime) spawnLoot(
-	packet raknet.Packet, sessionKey string, generation uint64,
+	sessionKey string, generation uint64,
 	enemy zonenpc.Snapshot, sourceTime uint64,
 ) ([][]byte, error) {
-	if !enemy.IsDefeated {
+	if !enemy.IsDefeated || enemy.Plan.IsLootSuppressed {
 		return nil, nil
 	}
 	r.registry.mutex.Lock()
@@ -3185,10 +3166,9 @@ func (r campaignNPCActionRuntime) spawnLoot(
 		}
 	}
 	orbPackets := make([][]byte, 0)
-	var orbObjectID uint32
 	var orbErr error
 	if !isVerdanthTotem && (!isTutorial || peerSession.isTutorialCapsuleDropUnlocked) {
-		orbPackets, orbObjectID, orbErr = peerSession.spawnCampaignNPCOrb(
+		orbPackets, _, orbErr = peerSession.spawnCampaignNPCOrb(
 			enemy, sourceTime, r.now(),
 		)
 	}
@@ -3242,19 +3222,6 @@ func (r campaignNPCActionRuntime) spawnLoot(
 			"RakNet campaign enemy DNA not generated actor=%d: %v",
 			enemy.Plan.ObjectID, dnaErr,
 		)
-	}
-	if orbObjectID != 0 && packet.ScheduleFunc != nil {
-		expiry := campaignOrbExpiryProducer{
-			registry: r.registry, sessionKey: sessionKey,
-			generation: generation, objectID: orbObjectID,
-		}
-		err := scheduleNPCProducer(r.registry, packet, campaignOrbLifetime, expiry.produce)
-		if err != nil {
-			r.logger.Printf(
-				"RakNet campaign enemy orb expiry not scheduled object=%d: %v",
-				orbObjectID, err,
-			)
-		}
 	}
 	packets := append(equipmentPackets, orbPackets...)
 	packets = append(packets, crystalPackets...)
@@ -6389,6 +6356,7 @@ type campaignNPCModifierRun struct {
 	cancel             raknet.CancelSchedule
 	fearTargetObjectID uint32
 	fearExpiresAt      time.Time
+	hasteExpiresAt     time.Time
 	isCreated          bool
 	isReleased         bool
 }
@@ -7244,6 +7212,10 @@ func (e campaignHasterBuffSchedule) remove() ([][]byte, error) {
 	e.runtime.registry.mutex.Lock()
 	current, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && current.generation == e.generation
+	if isCurrent && current.campaignNPCModifiers[e.run.instanceID] != e.run {
+		e.runtime.registry.mutex.Unlock()
+		return nil, nil
+	}
 	if isCurrent {
 		if current.zone != nil && current.zone.Effect() != nil {
 			current.zone.Effect().Remove(e.run.instanceID)
@@ -7335,6 +7307,10 @@ func (r campaignNPCActionRuntime) produceHasterBuff(
 		StackCount:      1, AttackSpeed: 0.25, CooldownReduction: 0.25,
 		MovementSpeedBuff: 0.50,
 	}
+	hasteExpiresAt := r.now().Add(
+		plan.Profile.HitDelay + plan.Profile.ModifierDuration,
+	)
+	run.hasteExpiresAt = hasteExpiresAt
 	r.registry.mutex.Lock()
 	currentSession, isCurrentFound := r.registry.sessions[sessionKey]
 	isCurrent = isCurrentFound &&
@@ -7360,9 +7336,6 @@ func (r campaignNPCActionRuntime) produceHasterBuff(
 	}
 	hitTimestamp := timestamp + uint64(plan.Profile.HitDelay/time.Millisecond)
 	hasteEndTimestamp := hitTimestamp + uint64(plan.Profile.ModifierDuration/time.Millisecond)
-	hasteExpiresAt := r.now().Add(
-		plan.Profile.HitDelay + plan.Profile.ModifierDuration,
-	)
 	schedule := campaignHasterBuffSchedule{
 		runtime: r, packet: packet, sessionKey: sessionKey,
 		generation: generation, objectID: objectID, timestamp: timestamp,

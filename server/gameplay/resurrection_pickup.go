@@ -10,6 +10,7 @@ import (
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
 	actionraknet "github.com/darkspinnet/darkspin/server/zone/action/raknet103"
+	zonecheckpoint "github.com/darkspinnet/darkspin/server/zone/checkpoint"
 	zoneinteract "github.com/darkspinnet/darkspin/server/zone/interact"
 )
 
@@ -155,29 +156,32 @@ func (e resurrectionPickupStep) produce() ([][]byte, error) {
 	if !isOrbFound {
 		return e.runtime.rejectPickup(e.command, "resurrection capsule unavailable")
 	}
-	resurrections, err := peerSession.resurrectDeadZoneSquad()
+	recoveries, err := e.recoverPartyLocked(peerSession)
 	if err != nil {
 		return nil, fmt.Errorf("resurrectionRestore: %w", err)
 	}
-	if len(resurrections) == 0 {
+	if len(recoveries) == 0 {
 		return e.runtime.rejectPickup(e.command, "no defeated heroes")
 	}
+	peerSession = e.runtime.registry.sessions[e.sessionKey]
 	packets, err := marshalCampaignOrbPickup(
 		currentOrb, peerSession.deployedObjectID, zoneResurrectionOrb, false,
 		peerSession.deployedHitPoint(), peerSession.deployedManaPoint(), 1,
 	)
 	if err != nil {
-		peerSession.rollbackZoneSquadResurrection(resurrections)
-		return nil, fmt.Errorf("resurrectionMarshal: %w", err)
+		rollbackErr := e.rollbackPartyLocked(recoveries)
+		return nil, fmt.Errorf("resurrectionMarshal: %w", errors.Join(err, rollbackErr))
 	}
 	if !peerSession.zone.Pickups().Commit(e.orb.ObjectID) {
-		peerSession.rollbackZoneSquadResurrection(resurrections)
-		return nil, errors.New("resurrection capsule reservation missing")
+		rollbackErr := e.rollbackPartyLocked(recoveries)
+		return nil, fmt.Errorf("resurrectionCommit: %w", errors.Join(
+			errors.New("resurrection capsule reservation missing"), rollbackErr,
+		))
 	}
 	peerSession.zone.Orbs().Remove(e.orb.ObjectID)
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
-	for _, resurrection := range resurrections {
-		packets = append(packets, resurrection.packet)
+	for _, recovery := range recoveries {
+		packets = append(packets, recovery.packets...)
 	}
 	for candidateSessionKey, candidate := range e.runtime.registry.sessions {
 		if candidateSessionKey == e.sessionKey || candidate.zone != peerSession.zone {
@@ -190,7 +194,8 @@ func (e resurrectionPickupStep) produce() ([][]byte, error) {
 		}
 		e.runtime.registry.sessions[candidateSessionKey] = candidate
 	}
-	e.runtime.logger.Printf("RakNet resurrection capsule accepted source=%d target=%d heroes=%d",
-		peerSession.deployedObjectID, e.orb.ObjectID, len(resurrections))
+	isCheckpointSaved := peerSession.zone.SaveCheckpointIfSafe(zonecheckpoint.ReasonSafePickup)
+	e.runtime.logger.Printf("RakNet resurrection capsule accepted source=%d target=%d heroes=%d checkpoint_saved=%t",
+		peerSession.deployedObjectID, e.orb.ObjectID, len(recoveries), isCheckpointSaved)
 	return append(packets, e.releasePacket), nil
 }
