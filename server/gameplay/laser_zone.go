@@ -48,36 +48,76 @@ func (e campaignConeSchedule) finishLaserZone() ([][]byte, error) {
 func (r *gameplaySessionRegistry) interruptCampaignNPCForForcedMovementLocked(
 	sessionKey string, peerSession *gameplayPeerSession, objectID uint32,
 ) ([][]byte, error) {
+	interruption, err := r.prepareCampaignNPCForcedMovementLocked(peerSession, objectID)
+	if err != nil {
+		return nil, fmt.Errorf("forcedMovementPrepare: %w", err)
+	}
+	r.commitCampaignNPCForcedMovementLocked(sessionKey, peerSession, interruption)
+	return interruption.packets, nil
+}
+
+type campaignNPCForcedMovementInterruption struct {
+	objectID   uint32
+	laserZones map[*campaignLaserZone]struct{}
+	packets    [][]byte
+}
+
+func (r *gameplaySessionRegistry) prepareCampaignNPCForcedMovementLocked(
+	peerSession *gameplayPeerSession, objectID uint32,
+) (campaignNPCForcedMovementInterruption, error) {
+	interruption := campaignNPCForcedMovementInterruption{objectID: objectID}
 	if r == nil || peerSession == nil || peerSession.zone == nil ||
 		peerSession.zone.NPCs() == nil || objectID == 0 {
-		return nil, nil
+		return interruption, nil
 	}
-	peerSession.zone.NPCs().ResetAction(objectID)
-	laserZones := make(map[*campaignLaserZone]struct{})
+	interruption.laserZones = make(map[*campaignLaserZone]struct{})
 	laserZone := peerSession.campaignNPCLaserZones[objectID]
 	if laserZone != nil {
-		laserZones[laserZone] = struct{}{}
-		delete(peerSession.campaignNPCLaserZones, objectID)
+		interruption.laserZones[laserZone] = struct{}{}
 	}
-	for candidateSessionKey, candidateSession := range r.sessions {
-		if candidateSessionKey == sessionKey || candidateSession.zone != peerSession.zone {
+	for _, candidateSession := range r.sessions {
+		if candidateSession.zone != peerSession.zone {
 			continue
 		}
 		laserZone = candidateSession.campaignNPCLaserZones[objectID]
 		if laserZone == nil {
 			continue
 		}
-		laserZones[laserZone] = struct{}{}
-		delete(candidateSession.campaignNPCLaserZones, objectID)
+		interruption.laserZones[laserZone] = struct{}{}
+	}
+	for laserZone := range interruption.laserZones {
+		if !laserZone.isActive {
+			continue
+		}
+		cleanupPackets, err := npcraknet.LaserZoneEnd(laserZone.objectIDs)
+		if err != nil {
+			return campaignNPCForcedMovementInterruption{}, fmt.Errorf("forcedMovementLaserCleanup: %w", err)
+		}
+		interruption.packets = append(interruption.packets, cleanupPackets...)
+	}
+	return interruption, nil
+}
+
+// Preparation and commit must share the registry lock so the captured beam runs
+// cannot change between encoding cleanup and invalidating the old attack.
+func (r *gameplaySessionRegistry) commitCampaignNPCForcedMovementLocked(
+	sessionKey string, peerSession *gameplayPeerSession,
+	interruption campaignNPCForcedMovementInterruption,
+) {
+	if r == nil || peerSession == nil || peerSession.zone == nil ||
+		peerSession.zone.NPCs() == nil || interruption.objectID == 0 {
+		return
+	}
+	peerSession.zone.NPCs().ResetAction(interruption.objectID)
+	delete(peerSession.campaignNPCLaserZones, interruption.objectID)
+	for candidateSessionKey, candidateSession := range r.sessions {
+		if candidateSessionKey == sessionKey || candidateSession.zone != peerSession.zone {
+			continue
+		}
+		delete(candidateSession.campaignNPCLaserZones, interruption.objectID)
 		r.sessions[candidateSessionKey] = candidateSession
 	}
-	packets := make([][]byte, 0)
-	for activeLaserZone := range laserZones {
-		cleanupPackets, err := activeLaserZone.finish()
-		if err != nil {
-			return packets, fmt.Errorf("forcedMovementLaserCleanup: %w", err)
-		}
-		packets = append(packets, cleanupPackets...)
+	for laserZone := range interruption.laserZones {
+		laserZone.isActive = false
 	}
-	return packets, nil
 }

@@ -152,6 +152,10 @@ func (s *DirectorSource) LoadCampaignDirector(
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorComposition: %w", err)
 	}
+	dnaTuning, err := loadDNADropTuning(ctx, s.store)
+	if err != nil {
+		return game.CampaignDirector{}, fmt.Errorf("directorDNA: %w", err)
+	}
 	tunings, err := s.store.DirectorTunings(ctx)
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorOrbScales: %w", err)
@@ -258,6 +262,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 		NounTypesByInstance:       nounTypesByInstance,
 		NounProjectilesByInstance: nounProjectilesByInstance,
 		OrbDifficultyScales:       orbDifficultyScales,
+		DNADropTuning:             dnaTuning,
 		CompositionTuning: game.CampaignCompositionTuning{
 			GroupChallengeMultiplier: compositionTuning.GroupChallengeMultiplier,
 		},
@@ -365,7 +370,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 				} else {
 					profile = retainCampaignClassMetadata(fallbackProfile, profile)
 				}
-			} else if profile.ChallengeValue == 0 {
+			} else if !profile.IsClassKnown && profile.ChallengeValue == 0 {
 				_, isCompatibilityProfile := build103CampaignNPCProfile[nounKey]
 				if isCompatibilityProfile {
 					profile.ChallengeValue = fallbackCampaignNPCProfile(
@@ -456,7 +461,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 			if !isProfileFound && marker.IsSpawnKindKnown {
 				profile = fallbackCampaignNPCProfile(marker.NounName, marker.PoolKind, director.Name)
 				isProfileFound = true
-			} else if isProfileFound && profile.ChallengeValue == 0 {
+			} else if isProfileFound && !profile.IsClassKnown && profile.ChallengeValue == 0 {
 				_, isCompatibilityProfile := build103CampaignNPCProfile[nounKey]
 				if isCompatibilityProfile {
 					profile.ChallengeValue = fallbackCampaignNPCProfile(
@@ -592,7 +597,7 @@ func retainCampaignClassMetadata(
 	profile contentsqlite.NonPlayerNounProfile,
 	authored contentsqlite.NonPlayerNounProfile,
 ) contentsqlite.NonPlayerNounProfile {
-	if authored.ChallengeValue > 0 {
+	if authored.IsClassKnown || authored.ChallengeValue > 0 {
 		profile.ChallengeValue = authored.ChallengeValue
 	}
 	profile.NPCRank = authored.NPCRank

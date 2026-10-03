@@ -692,7 +692,7 @@ func (r gameplaySimpleActionRuntime) cancel(
 ) ([][]byte, error) {
 	if isSessionFound {
 		pursuit, interruptedBasic, heroDrain, healingChannel, isCanceled := r.action.cancel(
-			packet.Address.String(), command.Common.ObjectID, r.now(),
+			packet.Address.String(), command.Common.ObjectID, r.now(), packet.SourceTime,
 		)
 		if !isCanceled {
 			return nil, nil
@@ -2136,6 +2136,11 @@ func (r gameplayJoinRuntime) handle(
 	}
 	previousSession, isPreviousFound := r.registry.sessions[sessionKey]
 	if isPreviousFound {
+		previousSession.retireChannelsLocked()
+		previousSession.retireAuraAreasLocked()
+		previousSession.retireChargeRunsLocked()
+		r.registry.retirePeerProjectileFreezesLocked(&previousSession)
+		r.registry.retireFieldMedicBuffsLocked(&previousSession, r.modifierPool)
 		r.registry.retireCampaignTreeOfLifeLocked(&previousSession)
 	}
 	r.registry.sessions[sessionKey] = nextSession
@@ -2434,6 +2439,10 @@ func (r gameplayPendingRuntime) poll(
 	if err != nil {
 		return nil, fmt.Errorf("knockbackPoll: %w", err)
 	}
+	pickupPursuitPackets, err := r.pollPickupPursuit(ctx, packet)
+	if err != nil {
+		return nil, fmt.Errorf("pickupPursuitPoll: %w", err)
+	}
 	r.registry.mutex.Lock()
 	peerSession, isFound = r.registry.sessions[packet.Address.String()]
 	// Follow must advance while the ally is moving, even between input packets.
@@ -2443,6 +2452,7 @@ func (r gameplayPendingRuntime) poll(
 	peerSession, isFound = r.registry.sessions[packet.Address.String()]
 	var rootHazardPackets [][]byte
 	if isFound {
+		r.pollPickupContactsLocked(ctx, packet, &peerSession, r.now())
 		err := peerSession.queuePartyDefeat()
 		if err != nil {
 			r.registry.mutex.Unlock()
@@ -2498,6 +2508,7 @@ func (r gameplayPendingRuntime) poll(
 	}
 	rootHazardPackets = append(rootHazardPackets, graviticPackets...)
 	rootHazardPackets = append(rootHazardPackets, landingPackets...)
+	rootHazardPackets = append(rootHazardPackets, pickupPursuitPackets...)
 	queuedPackets, pendingPacketBatchID := peerSession.pendingPackets()
 	isPendingPacketOverflow := peerSession.isPendingPacketOverflow
 	peerSession.isPendingPacketOverflow = false
@@ -3113,6 +3124,11 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 		currentSession.securityTransfer = nil
 	}
 	if command.Name == "reset" {
+		currentSession.retireChannelsLocked()
+		currentSession.retireAuraAreasLocked()
+		currentSession.retireChargeRunsLocked()
+		r.registry.retirePeerProjectileFreezesLocked(&currentSession)
+		r.registry.retireFieldMedicBuffsLocked(&currentSession, r.modifierPool)
 		r.registry.retireCampaignTreeOfLifeLocked(&currentSession)
 		r.registry.clearActionLeasesLocked(
 			packet.Address.String(), currentSession.transportGeneration,
@@ -4413,6 +4429,7 @@ func stopGameplayPeerRuntime(
 	if peerSession.heroCharge != nil {
 		peerSession.heroCharge.Stop()
 	}
+	peerSession.retireBeastChargePets(time.Time{})
 	if peerSession.fireTempestPassive != nil {
 		peerSession.fireTempestPassive.Stop()
 	}
@@ -4472,15 +4489,21 @@ func stopGameplayPeerRuntime(
 				// peer immediately retires the same zone hero authority.
 			}
 		}
-		peerSession.heroModifierRun.Remove(&peerSession)
+		peerSession.heroModifierRun.Remove(peerSession)
 		if modifierInstancePool != nil {
 			_ = modifierInstancePool.Release(peerSession.heroModifierRun.instanceID)
 		}
 	}
-	_, _ = stopMissileFlak(&peerSession, modifierInstancePool)
-	_, _ = stopPoisonNovaCooldown(&peerSession, modifierInstancePool)
-	peerSession.stopFieldMedicHeroBuffs(modifierInstancePool)
-	peerSession.stopFieldMedicCompanionBuffs(modifierInstancePool)
+	_, _ = stopMissileFlak(peerSession, modifierInstancePool)
+	_, _ = stopPoisonNovaCooldown(peerSession, modifierInstancePool)
+	fieldMedicHeroPackets, fieldMedicHeroErr := peerSession.stopFieldMedicHeroBuffs(modifierInstancePool)
+	fieldMedicCompanionPackets, fieldMedicCompanionErr := peerSession.stopFieldMedicCompanionBuffs(modifierInstancePool)
+	peerSession.queueCampaignPackets(append(fieldMedicHeroPackets, fieldMedicCompanionPackets...))
+	peerSession.releaseFieldMedicBuffs(modifierInstancePool)
+	if fieldMedicHeroErr != nil || fieldMedicCompanionErr != nil {
+		log.Printf("RakNet Field Medic runtime cleanup failed user=%d: %v", peerSession.binding.UserID,
+			errors.Join(fieldMedicHeroErr, fieldMedicCompanionErr))
+	}
 	if peerSession.plasmaWreathRun != nil {
 		_, _ = peerSession.plasmaWreathRun.Stop()
 	}
@@ -4699,6 +4722,8 @@ func (e campaignPopulationRuntime) activateOpening(
 		peerSession.zone.PublishNPCTargets(
 			transition.Acquired, peerSession.binding.UserID, generation,
 		)
+		peerSession.recordScenarioDungeonCommit(setupEpoch)
+		peerSession.recordScenarioFixtureCommit()
 		e.registry.sessions[sessionKey] = peerSession
 	}
 	e.registry.mutex.Unlock()
@@ -4858,6 +4883,8 @@ func (r gameplaySetupRuntime) publishCampaign(
 	}
 	peerSession.playerPosition = entryPosition
 	peerSession.playerMotion = playerMotion
+	peerSession.resetTeleporterSample()
+	peerSession.resetPickupContacts()
 	peerSession.passiveStationarySince[peerSession.deployedCreatureIndex] = r.now()
 	peerSession.startTCShieldRecharge(peerSession.deployedCreatureIndex, r.now())
 	if peerSession.squad == nil {
@@ -5032,7 +5059,9 @@ func (r gameplaySetupRuntime) publishCampaign(
 	}
 	securityPackets := [][]byte(nil)
 	if isCheckpointBaseline {
-		securityPackets, err = securityraknet.SnapshotState(securitySnapshot)
+		securityPackets, err = securityraknet.SnapshotState(
+			securitySnapshot, peerSession.zone.SecurityThreats(),
+		)
 	} else {
 		securityPackets, err = securityraknet.InitialState(securitySnapshot.ObjectID)
 	}
@@ -5040,6 +5069,7 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignSecurityState: %w", err)
 	}
 	response = append(response, securityPackets...)
+	peerSession.securityTeleporterStates = nil
 	campaignTeleporterPackets, err := peerSession.campaignTeleporterInitialState()
 	if err != nil {
 		return nil, false, fmt.Errorf("pingCampaignTeleporterState: %w", err)
@@ -5435,6 +5465,8 @@ func (r gameplaySetupRuntime) publishArena(
 		return nil, false, fmt.Errorf("arenaMotion: %w", err)
 	}
 	peerSession.playerPosition = entryPosition
+	peerSession.resetTeleporterSample()
+	peerSession.resetPickupContacts()
 	peerSession.passiveStationarySince[peerSession.deployedCreatureIndex] = r.now()
 	peerSession.startTCShieldRecharge(peerSession.deployedCreatureIndex, r.now())
 	packets, err := marshalCampaignDungeonSetup(
@@ -5623,6 +5655,28 @@ func (p campaignPreparation) loadDirector(
 		if err != nil {
 			return game.CampaignDirector{}, fmt.Errorf("directorBoss: %w", err)
 		}
+		if p.logger != nil {
+			bossAudit, auditErr := zoneboss.InspectSelectedAdmission(
+				director, binding.ChainLevelIndex,
+			)
+			if auditErr != nil {
+				p.logger.Printf(
+					"Campaign boss audit game=%d level=%q difficulty=%d status=invalid: %v",
+					binding.GameID, director.Level, binding.Difficulty, auditErr,
+				)
+			} else {
+				p.logger.Printf(
+					"Campaign boss audit game=%d level=%q difficulty=%d status=planned marker_set=%q ordinal=%d trigger=%d anchor=%d event=%q callback=%q leader=%q listeners=%d actors=%d deferred=%t final=%t once=%t dwell=%s",
+					binding.GameID, director.Level, binding.Difficulty, bossAudit.MarkerSetName,
+					bossAudit.MarkerSetOrdinal, bossAudit.TriggerMarkerID,
+					bossAudit.BossMarkerID, bossAudit.EventName,
+					bossAudit.CallbackName, bossAudit.LeaderNoun,
+					bossAudit.ListenerCount, bossAudit.PlanCount,
+					bossAudit.IsLeaderDeferred, bossAudit.IsFinalBoss,
+					bossAudit.IsOnceOnly, bossAudit.Delay,
+				)
+			}
+		}
 	}
 	return director, nil
 }
@@ -5719,6 +5773,7 @@ func (p campaignPreparation) prepare(
 		} else {
 			currentSession.queuePackets([][]byte{member.setupPacket})
 		}
+		currentSession.recordScenarioPrepareQueued(member.setupPacket, time.Now())
 		p.session.sessions[member.sessionKey] = currentSession
 		preparedMembers++
 	}
@@ -5742,6 +5797,7 @@ func (p campaignPreparation) initialize(
 	if setupErr != nil {
 		return fmt.Errorf("statusChainDirector: %w", setupErr)
 	}
+	peerSession.recordScenarioFixtureSelection(director)
 	var campaignNav *navigation.Mesh
 	if p.navigation != nil {
 		campaignNav, setupErr = p.navigation.LoadCampaignNavigation(
@@ -5868,6 +5924,9 @@ func (p campaignPreparation) initialize(
 	if fixtureErr != nil {
 		return fmt.Errorf("statusFixtureAudit: %w", fixtureErr)
 	}
+	peerSession.recordScenarioFixtureTakeover(
+		director, fixtureMarkers, sceneryDeleteObjectIDs, fixturePlans,
+	)
 	if binding.Mode == game.ModeChain {
 		barrierSets, barrierErr := director.HordeBarriers()
 		if barrierErr != nil {
@@ -5958,6 +6017,10 @@ func (p campaignPreparation) initialize(
 	if randomErr != nil {
 		return fmt.Errorf("statusChainDropRandom: %w", randomErr)
 	}
+	capsuleRandom, capsuleRandomErr := newCampaignCapsuleRandom(binding, restoreSnapshot)
+	if capsuleRandomErr != nil {
+		return fmt.Errorf("statusChainCapsuleRandom: %w", capsuleRandomErr)
+	}
 	zone, _, zoneErr := zoneRegistry.Resolve(
 		uint64(binding.GameID),
 		zone.Member{
@@ -6015,13 +6078,14 @@ func (p campaignPreparation) initialize(
 			Outcome:                 zoneoutcome.NewSession(),
 			Result:                  zoneresult.NewLedger(),
 
-			ResultVote: zoneresult.NewVoteSession(),
-			Timeline:   zonetimeline.NewSession(),
-			Timer:      p.timer,
-			NPCRandom:  dropRandom,
-			DropRandom: dropRandom,
-			Checkpoint: p.checkpoint,
-			Restore:    restoreSnapshot,
+			ResultVote:    zoneresult.NewVoteSession(),
+			Timeline:      zonetimeline.NewSession(),
+			Timer:         p.timer,
+			NPCRandom:     dropRandom,
+			DropRandom:    dropRandom,
+			CapsuleRandom: capsuleRandom,
+			Checkpoint:    p.checkpoint,
+			Restore:       restoreSnapshot,
 		},
 	)
 	if zoneErr != nil {
@@ -6060,5 +6124,6 @@ func (p campaignPreparation) initialize(
 	peerSession.nextProjectileObjectID = max(
 		peerSession.nextProjectileObjectID, firstProjectileObjectID,
 	)
+	peerSession.recordScenarioFixtureAdmission()
 	return nil
 }

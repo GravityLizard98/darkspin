@@ -15,7 +15,8 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 	previous game.Vec3, current game.Vec3, orientation raknet.Quaternion,
 	timestamp uint64, now time.Time,
 ) ([][]byte, game.CampaignTeleportRoute, bool, error) {
-	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil {
+	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil ||
+		e.zone.Security() == nil {
 		return nil, game.CampaignTeleportRoute{}, false, nil
 	}
 	statePackets, err := e.syncCampaignTeleporterStates()
@@ -115,12 +116,16 @@ func (e *gameplayPeerSession) clearCampaignTunnelExit() {
 }
 
 func (e *gameplayPeerSession) campaignTeleporterInitialState() ([][]byte, error) {
-	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil {
+	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil ||
+		e.zone.Security() == nil {
 		return nil, nil
 	}
+	previousStates := e.campaignTeleporterStates
 	e.campaignTeleporterStates = make(map[uint32]bool)
+	threats := e.zone.SecurityThreats()
+	routes := e.zone.DirectorDefinition().TeleportRoutes()
 	packets := make([][]byte, 0)
-	for _, route := range e.zone.DirectorDefinition().TeleportRoutes() {
+	for _, route := range routes {
 		if !route.IsSecurity || route.MarkerID == 0 {
 			continue
 		}
@@ -128,18 +133,30 @@ func (e *gameplayPeerSession) campaignTeleporterInitialState() ([][]byte, error)
 			Source: route.Source, Destination: route.Destination,
 			IsBoss: route.IsBoss,
 		}
-		statePackets, err := securityraknet.State(route.MarkerID, teleport, false, false)
+		objectID, err := e.teleporterAnchorObjectID(route.MarkerID)
+		if err != nil {
+			return nil, fmt.Errorf("campaignInitialOwner: %w", err)
+		}
+		anchorPacket, err := securityraknet.Anchor(objectID, route.Source)
+		if err != nil {
+			return nil, fmt.Errorf("campaignInitialAnchor: %w", err)
+		}
+		isActive := previousStates[route.MarkerID] &&
+			isCampaignTeleporterLinkActive(route, routes, threats)
+		statePackets, err := securityraknet.State(objectID, teleport, isActive, false)
 		if err != nil {
 			return nil, fmt.Errorf("campaignTeleporterInitial[%d]: %w", route.MarkerID, err)
 		}
-		e.campaignTeleporterStates[route.MarkerID] = false
+		e.campaignTeleporterStates[route.MarkerID] = isActive
+		packets = append(packets, anchorPacket)
 		packets = append(packets, statePackets...)
 	}
 	return packets, nil
 }
 
 func (e *gameplayPeerSession) syncCampaignTeleporterStates() ([][]byte, error) {
-	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil {
+	if e == nil || e.binding.Mode != game.ModeChain || e.zone == nil ||
+		e.zone.Security() == nil {
 		return nil, nil
 	}
 	if e.campaignTeleporterStates == nil {
@@ -156,13 +173,18 @@ func (e *gameplayPeerSession) syncCampaignTeleporterStates() ([][]byte, error) {
 			Source: route.Source, Destination: route.Destination,
 			IsBoss: route.IsBoss,
 		}
-		previousState := e.campaignTeleporterStates[route.MarkerID]
+		previousState, isPresented := e.campaignTeleporterStates[route.MarkerID]
 		isActive := isCampaignTeleporterLinkActive(route, routes, threats)
-		if previousState == isActive {
+		if isPresented && previousState == isActive {
+			continue
+		}
+		objectID, isFound := e.zone.Security().AnchorObjectID(route.MarkerID)
+		if !isFound {
+			// A peer must receive its owner baseline before slot updates.
 			continue
 		}
 		statePackets, err := securityraknet.State(
-			route.MarkerID, teleport, isActive, isActive,
+			objectID, teleport, isActive, isActive,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("campaignTeleporterState[%d]: %w", route.MarkerID, err)

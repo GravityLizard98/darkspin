@@ -32,12 +32,16 @@ func zonePrepareMessage(binding game.GameplayBinding) (raknet.PrepareForStartMes
 		return raknet.PrepareForStartMessage{}, fmt.Errorf("setupStage: %w", err)
 	}
 	levelAsset := strings.TrimSuffix(strings.ToLower(binding.Level), "_v2")
+	mapSeed, prepareMask, err := prepareMapInputs(binding, levelAsset, levelIndex)
+	if err != nil {
+		return raknet.PrepareForStartMessage{}, fmt.Errorf("setupInputs: %w", err)
+	}
 	message := raknet.PrepareForStartMessage{
 		Level:       util.HashID(levelAsset + ".Level"),
-		VariantSeed: zoneVariantSeed(binding.RunSeed, levelAsset, levelIndex),
+		VariantSeed: mapSeed,
 		// Build 103 consumes marker-set conditions here, not party membership.
 		// Shipped sets have no conditions; no special level flags are requested.
-		ConditionMask: 0,
+		ConditionMask: prepareMask,
 		LevelIndex:    levelIndex,
 	}
 	return message, nil

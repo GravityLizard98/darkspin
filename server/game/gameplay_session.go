@@ -36,6 +36,7 @@ type ActiveUserFinder interface {
 // GameplayBinding is the authorized game membership needed by a gameplay
 // transport. It deliberately contains no RakNet representation details.
 type GameplayBinding struct {
+	scenarioMapBinding
 	Endpoint                   NetworkEndpoint
 	GameID                     uint32
 	RunSeed                    uint64
@@ -437,6 +438,10 @@ func (o *GameplayJoin) Execute(ctx context.Context, userID int64) (GameplayBindi
 		binding.ChainProgression >= 3
 	binding.IsDiagonalCatalystUnlocked = user.Account.UnlockDiagonalCatalysts != 0
 	binding.CatalystSlotCount = min(uint32(9), max(uint32(3), user.Account.UnlockCatalysts))
+	err = o.gameManager.attachScenarioMap(&binding)
+	if err != nil {
+		return GameplayBinding{}, fmt.Errorf("joinScenario: %w", err)
+	}
 	return binding, nil
 }
 
@@ -494,6 +499,10 @@ func (o *GameplayJoin) SelectCampaignSquad(
 		}
 	}
 	binding.ActivatedCreatures = activatedCreatures
+	err := o.gameManager.attachScenarioMap(&binding)
+	if err != nil {
+		return GameplayBinding{}, fmt.Errorf("squadScenario: %w", err)
+	}
 	return binding, nil
 }
 

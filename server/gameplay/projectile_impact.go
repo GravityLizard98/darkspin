@@ -41,6 +41,7 @@ type campaignProjectileSchedule struct {
 	isElectronSphere   bool
 	flight             *sim.ProjectileFlight
 	startedAt          time.Time
+	retirement         *campaignProjectileRetirement
 }
 
 type campaignProjectileStep struct {
@@ -53,7 +54,7 @@ func (e campaignProjectileSchedule) producer(
 ) raknet.ScheduledPacketProducer {
 	step := campaignProjectileStep{schedule: e, deadline: deadline}
 	return raknet.ScheduledPacketProducer{
-		Delay: deadline, Produce: step.produce,
+		Delay: deadline, Produce: step.produceTracked,
 	}
 }
 
@@ -62,6 +63,10 @@ func (e campaignProjectileStep) produce() ([][]byte, error) {
 	schedule.runtime.registry.mutex.Lock()
 	peerSession, isFound :=
 		schedule.runtime.registry.sessions[schedule.sessionKey]
+	if schedule.retirement != nil && (schedule.retirement.isRetired || schedule.retirement.isRetirementPending) {
+		schedule.runtime.registry.mutex.Unlock()
+		return nil, nil
+	}
 	isCurrent := isFound && peerSession.generation == schedule.generation &&
 		peerSession.sageAttacks[schedule.projectileObjectID] == schedule.run
 	if !isCurrent {
@@ -91,7 +96,7 @@ func (e campaignProjectileStep) produce() ([][]byte, error) {
 	if remaining > abilityraknet.ProjectileCollisionTick {
 		schedule.runtime.registry.mutex.Unlock()
 		err := scheduleNPCProducer(schedule.runtime.registry, schedule.packet,
-			min(remaining, campaignProjectileMotionPollInterval), e.produce)
+			min(remaining, campaignProjectileMotionPollInterval), e.produceTracked)
 		if err != nil {
 			return nil, fmt.Errorf("basicSlowResume: %w", err)
 		}

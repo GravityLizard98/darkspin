@@ -304,14 +304,44 @@ func (e campaignTutorialActivation) admitLocked() (gameplayPeerSession, string, 
 		if !isAdmitted {
 			return gameplayPeerSession{}, "", nil, nil
 		}
+		if e.runtime.logger != nil {
+			bossState := e.zone.Boss().Snapshot()
+			e.runtime.logger.Printf(
+				"Campaign boss admission stage=admitted game=%d level=%q marker_set=%q trigger=%d leader=%d phase=%d deferred=%t source=tutorial",
+				peerSession.binding.GameID, peerSession.binding.Level,
+				e.plan.Publication.MarkerSetName,
+				e.plan.NamedPublication.SourceObjectID,
+				bossState.LeaderObjectID, bossState.Phase,
+				bossState.IsLeaderDeferred,
+			)
+		}
 		peerSession.isClientBossBoundaryPending = false
 		peerSession.queuePackets(packets)
 		e.runtime.registry.sessions[sessionKey] = peerSession
 		err = e.zone.PublishNPCSpawn(zoneprojection.NPCSpawn{Plans: plans,
-			TargetObjectID: e.activationHeroID, IsBossActive: !e.plan.Actors[0].IsCaptain,
-			BossObjectID: e.plan.Actors[0].ObjectID, IsFinalBoss: zoneboss.IsFinalBossNoun(e.plan.Actors[0].NounName)}, peerSession.binding.UserID, peerSession.generation)
+			TargetObjectID: e.activationHeroID,
+			IsBossActive:   !(e.plan.Actors[0].IsCaptain && len(e.plan.Actors) > 1),
+			BossObjectID:   e.plan.Actors[0].ObjectID, IsFinalBoss: zoneboss.IsFinalBossNoun(e.plan.Actors[0].NounName)}, peerSession.binding.UserID, peerSession.generation)
 		if err != nil {
 			return gameplayPeerSession{}, "", nil, fmt.Errorf("tutorialPublish: %w", err)
+		}
+		if e.runtime.logger != nil {
+			bossState := e.zone.Boss().Snapshot()
+			e.runtime.logger.Printf(
+				"Campaign boss admission stage=published game=%d level=%q marker_set=%q leader=%d actors=%d deferred=%t source=tutorial",
+				peerSession.binding.GameID, peerSession.binding.Level,
+				e.plan.Publication.MarkerSetName,
+				bossState.LeaderObjectID, len(plans), bossState.IsLeaderDeferred,
+			)
+			if !bossState.IsLeaderDeferred &&
+				!isCampaignBossIntroDelayed(e.plan.Actors[0]) {
+				e.runtime.logger.Printf(
+					"Campaign boss admission stage=active game=%d level=%q marker_set=%q leader=%d source=tutorial",
+					peerSession.binding.GameID, peerSession.binding.Level,
+					e.plan.Publication.MarkerSetName,
+					bossState.LeaderObjectID,
+				)
+			}
 		}
 		return peerSession, sessionKey, plans, nil
 	}

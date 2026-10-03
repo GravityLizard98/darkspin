@@ -22,6 +22,7 @@ type OrbResourceSample struct {
 	MaximumHitPoint float32
 	Mana            float32
 	MaximumMana     float32
+	IsActive        bool
 }
 
 type OrbDropInput struct {
@@ -34,6 +35,7 @@ type OrbDropInput struct {
 	Destinations          []Position
 	PickupRoles           []Role
 	Random                *SimulatorRandom
+	SelectionRandom       *CapsuleRandom
 	IsResurrectionEnabled bool
 }
 
@@ -72,9 +74,9 @@ func BuildOrbDropWorldRequest(input OrbDropInput) (OrbDropWorldRequest, error) {
 	if remainder != 0 {
 		maximumDrop++
 	}
-	if input.Random == nil || input.SourceRole == "" || input.SimulationTime < 0 ||
+	if input.Random == nil || input.SelectionRandom == nil || input.SourceRole == "" || input.SimulationTime < 0 ||
 		input.PickupLifetime <= 0 || expiresAt <= input.SimulationTime ||
-		!isFinitePosition(input.SourcePosition) || len(input.Roster) == 0 ||
+		!isFinitePosition(input.SourcePosition) ||
 		uint32(len(input.Destinations)) < maximumDrop || uint32(len(input.PickupRoles)) < maximumDrop {
 		return OrbDropWorldRequest{}, errors.New("invalid orb drop input")
 	}
@@ -122,9 +124,12 @@ func (e *orbDropBuilder) append(index uint32) error {
 	if !isFinitePosition(destination) {
 		return fmt.Errorf("destination[%d]: invalid", index)
 	}
-	kind := selectOrbDropKind(e.input.Random.Float64(), e.health, e.mana)
+	kind := selectOrbDropKind(e.input.SelectionRandom.Float64(), e.health, e.mana)
 	if kind == HealthOrbDrop && e.input.IsResurrectionEnabled {
 		kind = ResurrectionOrbDrop
+		// One capsule revives the party; later health rolls in this batch
+		// must not create overlapping spare capsules for the same deaths.
+		e.input.IsResurrectionEnabled = false
 	}
 	lob, err := BuildDropLob(
 		e.input.SimulationTime, e.input.SourcePosition, destination,
@@ -226,27 +231,48 @@ func (l *DroppedOrbLifetime) Cancel() error {
 }
 
 func orbResourceWeights(roster []OrbResourceSample) (float64, float64, error) {
-	var healthFraction float64
-	var manaFraction float64
+	var healthFraction float32
+	var manaFraction float32
 	for index, sample := range roster {
-		if sample.MaximumHitPoint <= 0 || sample.MaximumMana <= 0 || sample.HitPoint < 0 || sample.Mana < 0 ||
-			sample.HitPoint > sample.MaximumHitPoint || sample.Mana > sample.MaximumMana ||
+		if sample.MaximumHitPoint <= 0 || sample.HitPoint < 0 || sample.Mana < 0 ||
 			math.IsNaN(float64(sample.HitPoint)) || math.IsNaN(float64(sample.MaximumHitPoint)) ||
 			math.IsNaN(float64(sample.Mana)) || math.IsNaN(float64(sample.MaximumMana)) ||
 			math.IsInf(float64(sample.HitPoint), 0) || math.IsInf(float64(sample.MaximumHitPoint), 0) ||
 			math.IsInf(float64(sample.Mana), 0) || math.IsInf(float64(sample.MaximumMana), 0) {
 			return 0, 0, fmt.Errorf("roster[%d]: invalid", index)
 		}
-		healthFraction += float64(sample.HitPoint / sample.MaximumHitPoint)
-		manaFraction += float64(sample.Mana / sample.MaximumMana)
+		// Native stores health and active power after x87 division/addition;
+		// inactive power stores its fraction before float32 addition.
+		// Do not clamp ratios.
+		healthFraction = float32(float64(healthFraction) + float64(sample.HitPoint)/float64(sample.MaximumHitPoint))
+		if sample.MaximumMana > 0 {
+			if sample.IsActive {
+				manaFraction = float32(float64(manaFraction) + float64(sample.Mana)/float64(sample.MaximumMana))
+			} else {
+				manaFraction += float32(sample.Mana / sample.MaximumMana)
+			}
+		}
 	}
-	healthFraction /= float64(len(roster))
-	manaFraction /= float64(len(roster))
-	return 2 + 5*(1-healthFraction), 2 + 5*(1-manaFraction), nil
+	if len(roster) != 0 {
+		inverseCount := float32(1 / float64(len(roster)))
+		healthFraction *= inverseCount
+		manaFraction *= inverseCount
+	}
+	healthWeight := float32(2 + float32(5*(1-healthFraction)))
+	manaWeight := float32(2 + float32(5*(1-manaFraction)))
+	if healthWeight < 0 || manaWeight < 0 || healthWeight+manaWeight <= 0 ||
+		math.IsNaN(float64(healthWeight)) || math.IsNaN(float64(manaWeight)) ||
+		math.IsInf(float64(healthWeight), 0) || math.IsInf(float64(manaWeight), 0) {
+		return 0, 0, errors.New("invalid orb resource weights")
+	}
+	return float64(healthWeight), float64(manaWeight), nil
 }
 
 func selectOrbDropKind(choice float64, healthWeight float64, manaWeight float64) OrbDropKind {
-	if choice < healthWeight/(healthWeight+manaWeight) {
+	// The native selector stores the summed weights in float32, then divides
+	// for comparison with the separate LCG draw (strictly below selects health).
+	weightSum := float32(healthWeight) + float32(manaWeight)
+	if choice < healthWeight/float64(weightSum) {
 		return HealthOrbDrop
 	}
 	return ManaOrbDrop

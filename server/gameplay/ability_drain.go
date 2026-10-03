@@ -1,6 +1,7 @@
 package gameplay
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -9,9 +10,9 @@ import (
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/util"
+	"github.com/darkspinnet/darkspin/server/zone"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
-	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
@@ -29,6 +30,10 @@ type heroDrainRun struct {
 	isStopped          bool
 	releasePacket      []byte
 	cancel             raknet.CancelSchedule
+	registry           *gameplaySessionRegistry
+	zone               *zone.Zone
+	timer              zone.Timer
+	cast               *channelCast
 }
 
 func (e *heroDrainRun) Stop() {
@@ -36,14 +41,13 @@ func (e *heroDrainRun) Stop() {
 		return
 	}
 	e.mutex.Lock()
-	e.isStopped = true
-	cancel := e.cancel
-	e.cancel = nil
+	isStopped := e.isStopped
 	e.mutex.Unlock()
-	if cancel != nil {
-		cancel()
+	if isStopped {
+		return
 	}
-	e.releaseEffects()
+	retirement := channelRetirement{registry: e.registry, drain: e}
+	retirement.schedule(e.timer)
 }
 
 func (e *heroDrainRun) attachEffects(
@@ -93,37 +97,11 @@ func (e *heroDrainRun) clearCancel() {
 	e.mutex.Unlock()
 }
 
-func (e *heroDrainRun) releaseEffects() bool {
-	if e == nil {
-		return false
-	}
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	if e.isEffectsReleased {
-		return false
-	}
-	e.isEffectsReleased = true
-	e.effectPool.Release(e.sourceObjectID, e.sourceEffectSlot)
-	e.effectPool.Release(e.targetObjectID, e.targetEffectSlot)
-	return e.areEffectsAttached
-}
-
 func (e *heroDrainRun) interruptionPackets() ([][]byte, error) {
 	if e == nil {
 		return nil, nil
 	}
-	isAttached := e.releaseEffects()
-	packets := make([][]byte, 0, 3)
-	if isAttached {
-		removals, err := abilityraknet.ChannelDrainEffectRemovals(
-			e.sourceObjectID, e.sourceEffectSlot,
-			e.targetObjectID, e.targetEffectSlot,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("heroDrainInterruptEffects: %w", err)
-		}
-		packets = append(packets, removals...)
-	}
+	packets := make([][]byte, 0, 1)
 	if len(e.releasePacket) > 0 {
 		packets = append(packets, e.releasePacket)
 	}
@@ -135,28 +113,21 @@ func (e *heroDrainRun) interruptionPacketsAt(timestamp uint64) ([][]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("heroDrainInterrupt: %w", err)
 	}
-	animationPacket, err := abilityraknet.AnimationReset(e.sourceObjectID, timestamp)
-	if err != nil {
-		return nil, fmt.Errorf("heroDrainInterruptAnimation: %w", err)
-	}
-	return append(packets, animationPacket), nil
+	// Detached cleanup cannot reset an animation belonging to a newer action.
+	return packets, nil
 }
 
 type heroDrainSchedule struct {
-	runtime             campaignAbilityCommandRuntime
-	packet              raknet.Packet
-	sessionKey          string
-	generation          uint64
-	sourceObjectID      uint32
-	targetObjectID      uint32
-	creatureIndex       uint32
-	previousManaPoint   float32
-	creature            game.GameplayCreature
-	definition          sim.AbilityDefinition
-	binding             game.GameplayBinding
-	run                 *heroDrainRun
-	cooldownReservation zoneability.CooldownReservation
-	releaseReservation  zoneaction.ReleaseReservation
+	runtime        campaignAbilityCommandRuntime
+	packet         raknet.Packet
+	sessionKey     string
+	generation     uint64
+	sourceObjectID uint32
+	targetObjectID uint32
+	creature       game.GameplayCreature
+	definition     sim.AbilityDefinition
+	binding        game.GameplayBinding
+	run            *heroDrainRun
 }
 
 type heroDrainTickStep struct {
@@ -171,7 +142,10 @@ func (e heroDrainTickStep) produce() ([][]byte, error) {
 func (e heroDrainSchedule) isCurrent(
 	peerSession gameplayPeerSession, isFound bool,
 ) bool {
-	return isFound && peerSession.generation == e.generation &&
+	e.run.mutex.Lock()
+	isActive := !e.run.isStopped && !e.run.isEffectsReleased
+	e.run.mutex.Unlock()
+	return isActive && isFound && peerSession.generation == e.generation &&
 		peerSession.heroDrain == e.run &&
 		peerSession.deployedObjectID == e.sourceObjectID
 }
@@ -196,13 +170,18 @@ func (e heroDrainSchedule) tick(deadline time.Duration) ([][]byte, error) {
 			e.definition.Range,
 		) {
 		peerSession.heroDrain = nil
-		peerSession.abilityReleaseSession().Rollback(e.releaseReservation)
+		e.run.cast.release.Rollback(e.run.cast.releaseReservation)
 		e.run.clearCancel()
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
+		packets, err := e.endPackets(deadline)
 		e.runtime.registry.mutex.Unlock()
-		return e.endPackets(deadline)
+		if err != nil {
+			return nil, fmt.Errorf("drainTargetEnd: %w", err)
+		}
+		return packets, nil
 	}
 	e.run.isProtectionActive = true
+	e.run.cast.activateLocked(e.run.cast.revision)
 	tickDefinition := e.definition
 	tickDefinition.MinimumDamage = e.definition.MinimumDamagePerTick
 	tickDefinition.MaximumDamage = e.definition.MaximumDamagePerTick
@@ -267,15 +246,16 @@ func (e heroDrainSchedule) tick(deadline time.Duration) ([][]byte, error) {
 			return nil, fmt.Errorf("heroDrainHealing: %w", err)
 		}
 	}
-	e.runtime.registry.sessions[e.sessionKey] = peerSession
-	e.runtime.registry.mutex.Unlock()
-
 	effectPackets, err := e.run.attachEffects(
 		e.definition.MuzzleEffectName, e.definition.HitEffectName,
 	)
 	if err != nil {
+		e.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("heroDrainEffects: %w", err)
 	}
+	e.runtime.registry.sessions[e.sessionKey] = peerSession
+	e.runtime.registry.queueChannelPresentationLocked(e.run.zone, effectPackets)
+	e.runtime.registry.mutex.Unlock()
 	damagePackets, err := e.runtime.damage.publishAreaResults(
 		e.packet, e.sessionKey, e.generation, e.sourceObjectID,
 		e.packet.SourceTime+uint64(deadline/time.Millisecond), e.binding,
@@ -284,7 +264,7 @@ func (e heroDrainSchedule) tick(deadline time.Duration) ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("heroDrainPublish: %w", err)
 	}
-	packets := append(effectPackets, damagePackets...)
+	packets := damagePackets
 	if healedAmount > 0 {
 		healingPackets, healingErr := abilityraknet.ChannelDrainHealing(
 			e.sourceObjectID, hitPoint, healedAmount,
@@ -298,7 +278,7 @@ func (e heroDrainSchedule) tick(deadline time.Duration) ([][]byte, error) {
 }
 
 func (e heroDrainSchedule) endPackets(deadline time.Duration) ([][]byte, error) {
-	cleanupPackets, err := e.run.interruptionPackets()
+	err := e.run.retireLocked()
 	if err != nil {
 		return nil, fmt.Errorf("heroDrainEndEffects: %w", err)
 	}
@@ -309,7 +289,8 @@ func (e heroDrainSchedule) endPackets(deadline time.Duration) ([][]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("heroDrainEndAnimation: %w", err)
 	}
-	return append(cleanupPackets, animationPacket), nil
+	e.runtime.registry.queueChannelReleaseLocked(e.run.zone, e.sessionKey, e.generation, [][]byte{e.run.releasePacket, animationPacket})
+	return nil, nil
 }
 
 func (e heroDrainSchedule) finish() ([][]byte, error) {
@@ -322,8 +303,12 @@ func (e heroDrainSchedule) finish() ([][]byte, error) {
 	peerSession.heroDrain = nil
 	e.run.clearCancel()
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
+	packets, err := e.endPackets(e.definition.HitDelay + e.definition.Duration)
 	e.runtime.registry.mutex.Unlock()
-	return e.endPackets(e.definition.HitDelay + e.definition.Duration)
+	if err != nil {
+		return nil, fmt.Errorf("drainFinishEnd: %w", err)
+	}
+	return packets, nil
 }
 
 func (e heroDrainSchedule) fail(scheduleErr error) {
@@ -332,15 +317,22 @@ func (e heroDrainSchedule) fail(scheduleErr error) {
 	isCurrent := e.isCurrent(peerSession, isFound)
 	if isCurrent {
 		peerSession.heroDrain = nil
-		_ = peerSession.setCampaignCharacterManaPoints(
-			e.creatureIndex, e.previousManaPoint,
-		)
-		peerSession.abilityCooldownSession().Rollback(e.cooldownReservation)
-		peerSession.abilityReleaseSession().Rollback(e.releaseReservation)
+	}
+	refundPacket, refundErr := e.run.cast.failLocked(&peerSession, isFound, e.run.cast.revision)
+	if isFound {
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
 	}
+	if len(refundPacket) != 0 {
+		e.runtime.registry.queueChannelPresentationLocked(e.run.zone, [][]byte{refundPacket})
+	}
+	if refundErr != nil {
+		e.runtime.logger.Printf("RakNet channel drain refund failed: %v", refundErr)
+	}
+	retireErr := e.run.retireLocked()
 	e.runtime.registry.mutex.Unlock()
-	e.run.releaseEffects()
+	if retireErr != nil {
+		e.runtime.logger.Printf("RakNet drain failure retirement failed: %v", retireErr)
+	}
 	if isCurrent {
 		e.runtime.logger.Printf(
 			"RakNet hero channel drain stopped after schedule failure for %s: %v",
@@ -404,7 +396,6 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelDrain(
 		return req.reject("power unavailable")
 	}
 	remainingManaPoint := peerSession.deployedManaPoint() - manaCost
-	previousManaPoint := peerSession.deployedManaPoint()
 	channelStart := req.packet.SourceTime + uint64(projected.HitDelay/time.Millisecond)
 	channelEnd := channelStart + uint64(projected.Duration/time.Millisecond)
 	// Build 103's response handler (0x4D64D0) copies wire offsets 16 and 24
@@ -492,19 +483,28 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelDrain(
 		r.registry.mutex.Unlock()
 		return req.reject("channel drain target effect unavailable")
 	}
+	cast := r.registry.reserveChannelCastLocked(peerSession, req.command.Common.ObjectID, cooldownReservation, releaseReservation)
 	err = peerSession.stopPlayerMovement(abilityStartTime)
 	if err == nil {
-		err = peerSession.setDeployedManaPoints(remainingManaPoint)
+		err = cast.debitLocked(&peerSession, manaCost)
 	}
 	if err != nil {
 		r.effectPool.Release(req.command.Common.ObjectID, sourceEffectSlot)
 		r.effectPool.Release(targetObjectID, targetEffectSlot)
-		peerSession.abilityCooldownSession().Rollback(cooldownReservation)
-		peerSession.abilityReleaseSession().Rollback(releaseReservation)
+		refundPacket, refundErr := cast.failLocked(&peerSession, true, cast.revision)
+		r.registry.sessions[sessionKey] = peerSession
+		if len(refundPacket) != 0 {
+			r.registry.queueChannelPresentationLocked(peerSession.zone, [][]byte{refundPacket})
+		}
+		if refundErr != nil {
+			r.logger.Printf("RakNet channel drain admission refund failed: %v", refundErr)
+		}
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("heroDrainCommit: %w", err)
 	}
 	run := &heroDrainRun{
+		cast:     cast,
+		registry: r.registry, zone: peerSession.zone, timer: r.npc.timer,
 		effectPool: r.effectPool, sourceObjectID: req.command.Common.ObjectID,
 		targetObjectID: targetObjectID, sourceEffectSlot: sourceEffectSlot,
 		targetEffectSlot: targetEffectSlot, releasePacket: releasePacket,
@@ -515,18 +515,14 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelDrain(
 	peerSession.heroDrain = run
 	generation := peerSession.generation
 	binding := peerSession.binding
-	creatureIndex := peerSession.deployedCreatureIndex
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
 
 	schedule := heroDrainSchedule{
 		runtime: r, packet: req.packet, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: req.command.Common.ObjectID,
-		targetObjectID: targetObjectID, creatureIndex: creatureIndex,
-		previousManaPoint: previousManaPoint, creature: creature,
+		targetObjectID: targetObjectID, creature: creature,
 		definition: projected, binding: binding, run: run,
-		cooldownReservation: cooldownReservation,
-		releaseReservation:  releaseReservation,
 	}
 	producers := make([]raknet.ScheduledPacketProducer, 0, projected.NumberOfTicks+1)
 	for tick := uint32(0); tick < projected.NumberOfTicks; tick++ {
@@ -546,11 +542,23 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelDrain(
 	} else {
 		cancel, err = req.packet.ScheduleGroup(producers)
 	}
+	if err == nil && cancel == nil {
+		err = errors.New("channel cancellation unavailable")
+	}
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		schedule.fail(err)
 		return nil, fmt.Errorf("heroDrainSchedule: %w", err)
 	}
 	run.setCancel(cancel)
+	admission := channelDrainAdmission{run: run, revision: cast.revision}
+	err = req.packet.AfterResponseCommit(admission.commit)
+	if err != nil {
+		schedule.fail(err)
+		return nil, fmt.Errorf("drainAdmissionCommit: %w", err)
+	}
 	r.logger.Printf(
 		"RakNet hero channel drain accepted ability=%s source=%d target=%d ticks=%d channel=%s",
 		projected.Name, req.command.Common.ObjectID, targetObjectID,

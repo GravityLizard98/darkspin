@@ -17,6 +17,10 @@ import (
 
 const GenericCallback = "DirectorTrigger_SpawnBoss"
 
+// ErrNoNamedBossNearby is the expected proximity miss; malformed nearby
+// trigger or listener data returns a separate diagnostic error.
+var ErrNoNamedBossNearby = errors.New("no named boss nearby")
+
 const NamedBossArenaRadius = float32(18)
 
 func IsNamedCallback(callbackName string) bool {
@@ -64,6 +68,14 @@ func PlanNamedEncounter(
 		}
 	}
 	if bossListener.MarkerID == 0 {
+		triggerAnchor, anchorErr := namedBossTriggerAnchor(director, publication)
+		if anchorErr != nil {
+			return game.CampaignDirectorPublication{}, nil, firstObjectID,
+				fmt.Errorf("named boss trigger anchor: %w", anchorErr)
+		}
+		bossListener = triggerAnchor
+	}
+	if bossListener.MarkerID == 0 {
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,
 			errors.New("named boss plan: boss anchor unavailable")
 	}
@@ -77,11 +89,6 @@ func PlanNamedEncounter(
 		strings.EqualFold(director.Level, "zelems_3") && len(addListener) == 0
 	if isZunhObservedFallback {
 		addListener = observedZunhAddListeners(director, bossListener)
-	}
-	actorCount := 1 + len(addListener)
-	if actorCount > int(zoneobject.ProjectileIDStart-firstObjectID) {
-		return game.CampaignDirectorPublication{}, nil, firstObjectID,
-			errors.New("named boss plan: object IDs exhausted")
 	}
 	leaderEntry := CompleteEntries(
 		directorPoolEntries(director, "captain"), false,
@@ -107,9 +114,15 @@ func PlanNamedEncounter(
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,
 			errors.New("named boss plan: candidate pool unavailable")
 	}
-	if len(addListener) != 0 && len(agentEntry) == 0 {
+	if len(agentEntry) == 0 {
+		// HordeSpawner_Register listeners remain on the named event, but
+		// they cannot create opening adds without an eligible agent roster.
+		addListener = nil
+	}
+	actorCount := 1 + len(addListener)
+	if actorCount > int(zoneobject.ProjectileIDStart-firstObjectID) {
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,
-			errors.New("named boss plan: add pool unavailable")
+			errors.New("named boss plan: object IDs exhausted")
 	}
 	leader, err := SelectNamedLeader(
 		director, leaderEntry, chainLevelIndex, gameID, bossListener.MarkerID,
@@ -242,23 +255,36 @@ func DeveloperPublication(
 	director game.CampaignDirector,
 ) (game.CampaignDirectorNamedEventPublication, error) {
 	for _, markerSet := range director.MarkerSets {
-		for _, marker := range markerSet.Markers {
-			for _, event := range marker.Events {
+		for _, trigger := range markerSet.Triggers {
+			for _, event := range trigger.Events {
 				if !IsNamedCallback(event.CallbackName) {
 					continue
 				}
-				eventName := namedMarkerEventName(marker, event)
+				eventName := namedTriggerEventName(trigger, event)
 				if eventName == "" {
 					continue
 				}
-				listener := namedEventListeners(markerSet, eventName)
+				listeners := namedEventListeners(markerSet, eventName)
+				triggerAnchor, anchorErr := bossTriggerAnchor(markerSet, trigger, event)
+				if anchorErr != nil {
+					return game.CampaignDirectorNamedEventPublication{},
+						fmt.Errorf("generic boss trigger anchor: %w", anchorErr)
+				}
+				if triggerAnchor.MarkerID != 0 {
+					listeners = append(listeners, triggerAnchor)
+				}
+				if len(listeners) == 0 {
+					return game.CampaignDirectorNamedEventPublication{},
+						fmt.Errorf("generic boss listeners: level %q set=%q trigger=%d event=%q empty",
+							director.Level, markerSet.Name, trigger.MarkerID, eventName)
+				}
 				return game.CampaignDirectorNamedEventPublication{
-					PublicationID:    uint64(marker.MarkerID),
+					PublicationID:    uint64(trigger.MarkerID),
 					MarkerSetOrdinal: markerSet.Ordinal,
 					MarkerSetName:    markerSet.Name,
-					SourceObjectID:   marker.MarkerID,
+					SourceObjectID:   trigger.MarkerID,
 					EventName:        eventName,
-					Listeners:        listener,
+					Listeners:        listeners,
 				}, nil
 			}
 		}
@@ -277,17 +303,43 @@ func DeveloperPublicationNearPosition(
 	maximumDistanceSquared := maximumDistance * maximumDistance
 	nearestDistanceSquared := float32(math.MaxFloat32)
 	nearestPublication := game.CampaignDirectorNamedEventPublication{}
+	isBossAnchorNearby := false
+	isNamedTriggerNearby := false
+	nearMarkerSetName := ""
+	nearTriggerMarkerID := uint32(0)
+	nearEventName := ""
 	for _, markerSet := range director.MarkerSets {
 		for _, marker := range markerSet.Markers {
-			for _, event := range marker.Events {
+			if strings.EqualFold(marker.NounName, "SpawnPoint_DirectorBoss.Noun") &&
+				squaredPositionDistance(position, marker.Position) <= maximumDistanceSquared {
+				isBossAnchorNearby = true
+				nearMarkerSetName = markerSet.Name
+			}
+		}
+		for _, trigger := range markerSet.Triggers {
+			for _, event := range trigger.Events {
 				if !IsNamedCallback(event.CallbackName) {
 					continue
 				}
-				eventName := namedMarkerEventName(marker, event)
+				if squaredPositionDistance(position, trigger.Position) <= maximumDistanceSquared {
+					isNamedTriggerNearby = true
+					nearMarkerSetName = markerSet.Name
+					nearTriggerMarkerID = trigger.MarkerID
+					nearEventName = namedTriggerEventName(trigger, event)
+				}
+				eventName := namedTriggerEventName(trigger, event)
 				if eventName == "" {
 					continue
 				}
 				listeners := namedEventListeners(markerSet, eventName)
+				triggerAnchor, anchorErr := bossTriggerAnchor(markerSet, trigger, event)
+				if anchorErr != nil {
+					return game.CampaignDirectorNamedEventPublication{},
+						fmt.Errorf("near boss trigger anchor: %w", anchorErr)
+				}
+				if triggerAnchor.MarkerID != 0 {
+					listeners = append(listeners, triggerAnchor)
+				}
 				for _, listener := range listeners {
 					if !IsNamedCallback(listener.CallbackName) ||
 						!strings.EqualFold(
@@ -302,10 +354,10 @@ func DeveloperPublicationNearPosition(
 					}
 					nearestDistanceSquared = distanceSquared
 					nearestPublication = game.CampaignDirectorNamedEventPublication{
-						PublicationID:    uint64(marker.MarkerID),
+						PublicationID:    uint64(trigger.MarkerID),
 						MarkerSetOrdinal: markerSet.Ordinal,
 						MarkerSetName:    markerSet.Name,
-						SourceObjectID:   marker.MarkerID,
+						SourceObjectID:   trigger.MarkerID,
 						EventName:        eventName,
 						Listeners:        listeners,
 					}
@@ -314,8 +366,14 @@ func DeveloperPublicationNearPosition(
 		}
 	}
 	if nearestPublication.PublicationID == 0 {
+		if isBossAnchorNearby || isNamedTriggerNearby {
+			return game.CampaignDirectorNamedEventPublication{},
+				fmt.Errorf("near boss listener: level %q set=%q trigger=%d event=%q anchor_near=%t trigger_near=%t",
+					director.Level, nearMarkerSetName, nearTriggerMarkerID,
+					nearEventName, isBossAnchorNearby, isNamedTriggerNearby)
+		}
 		return game.CampaignDirectorNamedEventPublication{},
-			fmt.Errorf("near boss publication: level %q unavailable", director.Level)
+			fmt.Errorf("near boss publication: level %q: %w", director.Level, ErrNoNamedBossNearby)
 	}
 	return nearestPublication, nil
 }
@@ -418,6 +476,67 @@ func namedEventListeners(
 	return listener
 }
 
+// A boss spawn point can own the trigger itself. The director stores that
+// placement in Triggers, while live named-event subscriptions contain only
+// separate listener components such as the horde add anchors.
+func bossTriggerAnchor(
+	markerSet game.CampaignDirectorMarkerSet,
+	trigger game.CampaignDirectorTrigger,
+	event game.CampaignDirectorEvent,
+) (game.CampaignDirectorListenerPublication, error) {
+	if !strings.EqualFold(trigger.NounName, "SpawnPoint_DirectorBoss.Noun") ||
+		!IsNamedCallback(event.CallbackName) {
+		return game.CampaignDirectorListenerPublication{}, nil
+	}
+	for _, definition := range markerSet.Definitions {
+		if definition.MarkerID != trigger.MarkerID {
+			continue
+		}
+		return game.CampaignDirectorListenerPublication{
+			MarkerSetOrdinal: markerSet.Ordinal, MarkerSetName: markerSet.Name,
+			MarkerOrdinal: trigger.Ordinal, MarkerID: trigger.MarkerID,
+			MarkerName: trigger.Name, NounName: trigger.NounName,
+			Position: trigger.Position, Rotation: definition.Rotation,
+			EventOrdinal: event.Ordinal, CallbackName: event.CallbackName,
+		}, nil
+	}
+	return game.CampaignDirectorListenerPublication{}, fmt.Errorf(
+		"level marker definition: set=%q trigger=%d missing",
+		markerSet.Name, trigger.MarkerID,
+	)
+}
+
+func namedBossTriggerAnchor(
+	director game.CampaignDirector,
+	publication game.CampaignDirectorNamedEventPublication,
+) (game.CampaignDirectorListenerPublication, error) {
+	for _, markerSet := range director.MarkerSets {
+		if markerSet.Ordinal != publication.MarkerSetOrdinal ||
+			!strings.EqualFold(markerSet.Name, publication.MarkerSetName) {
+			continue
+		}
+		for _, trigger := range markerSet.Triggers {
+			if trigger.MarkerID != publication.SourceObjectID {
+				continue
+			}
+			for _, event := range trigger.Events {
+				if !strings.EqualFold(
+					namedTriggerEventName(trigger, event), publication.EventName,
+				) {
+					continue
+				}
+				anchor, err := bossTriggerAnchor(markerSet, trigger, event)
+				if err != nil {
+					return game.CampaignDirectorListenerPublication{},
+						fmt.Errorf("bossAnchor: %w", err)
+				}
+				return anchor, nil
+			}
+		}
+	}
+	return game.CampaignDirectorListenerPublication{}, nil
+}
+
 func namedMarkerEventName(
 	marker game.CampaignDirectorMarker, event game.CampaignDirectorEvent,
 ) string {
@@ -427,6 +546,15 @@ func namedMarkerEventName(
 	return game.CampaignDirectorCallbackEventName(
 		marker.MarkerID, event.CallbackName,
 	)
+}
+
+func namedTriggerEventName(
+	trigger game.CampaignDirectorTrigger, event game.CampaignDirectorEvent,
+) string {
+	if strings.TrimSpace(event.EventName) != "" {
+		return event.EventName
+	}
+	return game.CampaignDirectorCallbackEventName(trigger.MarkerID, event.CallbackName)
 }
 
 func isFinitePosition(position game.Vec3) bool {

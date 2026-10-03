@@ -10,7 +10,7 @@ import (
 	securityraknet "github.com/darkspinnet/darkspin/server/zone/security/raknet103"
 )
 
-const tutorialBossTeleporterObjectID = uint32(28)
+const tutorialBossTeleporterSourceID = uint32(28)
 
 var tutorialBossTeleport = zonesecurity.Teleport{
 	Source:      game.Vec3{X: 260.83334, Y: 232.78407, Z: 20.16802},
@@ -19,35 +19,52 @@ var tutorialBossTeleport = zonesecurity.Teleport{
 }
 
 func (e *gameplayPeerSession) tutorialTeleporterInitialState() ([][]byte, error) {
-	if e == nil || e.binding.Mode != game.ModeTutorial {
+	if e == nil || e.binding.Mode != game.ModeTutorial || e.zone == nil ||
+		e.zone.Security() == nil {
 		return nil, nil
 	}
+	isActive := e.isTutorialTeleporterActive &&
+		!hasTutorialTeleporterThreat(e.zone.SecurityThreats())
+	objectID, err := e.teleporterAnchorObjectID(tutorialBossTeleporterSourceID)
+	if err != nil {
+		return nil, fmt.Errorf("tutorialAnchorOwner: %w", err)
+	}
+	anchorPacket, err := securityraknet.Anchor(objectID, tutorialBossTeleport.Source)
+	if err != nil {
+		return nil, fmt.Errorf("tutorialAnchor: %w", err)
+	}
 	packets, err := securityraknet.State(
-		tutorialBossTeleporterObjectID, tutorialBossTeleport,
-		e.isTutorialTeleporterActive, false,
+		objectID, tutorialBossTeleport,
+		isActive, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("tutorialTeleporterState: %w", err)
 	}
-	return packets, nil
+	e.isTutorialTeleporterActive = isActive
+	return append([][]byte{anchorPacket}, packets...), nil
 }
 
 func (e *gameplayPeerSession) activateTutorialTeleporter() ([][]byte, error) {
 	if e == nil || e.binding.Mode != game.ModeTutorial || e.zone == nil ||
-		e.isTutorialTeleporterUsed {
+		e.zone.Security() == nil {
 		return nil, nil
 	}
 	isActive := !hasTutorialTeleporterThreat(e.zone.SecurityThreats())
-	if e.isTutorialTeleporterActive == isActive {
+	if e.isTutorialTeleporterActive == isActive && !e.isTutorialTeleporterPresentationPending {
+		return nil, nil
+	}
+	objectID, isFound := e.zone.Security().AnchorObjectID(tutorialBossTeleporterSourceID)
+	if !isFound {
 		return nil, nil
 	}
 	packets, err := securityraknet.State(
-		tutorialBossTeleporterObjectID, tutorialBossTeleport, isActive, isActive,
+		objectID, tutorialBossTeleport, isActive, isActive,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("tutorialTeleporterActivate: %w", err)
 	}
 	e.isTutorialTeleporterActive = isActive
+	e.isTutorialTeleporterPresentationPending = false
 	return packets, nil
 }
 

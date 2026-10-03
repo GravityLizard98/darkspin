@@ -21,6 +21,10 @@ func (e gameplayPendingRuntime) pollTeleporters(packet raknet.Packet) ([][]byte,
 		peerSession.isZoneTerminal() || peerSession.isHeroSelectionPending ||
 		peerSession.deployedObjectID == 0 || peerSession.deployedHitPoint() <= 0 ||
 		(peerSession.binding.Mode != game.ModeChain && peerSession.binding.Mode != game.ModeTutorial) {
+		if isFound && peerSession.transportGeneration == packet.TransportGeneration {
+			peerSession.teleporterSample = teleporterContactSample{}
+			e.registry.sessions[sessionKey] = peerSession
+		}
 		e.registry.mutex.Unlock()
 		return nil, nil
 	}
@@ -78,8 +82,8 @@ func (e gameplayPendingRuntime) pollTeleporters(packet raknet.Packet) ([][]byte,
 func (e *gameplayPeerSession) pollTeleporterContacts(
 	now time.Time, timestamp uint64, orientation raknet.Quaternion,
 ) ([][]byte, game.CampaignTeleportRoute, bool, error) {
-	previousPosition := e.playerPosition
-	current := game.Vec3(previousPosition)
+	positionBeforeContact := e.playerPosition
+	current := game.Vec3(e.playerPosition)
 	if e.playerMotion != nil {
 		position, err := e.playerMotion.SamplePosition(now)
 		if err != nil {
@@ -87,17 +91,21 @@ func (e *gameplayPeerSession) pollTeleporterContacts(
 		}
 		current = game.Vec3(position)
 	}
-	packets, route, isTeleported, err := e.observeCampaignTunnel(current, current, orientation, timestamp, now)
+	previous := e.previousTeleporterSample(current)
+	// Consume each real segment once, including polls with no accepted route.
+	// Successful relocation reseeds the sample at its destination instead.
+	e.retainTeleporterSample(current)
+	packets, route, isTeleported, err := e.observeCampaignTunnel(previous, current, orientation, timestamp, now)
 	if err != nil {
 		return nil, route, false, fmt.Errorf("teleporterTunnel: %w", err)
 	}
 	if !isTeleported {
-		securityPackets, securityErr := e.observeSecurityTeleporter(current, raknet.Vector3(current), now, timestamp, orientation)
+		securityPackets, securityErr := e.observeSecurityTeleporter(previous, raknet.Vector3(current), now, timestamp, orientation)
 		if securityErr != nil {
 			return nil, route, false, fmt.Errorf("teleporterSecurity: %w", securityErr)
 		}
 		packets = append(packets, securityPackets...)
-		isTeleported = previousPosition != e.playerPosition
+		isTeleported = positionBeforeContact != e.playerPosition
 		if isTeleported {
 			for _, teleport := range zonesecurity.Routes(e.binding.Level) {
 				if teleport.Destination == game.Vec3(e.playerPosition) {
@@ -111,7 +119,7 @@ func (e *gameplayPeerSession) pollTeleporterContacts(
 		}
 	}
 	if !isTeleported {
-		tutorialPackets, isTutorialTeleport, tutorialErr := e.observeTutorialTeleporter(current, current, orientation, timestamp, now)
+		tutorialPackets, isTutorialTeleport, tutorialErr := e.observeTutorialTeleporter(previous, current, orientation, timestamp, now)
 		if tutorialErr != nil {
 			return nil, route, false, fmt.Errorf("teleporterTutorial: %w", tutorialErr)
 		}
@@ -125,5 +133,10 @@ func (e *gameplayPeerSession) pollTeleporterContacts(
 			return nil, route, false, fmt.Errorf("teleporterPose: %w", err)
 		}
 	}
+	securityStatePackets, err := e.syncSecurityTeleporterStates()
+	if err != nil {
+		return nil, route, false, fmt.Errorf("teleporterPresentation: %w", err)
+	}
+	packets = append(packets, securityStatePackets...)
 	return packets, route, isTeleported, nil
 }

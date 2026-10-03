@@ -1,6 +1,7 @@
 package gameplay
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -290,6 +291,9 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 			binding: peerSession.binding, run: projectileRun,
 			isElectronSphere: isElectronSphereRequest,
 			flight:           flight, startedAt: abilityStartTime,
+			retirement: &campaignProjectileRetirement{
+				originalZone: peerSession.zone, generation: peerSession.generation, objectID: projectileObjectID, run: projectileRun,
+			},
 		})
 	}
 	err = peerSession.stopPlayerMovement(abilityStartTime)
@@ -491,6 +495,9 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 		cooldownReservation: cooldownReservation,
 		releaseReservation:  releaseReservation,
 	}
+	for _, projectileSchedule := range projectileSchedules {
+		scheduleFailure.retirements = append(scheduleFailure.retirements, projectileSchedule.retirement)
+	}
 	var cancel raknet.CancelSchedule
 	if packet.ScheduleGroupResult != nil {
 		cancel, err = packet.ScheduleGroupResult(
@@ -504,8 +511,30 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 		scheduleFailure.rollbackAdmission()
 		return nil, fmt.Errorf("campaignProjectileSchedule: %w", err)
 	}
-	for _, projectileRun := range projectileRuns {
-		projectileRun.SetCancel(cancel)
+	r.registry.mutex.Lock()
+	current, isCurrentFound := r.registry.sessions[sessionKey]
+	isCurrent := isCurrentFound && current.generation == generation && current.zone == peerSession.zone
+	for _, projectileSchedule := range projectileSchedules {
+		if projectileSchedule.retirement.isRetired || projectileSchedule.retirement.isRetirementPending || current.sageAttacks[projectileSchedule.projectileObjectID] != projectileSchedule.run {
+			isCurrent = false
+		}
+	}
+	if isCurrent {
+		r.registry.queueCampaignProjectilePublicationLocked(projectileSchedules[0].retirement, sessionKey, immediatePackets)
+		for _, projectileSchedule := range projectileSchedules {
+			projectileSchedule.retirement.recordPublication(immediatePackets)
+			r.registry.admitCampaignProjectilePublicationLocked(projectileSchedule.retirement, sessionKey)
+			projectileSchedule.run.SetCancel(cancel)
+		}
+	}
+	r.registry.mutex.Unlock()
+	if !isCurrent {
+		if cancel != nil {
+			cancel()
+		}
+		scheduleFailure.handle(errors.New("projectile admission no longer current"))
+		scheduleFailure.rollbackAdmission()
+		return nil, nil
 	}
 	for _, projectileSchedule := range projectileSchedules {
 		r.logger.Printf(
@@ -524,7 +553,7 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 			facing.X, facing.Y, facing.Z,
 		)
 	}
-	startPackets := append(immediatePackets, cooldownPacket)
+	startPackets := [][]byte{cooldownPacket}
 	if len(manaPacket) != 0 {
 		startPackets = append(startPackets, manaPacket)
 	}

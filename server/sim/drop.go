@@ -19,8 +19,11 @@ func PlanOrbDropBudget(sourceAmount int32, difficultyScale float32) (OrbDropBudg
 		math.IsNaN(float64(difficultyScale)) || math.IsInf(float64(difficultyScale), 0) {
 		return OrbDropBudget{}, errors.New("invalid orb drop input")
 	}
-	scaledAmount := float64(sourceAmount) * float64(difficultyScale)
-	if scaledAmount > float64(math.MaxInt32) {
+	// Native CVTSI2SS/MULSS stores the product in float32 before CVTTSS2SI.
+	// Keep that rounding boundary: using float64 can turn a budget of 100
+	// into 99 and incorrectly make its last capsule a fractional attempt.
+	scaledAmount := float32(sourceAmount) * difficultyScale
+	if math.IsInf(float64(scaledAmount), 0) || scaledAmount >= float32(1<<31) {
 		return OrbDropBudget{}, errors.New("orb drop budget overflow")
 	}
 	// Native conversion truncates the scaled challenge before any attempt.

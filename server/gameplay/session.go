@@ -240,18 +240,22 @@ type zonePresentationRuntime struct {
 	cryosBurnExpiresAt     time.Time
 	cryosBurnHazard        campaignLavaHazard
 	zoneCombatPresentation
-	campaignSchedule            *zoneaction.ScheduleSession
-	campaignUnlockPresentation  *unlockraknet.ActiveSession
-	securityTransfer            *securityraknet.Transfer
-	teleporterHandoff           *teleportraknet.Handoff
-	teleporterContact           sim.SphereContactState
-	isTutorialTeleporterActive  bool
-	isTutorialTeleporterUsed    bool
-	campaignTeleporterStates    map[uint32]bool
-	campaignTunnelExitSource    game.Vec3
-	campaignTunnelExitRadius    float32
-	isCampaignTunnelExitPending bool
-	isClientBossBoundaryPending bool
+	campaignSchedule                        *zoneaction.ScheduleSession
+	campaignUnlockPresentation              *unlockraknet.ActiveSession
+	securityTransfer                        *securityraknet.Transfer
+	teleporterHandoff                       *teleportraknet.Handoff
+	teleporterContact                       sim.SphereContactState
+	teleporterSample                        teleporterContactSample
+	pickupContact                           pickupContactState
+	isTutorialTeleporterActive              bool
+	isTutorialTeleporterUsed                bool
+	isTutorialTeleporterPresentationPending bool
+	securityTeleporterStates                map[uint32]bool
+	campaignTeleporterStates                map[uint32]bool
+	campaignTunnelExitSource                game.Vec3
+	campaignTunnelExitRadius                float32
+	isCampaignTunnelExitPending             bool
+	isClientBossBoundaryPending             bool
 }
 
 // chainPeerRuntime survives the boundary between one completed zone and the
@@ -501,6 +505,8 @@ type controlledHeroPresentation struct {
 	heroAuraAreas                map[uint32]*heroAuraAreaRun
 	heroProjectileRuns           map[uint32]*heroProjectileStatusRun
 	heroCharge                   *heroChargeRun
+	chargeRuns                   map[*heroChargeRun]struct{}
+	beastChargeRuns              map[*heroChargeRun]struct{}
 	roarReductionObjectID        uint32
 	roarReductionExpiresAt       time.Time
 	fireTempestPassive           *fireTempestPassiveRun
@@ -534,6 +540,9 @@ type zoneCombatPresentation struct {
 }
 
 type gameplayPeerSession struct {
+	scenarioPeerPreparation
+	scenarioPeerFixture
+	scenarioPeerReadiness
 	zoneEffectPresentation
 	zonePresentationRuntime
 	chainPeerRuntime
@@ -1397,7 +1406,7 @@ func (e *gameplayPeerSession) startEnemyFearMovement(
 }
 
 func (e *gameplayPeerSession) teleportPlayer(
-	now time.Time, destination raknet.Vector3,
+	now time.Time, destination raknet.Vector3, excludedRuns ...*heroChargeRun,
 ) error {
 	if e == nil {
 		return errors.New("nil player teleport session")
@@ -1414,9 +1423,27 @@ func (e *gameplayPeerSession) teleportPlayer(
 			return fmt.Errorf("teleportNavigation: %w", err)
 		}
 	}
+	err := e.placeTeleportedPlayer(now, destination, excludedRuns...)
+	if err != nil {
+		return fmt.Errorf("teleportPlacement: %w", err)
+	}
+	return nil
+}
+
+// Developer /goto accepts explicit world coordinates even when a navigation
+// mesh cannot project the requested point.
+func (e *gameplayPeerSession) placeTeleportedPlayer(
+	now time.Time, destination raknet.Vector3, excludedRuns ...*heroChargeRun,
+) error {
+	if e == nil {
+		return errors.New("nil player teleport session")
+	}
 	if e.playerMotion == nil {
+		e.retireBeastChargePets(now, excludedRuns...)
 		e.playerPosition = destination
 		e.playerMovementGoal = destination
+		e.resetTeleporterSample()
+		e.resetPickupContacts()
 		if e.deployedCreatureIndex < uint32(len(e.passiveStationarySince)) {
 			e.passiveStationarySince[e.deployedCreatureIndex] = now
 		}
@@ -1426,8 +1453,11 @@ func (e *gameplayPeerSession) teleportPlayer(
 	if err != nil {
 		return fmt.Errorf("movementTeleport: %w", err)
 	}
+	e.retireBeastChargePets(now, excludedRuns...)
 	e.playerPosition = destination
 	e.playerMovementGoal = destination
+	e.resetTeleporterSample()
+	e.resetPickupContacts()
 	if e.deployedCreatureIndex < uint32(len(e.passiveStationarySince)) {
 		e.passiveStationarySince[e.deployedCreatureIndex] = now
 	}
@@ -1478,6 +1508,8 @@ func (s *gameplayPeerSession) restorePlayerMotion(
 	position, isRestored := s.playerMotion.Restore(snapshot, expectedRevision)
 	if isRestored {
 		s.playerPosition = toRakNetPosition(position)
+		s.resetTeleporterSample()
+		s.resetPickupContacts()
 	}
 	return isRestored
 }
@@ -1523,6 +1555,8 @@ func (s *gameplayPeerSession) resetRetainedTransportState() {
 		return
 	}
 	s.operativeCage = nil
+	s.resetTeleporterSample()
+	s.resetPickupContacts()
 	s.resetAbilityRelease()
 	s.playerAI = playerAIState{}
 	// The rejoin baseline supersedes packets encoded for the retired transport.
@@ -1672,6 +1706,7 @@ func (s *gameplayPeerSession) resetInterruptibleActionAdmission() *abilityraknet
 		return nil
 	}
 	s.interruptRocketBarrage(time.Now())
+	s.retireChannelsLocked()
 	run := s.resetSharedActionAdmission()
 	if s.heroDrain != nil {
 		s.heroDrain.Stop()
@@ -1686,7 +1721,7 @@ func (s *gameplayPeerSession) resetInterruptibleActionAdmission() *abilityraknet
 		s.heroQuantumBlink = nil
 	}
 	if s.heroCharge != nil {
-		cleanupPackets := s.heroCharge.Interrupt()
+		cleanupPackets := s.interruptChargeLocked(s.heroCharge)
 		s.queuePackets(cleanupPackets)
 		s.heroCharge = nil
 	}
@@ -1698,6 +1733,8 @@ func (s *gameplayPeerSession) resetAbilityAdmissionForSwitch() *abilityraknet.Me
 		return nil
 	}
 	run := s.resetInterruptibleActionAdmission()
+	s.retireChargeRunsLocked()
+	s.retireBeastChargePets(time.Time{})
 	for _, attack := range s.sageAttacks {
 		attack.Stop()
 	}
@@ -1749,13 +1786,7 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 		statusRun.Stop()
 	}
 	e.heroStatusAreas = nil
-	for _, auraRun := range e.heroAuraAreas {
-		cleanupPackets, cleanupErr := auraRun.Stop()
-		if cleanupErr != nil {
-			log.Printf("RakNet hero aura reset cleanup failed: %v", cleanupErr)
-		}
-		e.queuePackets(cleanupPackets)
-	}
+	e.retireAuraAreasLocked()
 	e.heroAuraAreas = nil
 	for _, projectileRun := range e.heroProjectileRuns {
 		projectileRun.Stop()
@@ -1850,28 +1881,34 @@ type campaignAbilityPursuitAdmission struct {
 type gameplaySessionRegistry struct {
 	// Keep every atomically accessed 64-bit field first so it remains aligned
 	// in the Windows 386 build.
-	nextGeneration       uint64
-	nextActionGeneration uint64
-	memberMutexes        [64]sync.Mutex
-	mutex                sync.RWMutex
-	isClosed             bool
-	activeRequest        int
-	requestIdle          chan struct{}
-	sessions             map[string]gameplayPeerSession
-	chronoFreezes        map[chronoFreezeKey]time.Time
-	retainedSessions     map[gameplayMemberKey]*gameplayRetainedSession
-	memberTransports     map[gameplayMemberKey]uint64
-	memberEndpoints      map[gameplayMemberKey]string
-	actionLeases         map[gameplayActionLeaseKey]gameplayActionLease
-	actionAdmissions     map[gameplayActionLeaseKey]struct{}
-	actionTerminals      map[gameplayActionLeaseKey]struct{}
-	diagnosticDecisions  []gameplayDiagnosticDecision
-	arenaMatches         map[uint32]*arenaMatchState
-	producerGuard        gameplayProducerGuard
-	lifecycle            gameplaySessionLifecycle
-	timer                zone.Timer
-	now                  func() time.Time
-	logger               *log.Logger
+	nextGeneration          uint64
+	nextActionGeneration    uint64
+	memberMutexes           [64]sync.Mutex
+	mutex                   sync.RWMutex
+	isClosed                bool
+	activeRequest           int
+	requestIdle             chan struct{}
+	sessions                map[string]gameplayPeerSession
+	chronoFreezes           map[chronoFreezeKey]*chronoFreezeStep
+	timeBubbles             map[*heroAuraAreaRun]struct{}
+	auraRuns                map[*heroAuraAreaRun]struct{}
+	projectileRetirements   map[*abilityraknet.ProjectileRun]*campaignProjectileRetirement
+	projectileFreezes       map[*abilityraknet.ProjectileRun]map[uint32]*hostileProjectileFreezeStep
+	chargeRuns              map[*heroChargeRun]struct{}
+	nextChannelCastRevision uint64
+	retainedSessions        map[gameplayMemberKey]*gameplayRetainedSession
+	memberTransports        map[gameplayMemberKey]uint64
+	memberEndpoints         map[gameplayMemberKey]string
+	actionLeases            map[gameplayActionLeaseKey]gameplayActionLease
+	actionAdmissions        map[gameplayActionLeaseKey]struct{}
+	actionTerminals         map[gameplayActionLeaseKey]struct{}
+	diagnosticDecisions     []gameplayDiagnosticDecision
+	arenaMatches            map[uint32]*arenaMatchState
+	producerGuard           gameplayProducerGuard
+	lifecycle               gameplaySessionLifecycle
+	timer                   zone.Timer
+	now                     func() time.Time
+	logger                  *log.Logger
 }
 
 type gameplayDiagnosticDecision struct {
@@ -2155,6 +2192,11 @@ func (e gameplaySessionLifecycle) discardGame(
 		if peerSession.binding.GameID != gameID {
 			continue
 		}
+		peerSession.retireChannelsLocked()
+		peerSession.retireAuraAreasLocked()
+		peerSession.retireChargeRunsLocked()
+		e.registry.retirePeerProjectileFreezesLocked(&peerSession)
+		e.registry.retireFieldMedicBuffsLocked(&peerSession, modifierInstancePool)
 		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
@@ -2231,6 +2273,11 @@ func (e gameplaySessionLifecycle) discardMember(
 		if gameplaySessionMemberKey(peerSession) != memberKey {
 			continue
 		}
+		peerSession.retireChannelsLocked()
+		peerSession.retireAuraAreasLocked()
+		peerSession.retireChargeRunsLocked()
+		e.registry.retirePeerProjectileFreezesLocked(&peerSession)
+		e.registry.retireFieldMedicBuffsLocked(&peerSession, modifierInstancePool)
 		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
@@ -2323,6 +2370,11 @@ func (e gameplaySessionLifecycle) cleanup(
 	retainedSessions := make([]gameplayPeerSession, 0, len(e.registry.retainedSessions))
 	arenaCancels := make([]func(), 0, len(e.registry.arenaMatches))
 	for sessionKey, peerSession := range e.registry.sessions {
+		peerSession.retireChannelsLocked()
+		peerSession.retireAuraAreasLocked()
+		peerSession.retireChargeRunsLocked()
+		e.registry.retirePeerProjectileFreezesLocked(&peerSession)
+		e.registry.retireFieldMedicBuffsLocked(&peerSession, modifierInstancePool)
 		e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 		peerSessions = append(peerSessions, peerSession)
 		delete(e.registry.sessions, sessionKey)
@@ -2482,6 +2534,11 @@ func (e gameplaySessionLifecycle) disconnectMember(
 		e.registry.mutex.Unlock()
 		return
 	}
+	peerSession.retireChannelsLocked()
+	peerSession.retireAuraAreasLocked()
+	peerSession.retireChargeRunsLocked()
+	e.registry.retirePeerProjectileFreezesLocked(&peerSession)
+	e.registry.retireFieldMedicBuffsLocked(&peerSession, modifierInstancePool)
 	e.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 	delete(e.registry.sessions, sessionKey)
 	e.registry.clearActionLeasesLocked(sessionKey, 0)
@@ -2884,16 +2941,31 @@ type campaignNPCProjectileAuthority struct {
 
 func (e campaignNPCProjectileAuthority) retire(
 	sessionKey string, generation uint64, objectID uint32,
-	run *abilityraknet.ProjectileRun,
+	run *abilityraknet.ProjectileRun, retirements ...*campaignProjectileRetirement,
 ) {
 	e.registry.mutex.Lock()
-	peerSession, isFound := e.registry.sessions[sessionKey]
-	if isFound && peerSession.generation == generation {
-		peerSession.untrackCampaignNPCProjectile(objectID, run)
-		e.registry.sessions[sessionKey] = peerSession
+	retirement := (*campaignProjectileRetirement)(nil)
+	if len(retirements) == 1 {
+		retirement = retirements[0]
+	}
+	if retirement == nil {
+		// Admission rejection has never published a flight. Keep this boundary
+		// separate from delayed failures with a captured publication identity.
+		member, isFound := e.registry.sessions[sessionKey]
+		if isFound && member.generation == generation && member.campaignNPCProjectiles[objectID] == run {
+			retirement = &campaignProjectileRetirement{originalZone: member.zone, objectID: objectID, run: run}
+		}
+	}
+	if retirement != nil {
+		err := e.registry.retireCampaignProjectileLocked(retirement)
+		if err != nil && e.registry.logger != nil {
+			e.registry.logger.Printf("RakNet NPC projectile retirement failed object=%d: %v", objectID, err)
+		}
 	}
 	e.registry.mutex.Unlock()
-	run.Stop()
+	if retirement == nil {
+		run.Stop()
+	}
 }
 
 func (e campaignNPCProjectileAuthority) complete(
@@ -2938,7 +3010,7 @@ func (e campaignActionAuthority) expirePursuit(
 }
 
 func (e campaignActionAuthority) cancel(
-	sessionKey string, objectID uint32, now time.Time,
+	sessionKey string, objectID uint32, now time.Time, sourceTimes ...uint64,
 ) (zoneaction.PursuitSnapshot, *abilityraknet.MeleeRun, *heroDrainRun, *heroHealingTicksRun, bool) {
 	e.registry.mutex.Lock()
 	defer e.registry.mutex.Unlock()
@@ -2964,6 +3036,7 @@ func (e campaignActionAuthority) cancel(
 	basicAttack := peerSession.basicAttack
 	basicSyncStamp := peerSession.basicAttackSyncStamp
 	heroDrain := peerSession.heroDrain
+	peerSession.retireChannelsLocked(sourceTimes...)
 	peerSession.heroDrain = nil
 	var healingChannel *heroHealingTicksRun
 	if peerSession.heroHealingTicks != nil && peerSession.heroHealingTicks.isChanneled {
@@ -3359,6 +3432,8 @@ func (s *gameplayPeerSession) deployZoneCharacter(
 	}
 	s.deployedCreatureIndex = index
 	s.deployedObjectID = objectID
+	s.resetTeleporterSample()
+	s.resetPickupContacts()
 	s.basicSequenceSession().ReleaseHeld()
 	return nil
 }
@@ -3379,7 +3454,7 @@ func (s *gameplayPeerSession) healLivingZoneCompanions(
 	}
 	pending := make([]pendingHealing, 0)
 	for _, companion := range s.zone.Companion().Snapshots() {
-		if companion.UserID != s.binding.UserID ||
+		if !isPartyCompanionOwner(companion, *s) ||
 			!isInsideZoneTrigger(raknet.Vector3(companion.Position), position, radius) ||
 			companion.PeerGeneration != s.generation ||
 			!companion.IsTargetable || companion.HitPoint <= 0 ||
@@ -3892,7 +3967,8 @@ func (r gameplaySwitchRuntime) handle(
 		deathSelectionDelay = commandSession.heroSelectionReadyAt.Sub(switchStartTime)
 	}
 	switchPresentationTime := switchStartTime.Add(deathSelectionDelay)
-	isVoluntarySwitch := command.Common.ObjectID == sourceObjectID &&
+	isVoluntarySwitch := !isDeathSelection &&
+		command.Common.ObjectID == sourceObjectID &&
 		commandSession.squad.IsDeployReady(switchStartTime)
 	if command.Value >= uint32(len(commandSession.binding.Creatures)) ||
 		commandSession.binding.Creatures[command.Value].Noun == 0 ||
@@ -4256,6 +4332,8 @@ func (r gameplaySwitchRuntime) handle(
 	peerSession.passiveStationarySince[command.Value] = switchPresentationTime
 	peerSession.startTCShieldRecharge(command.Value, switchPresentationTime)
 	peerSession.deployedObjectID = targetObjectID
+	peerSession.resetTeleporterSample()
+	peerSession.resetPickupContacts()
 	if isVoluntarySwitch {
 		peerSession.heroInputLockedObjectID = sourceObjectID
 		peerSession.heroInputLockedUntil = switchStartTime.Add(
@@ -4932,6 +5010,29 @@ func (s *gameplayPeerSession) applyCampaignDamageHitPacketsWithCommit(
 				fmt.Errorf("campaignDeathPullEffect: %w", pullErr)
 		}
 		hitPackets = append(hitPackets, pullPackets...)
+		cooldownPacket, cooldownErr := heroraknet.DeployCooldown(
+			uint8(s.binding.Slot), s.deployedCreatureIndex, 0,
+		)
+		if cooldownErr != nil {
+			return nil, sporenet.PlayerStatDelta{},
+				fmt.Errorf("campaignDeathCooldown: %w", cooldownErr)
+		}
+		hitPackets = append(hitPackets, cooldownPacket)
+		for creatureIndex := uint32(0); creatureIndex < squad.Size; creatureIndex++ {
+			if creatureIndex == s.deployedCreatureIndex {
+				continue
+			}
+			character, isFound := s.squad.Character(creatureIndex)
+			if !isFound || !character.IsAvailable {
+				continue
+			}
+			resourcePacket, resourceErr := s.marshalCampaignCharacterResource(creatureIndex)
+			if resourceErr != nil {
+				return nil, sporenet.PlayerStatDelta{},
+					fmt.Errorf("campaignDeathReserve[%d]: %w", creatureIndex, resourceErr)
+			}
+			hitPackets = append(hitPackets, resourcePacket)
+		}
 		s.squad.ResetDeployCooldown()
 		s.clearEnemyHeroStatuses()
 		// The native death transition can replace the controlled object's local

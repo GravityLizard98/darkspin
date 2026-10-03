@@ -16,6 +16,7 @@ import (
 )
 
 type Session struct {
+	scenarioFixtureLedger
 	navigationMesh       *navigation.Mesh
 	navigationFootprints map[uint32]game.NavigationFootprint
 	mu                   sync.RWMutex
@@ -190,6 +191,7 @@ func (s *Session) AddDormant(plans []SpawnPlan) error {
 			IsInvisibleToSecurityTeleporter: isPreAggroInvisibleNoun(plan.NounName),
 			status:                          initialStatus(plan),
 		}
+		s.recordScenarioFixtureAdmission(plan)
 	}
 	return nil
 }
@@ -774,6 +776,7 @@ func (s *Session) RollbackAdd(plans []SpawnPlan) error {
 		}
 	}
 	for _, plan := range plans {
+		s.recordScenarioFixtureRollback(plan)
 		delete(s.npcs, plan.ObjectID)
 	}
 	s.objectIDs = s.objectIDs[:firstIndex]

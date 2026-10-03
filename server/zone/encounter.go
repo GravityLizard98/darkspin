@@ -521,14 +521,22 @@ func (e *Zone) PlanBossNearPosition(
 		directorDefinition, position, zoneboss.NamedBossArenaRadius,
 	)
 	if err != nil {
-		return NamedBossPlan{}, false, nil
+		if errors.Is(err, zoneboss.ErrNoNamedBossNearby) {
+			return NamedBossPlan{}, false, nil
+		}
+		return NamedBossPlan{}, false, fmt.Errorf("nearBossLookup: %w", err)
 	}
 	anchor, isAnchorFound := namedBossAnchor(bossIdentity)
 	if !isAnchorFound {
-		return NamedBossPlan{}, false, nil
+		return NamedBossPlan{}, false, fmt.Errorf(
+			"nearBossAnchor: level %q marker_set=%q event=%q source=%d missing boss listener",
+			directorDefinition.Level, bossIdentity.MarkerSetName,
+			bossIdentity.EventName, bossIdentity.SourceObjectID,
+		)
 	}
 	namedPublication, err := e.prepareNamedEvent(
-		bossIdentity.MarkerSetOrdinal, anchor.MarkerID, bossIdentity.EventName,
+		bossIdentity.MarkerSetOrdinal, bossIdentity.SourceObjectID,
+		bossIdentity.EventName,
 	)
 	if err != nil {
 		return NamedBossPlan{}, false, fmt.Errorf("nearBossPrepare: %w", err)
@@ -539,6 +547,13 @@ func (e *Zone) PlanBossNearPosition(
 	)
 	if err != nil {
 		return NamedBossPlan{}, false, fmt.Errorf("nearBossPlan: %w", err)
+	}
+	if publication.TriggerMarkerID != anchor.MarkerID {
+		return NamedBossPlan{}, false, fmt.Errorf(
+			"nearBossIdentity: source=%d anchor=%d planned=%d",
+			bossIdentity.SourceObjectID, anchor.MarkerID,
+			publication.TriggerMarkerID,
+		)
 	}
 	plans, err = e.AssignSpawnPlanIDs(plans)
 	if err != nil {

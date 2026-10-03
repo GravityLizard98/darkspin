@@ -3,6 +3,7 @@ package gameplay
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/zone"
@@ -20,15 +21,33 @@ type campaignNamedBossTriggerStep struct {
 	generation  uint64
 	center      game.Vec3
 	radius      float32
+	attempt     uint8
 }
 
 func (e campaignNamedBossTriggerStep) execute() {
 	err := e.admit()
 	if err != nil && e.runtime.logger != nil {
 		e.runtime.logger.Printf(
-			"Campaign named boss trigger admission failed marker_set=%q marker=%d: %v",
-			e.publication.MarkerSetName, e.publication.TriggerMarkerID, err,
+			"Campaign named boss trigger admission failed marker_set=%q marker=%d attempt=%d: %v",
+			e.publication.MarkerSetName, e.publication.TriggerMarkerID,
+			e.attempt+1, err,
 		)
+	}
+	if err != nil && e.attempt < 2 && e.zone != nil &&
+		e.zone.Timeline() != nil && e.runtime.timer != nil {
+		retry := e
+		retry.attempt++
+		key := fmt.Sprintf("named-boss:%d:%d", e.publication.TriggerMarkerID, e.publication.EventOrdinal)
+		scheduleErr := e.zone.Timeline().Schedule(
+			key, time.Second, retry.execute, e.runtime.timer.Schedule,
+		)
+		if scheduleErr != nil && e.runtime.logger != nil {
+			e.runtime.logger.Printf(
+				"Campaign named boss trigger retry unavailable marker_set=%q marker=%d: %v",
+				e.publication.MarkerSetName, e.publication.TriggerMarkerID,
+				scheduleErr,
+			)
+		}
 	}
 }
 
@@ -37,15 +56,20 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	defer e.runtime.registry.mutex.Unlock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	if !isFound || peerSession.generation != e.generation ||
-		peerSession.zone != e.zone || peerSession.isRejoinPending ||
-		peerSession.deployedObjectID == 0 || peerSession.deployedHitPoint() <= 0 {
-		return nil
+		!e.isEligibleSession(peerSession) {
+		isFound = false
+		for _, candidate := range e.runtime.registry.sessions {
+			if !e.isEligibleSession(candidate) {
+				continue
+			}
+			if isFound && candidate.binding.UserID >= peerSession.binding.UserID {
+				continue
+			}
+			peerSession = candidate
+			isFound = true
+		}
 	}
-	position := game.Vec3(peerSession.playerPosition)
-	deltaX := position.X - e.center.X
-	deltaY := position.Y - e.center.Y
-	deltaZ := position.Z - e.center.Z
-	if deltaX*deltaX+deltaY*deltaY+deltaZ*deltaZ > e.radius*e.radius {
+	if !isFound {
 		return nil
 	}
 	if e.zone.Boss() == nil || !e.zone.Boss().IsDormant() {
@@ -58,6 +82,19 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	if err != nil {
 		return fmt.Errorf("bossTriggerPlan: %w", err)
 	}
+	if len(encounter.Actors) == 0 {
+		return fmt.Errorf("bossTriggerPlan: empty encounter")
+	}
+	if e.runtime.logger != nil {
+		e.runtime.logger.Printf(
+			"Campaign boss admission stage=planned game=%d level=%q marker_set=%q trigger=%d anchor=%d leader=%q actors=%d deferred=%t target=%d",
+			peerSession.binding.GameID, peerSession.binding.Level, e.publication.MarkerSetName,
+			e.publication.TriggerMarkerID, encounter.Publication.TriggerMarkerID,
+			encounter.Actors[0].NounName, len(encounter.Actors),
+			encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1,
+			peerSession.deployedObjectID,
+		)
+	}
 	livePlans := encounter.Actors
 	if encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1 {
 		livePlans = encounter.Actors[1:]
@@ -69,7 +106,8 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	if len(packets) == 0 {
 		return fmt.Errorf("bossTriggerMarshal: no packets for %d actors", len(livePlans))
 	}
-	if !encounter.Actors[0].IsCaptain && !isCampaignBossIntroDelayed(encounter.Actors[0]) {
+	if !(encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1) &&
+		!isCampaignBossIntroDelayed(encounter.Actors[0]) {
 		activePacket, activeErr := bossraknet.Active(
 			encounter.Actors[0].ObjectID,
 			zoneboss.IsFinalBossNoun(encounter.Actors[0].NounName),
@@ -88,9 +126,17 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	if err != nil {
 		return fmt.Errorf("bossTriggerCommit: %w", err)
 	}
+	if e.runtime.logger != nil {
+		e.runtime.logger.Printf(
+			"Campaign boss admission stage=admitted game=%d level=%q marker_set=%q trigger=%d leader=%d deferred=%t",
+			peerSession.binding.GameID, peerSession.binding.Level, e.publication.MarkerSetName,
+			e.publication.TriggerMarkerID, encounter.Actors[0].ObjectID,
+			encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1,
+		)
+	}
 	err = e.zone.PublishNPCSpawn(zoneprojection.NPCSpawn{
 		Plans: livePlans, TargetObjectID: peerSession.deployedObjectID,
-		IsBossActive: !encounter.Actors[0].IsCaptain,
+		IsBossActive: !(encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1),
 		BossObjectID: encounter.Actors[0].ObjectID,
 		IsFinalBoss:  zoneboss.IsFinalBossNoun(encounter.Actors[0].NounName),
 	}, 0, 0)
@@ -98,13 +144,39 @@ func (e campaignNamedBossTriggerStep) admit() error {
 		return fmt.Errorf("bossTriggerPublish: %w", err)
 	}
 	if e.runtime.logger != nil {
+		bossState := e.zone.Boss().Snapshot()
 		e.runtime.logger.Printf(
-			"Campaign named boss admitted marker_set=%q trigger=%d actors=%d target=%d",
-			e.publication.MarkerSetName, e.publication.TriggerMarkerID,
-			len(livePlans), peerSession.deployedObjectID,
+			"Campaign boss admission stage=published game=%d level=%q marker_set=%q trigger=%d actors=%d leader=%d phase=%d deferred=%t subscribers=all",
+			peerSession.binding.GameID, peerSession.binding.Level, e.publication.MarkerSetName,
+			e.publication.TriggerMarkerID, len(livePlans),
+			bossState.LeaderObjectID, bossState.Phase,
+			bossState.IsLeaderDeferred,
 		)
+		if !bossState.IsLeaderDeferred &&
+			!isCampaignBossIntroDelayed(encounter.Actors[0]) {
+			e.runtime.logger.Printf(
+				"Campaign boss admission stage=active game=%d level=%q marker_set=%q leader=%d source=trigger",
+				peerSession.binding.GameID, peerSession.binding.Level, e.publication.MarkerSetName,
+				bossState.LeaderObjectID,
+			)
+		}
 	}
 	return nil
+}
+
+func (e campaignNamedBossTriggerStep) isEligibleSession(
+	peerSession gameplayPeerSession,
+) bool {
+	if peerSession.zone != e.zone || peerSession.isRejoinPending ||
+		peerSession.isZoneTerminal() ||
+		peerSession.deployedObjectID == 0 || peerSession.deployedHitPoint() <= 0 {
+		return false
+	}
+	position := game.Vec3(peerSession.playerPosition)
+	deltaX := position.X - e.center.X
+	deltaY := position.Y - e.center.Y
+	deltaZ := position.Z - e.center.Z
+	return deltaX*deltaX+deltaY*deltaY+deltaZ*deltaZ <= e.radius*e.radius
 }
 
 func (r campaignEncounterRuntime) scheduleNamedBossTriggers(

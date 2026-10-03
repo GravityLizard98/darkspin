@@ -274,6 +274,7 @@ func (e campaignNPCGravityOrbSchedule) pull(timestamp uint64) ([][]byte, error) 
 		if err != nil {
 			if peerSession.playerMotion == nil {
 				peerSession.playerPosition = previousPosition
+				peerSession.resetPickupContacts()
 			} else {
 				peerSession.restorePlayerMotion(
 					motionSnapshot, peerSession.playerMotionRevision(),

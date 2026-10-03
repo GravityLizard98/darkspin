@@ -16,7 +16,6 @@ import (
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/sim/raknet103"
 	"github.com/darkspinnet/darkspin/server/sporenet"
-	"github.com/darkspinnet/darkspin/server/squad"
 	"github.com/darkspinnet/darkspin/server/util"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
@@ -157,7 +156,7 @@ func (s *gameplayPeerSession) reserveCampaignPickup(
 }
 
 func (s *gameplayPeerSession) reserveCampaignPickupContact(
-	objectID uint32, start raknet.Vector3, end raknet.Vector3, maximumDistance float32,
+	objectID uint32, start raknet.Vector3, end raknet.Vector3, maximumDistance float32, now time.Time,
 ) (zoneinteract.Pickup, zoneinteract.PickupAdmission) {
 	if s == nil || s.zone.Pickups() == nil {
 		return zoneinteract.Pickup{}, zoneinteract.PickupRejectedNotFound
@@ -168,7 +167,7 @@ func (s *gameplayPeerSession) reserveCampaignPickupContact(
 		SegmentStart:    game.Vec3{X: start.X, Y: start.Y, Z: start.Z},
 		SegmentEnd:      game.Vec3{X: end.X, Y: end.Y, Z: end.Z},
 		MaximumDistance: maximumDistance,
-		SimulationTime:  s.zone.Elapsed(time.Now()),
+		SimulationTime:  s.zone.Elapsed(now), SampleTime: now,
 	})
 }
 
@@ -217,6 +216,36 @@ func (r campaignInteractionRuntime) pursuePickup(
 	if err != nil {
 		return nil, fmt.Errorf("pickupRedirect: %w", err)
 	}
+	r.registry.mutex.Lock()
+	session, isSessionFound := r.registry.sessions[sessionKey]
+	if !isSessionFound || !session.isPickupActorAvailable() {
+		r.registry.mutex.Unlock()
+		return r.rejectPickup(command, "pursuit actor unavailable")
+	}
+	if session.isEnemyRootActive(r.now()) {
+		r.registry.mutex.Unlock()
+		return r.rejectPickup(command, "cannot pursue pickup while rooted")
+	}
+	previousPosition, playerPosition, movementErr := session.advancePlayerPursuitMovement(
+		r.now(), session.playerPosition, raknet.Vector3(pickup.Position),
+		r.registry.passiveMovementIncrease(session),
+	)
+	if movementErr != nil {
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("pickupPursuitPath: %w", movementErr)
+	}
+	// Retain the authoritative approach so polling can finish the pickup
+	// on arrival without requiring another click.
+	session.playerPosition = playerPosition
+	if previousPosition != playerPosition {
+		poseErr := session.syncZoneHeroPose()
+		if poseErr != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("pickupPursuitPose: %w", poseErr)
+		}
+	}
+	r.registry.sessions[sessionKey] = session
+	r.registry.mutex.Unlock()
 	err = r.schedulePickupTimeout(packet, sessionKey, command)
 	if err != nil {
 		return r.rejectPickup(command, "pursuit scheduling unavailable")
@@ -682,9 +711,11 @@ const campaignEquipmentPickupDelay = 400 * time.Millisecond
 const campaignEquipmentPickupCommitDelay = 100 * time.Millisecond
 const campaignEquipmentPickupAnimation = "pickup"
 
+// Compatibility/default debug budget only; resolved NPCs use class challenge.
 const campaignNPCEquipmentSourceAmount = 10
 const campaignLootObeliskDropMask = uint32(12) // Authored Loot | Crystal request.
-const campaignNPCOrbSourceAmount = 25
+// Compatibility budget only for nouns without a resolved NonPlayerClass.
+const campaignNPCOrbFallbackChallenge = int32(25)
 const campaignBossLimitedEditionChanceBasis = uint32(100)
 const campaignBossLimitedEditionChanceThreshold = uint32(10)
 const campaignBossLimitedEditionPityMaximumMisses = uint32(11)
@@ -1011,16 +1042,37 @@ func (s *gameplayPeerSession) spawnCampaignEquipment(
 	dropMask uint32,
 	isBoss bool,
 ) ([][]byte, uint32, error) {
-	packets, objectID, roll, err := s.spawnCampaignEquipmentWithPolicy(
-		invocation, gameplayJoin, sourceTime, dropMask, isBoss, false, "", nil, nil, nil, false,
-	)
-	if err != nil {
-		return nil, 0, fmt.Errorf("equipmentSpawn: %w", err)
+	if s == nil || s.zone == nil {
+		return nil, 0, errors.New("equipment emitter unavailable")
 	}
-	if objectID != 0 && roll.Part.RigblockAssetID == 0 {
-		return nil, 0, errors.New("campaign equipment roll incomplete")
+	if invocation.Challenge <= 0 || !zoneloot.IsEquipmentEmissionAllowed(dropMask, s.zone.DirectorDefinition().IsEquipmentDropEnabled) {
+		return nil, 0, nil
 	}
-	return packets, objectID, nil
+	// This wrapper is the interactable source path (native type4).
+	attemptCount := s.campaignLootParticipantCount()
+	packets := make([][]byte, 0)
+	objectIDs := make([]uint32, 0, attemptCount)
+	for attempt := uint32(0); attempt < attemptCount; attempt++ {
+		dropPackets, objectID, roll, err := s.spawnCampaignEquipmentWithPolicy(
+			invocation, gameplayJoin, sourceTime, dropMask, isBoss, false, "", nil, nil, nil, false,
+		)
+		if objectID != 0 {
+			objectIDs = append(objectIDs, objectID)
+		}
+		if err != nil {
+			s.removeUnpublishedLoot(objectIDs)
+			return nil, 0, fmt.Errorf("equipmentAttempt[%d]: %w", attempt, err)
+		}
+		if objectID != 0 && roll.Part.RigblockAssetID == 0 {
+			s.removeUnpublishedLoot(objectIDs)
+			return nil, 0, errors.New("campaign equipment roll incomplete")
+		}
+		packets = append(packets, dropPackets...)
+	}
+	if len(objectIDs) == 0 {
+		return packets, 0, nil
+	}
+	return packets, objectIDs[0], nil
 }
 
 func (s *gameplayPeerSession) spawnCampaignEquipmentWithPolicy(
@@ -1053,10 +1105,9 @@ func (s *gameplayPeerSession) spawnCampaignEquipmentWithPolicy(
 		return nil, 0, roll, errors.New("campaign drop random unavailable")
 	}
 	roll.ChanceScale = 1 + s.campaignPartAttribute(campaignLootFindAttribute)
-	roll.ChanceDraw = s.zone.DropRandom().Float64()
 	var err error
 	roll.ChanceThreshold, err = sim.EquipmentDropThreshold(
-		1, invocation.Challenge, 0.45, roll.ChanceScale,
+		int(s.campaignLootParticipantCount()), invocation.Challenge, 0.45, roll.ChanceScale,
 	)
 	if err != nil {
 		return nil, 0, roll, fmt.Errorf("equipmentThreshold: %w", err)
@@ -1065,16 +1116,11 @@ func (s *gameplayPeerSession) spawnCampaignEquipmentWithPolicy(
 		roll.ChanceThreshold = equipmentDropBag.chanceThreshold(
 			roll.ChanceThreshold,
 		)
-		roll.IsNaturalDrop = float32(roll.ChanceDraw) < roll.ChanceThreshold
-	} else {
-		roll.IsNaturalDrop, err = zoneloot.IsEquipmentDrop(
-			invocation.Challenge, roll.ChanceScale, roll.ChanceDraw,
-		)
-		if err != nil {
-			return nil, 0, roll, fmt.Errorf("equipmentDecision: %w", err)
-		}
 	}
-	if !roll.IsNaturalDrop && !isBoss && !isDebugGuaranteed {
+	// Native compares the float32 threshold against the unrounded Float64 draw.
+	roll.ChanceDraw = s.zone.DropRandom().Float64()
+	roll.IsNaturalDrop = roll.ChanceDraw < float64(roll.ChanceThreshold)
+	if !roll.IsNaturalDrop && !isDebugGuaranteed {
 		return nil, 0, roll, nil
 	}
 	if s.deployedCreatureIndex >= uint32(len(s.binding.Creatures)) {
@@ -1243,73 +1289,6 @@ func campaignEquipmentCandidateForSlot(
 	}
 	candidateIndex := int(choice % uint32(len(candidates)))
 	return candidates[candidateIndex], nil
-}
-
-func (s *gameplayPeerSession) spawnCampaignNPCEquipment(
-	enemy zonenpc.Snapshot,
-	gameplayJoin *game.GameplayJoin,
-	sourceTime uint64,
-	isLootBagEnabled bool,
-) ([][]byte, uint32, error) {
-	if s == nil || s.zone == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
-		return nil, 0, errors.New("campaign enemy equipment unavailable")
-	}
-	dropMask := zoneloot.NPCDropMask(enemy.Plan.NPCProfile.DropTypes)
-	if !zoneloot.IsEquipmentEmissionAllowed(
-		dropMask, s.zone.DirectorDefinition().IsEquipmentDropEnabled,
-	) {
-		return nil, 0, nil
-	}
-	reservation, isReserved := s.reserveCampaignNPCDrop(
-		enemy.Plan.ObjectID, zoneloot.NPCDropEquipment,
-	)
-	if !isReserved {
-		return nil, 0, nil
-	}
-	if isCampaignDestructorLoot(enemy.Plan) {
-		packets, objectID, err := s.spawnDestructorEquipment(enemy, gameplayJoin, sourceTime)
-		if err != nil {
-			reservation.Release()
-			return nil, 0, fmt.Errorf("destructorEquipment: %w", err)
-		}
-		err = reservation.Commit()
-		if err != nil {
-			return nil, 0, fmt.Errorf("destructorCommit: %w", err)
-		}
-		return packets, objectID, nil
-	}
-	// A map boss awards equipment once through the shared NPC reservation;
-	// ordinary enemies and interactables retain their normal chance roll.
-	pendingEquipmentDropBag := campaignEquipmentDropBag{}
-	equipmentDropBag := (*campaignEquipmentDropBag)(nil)
-	if isLootBagEnabled {
-		pendingEquipmentDropBag = s.campaignEquipmentDropBag
-		equipmentDropBag = &pendingEquipmentDropBag
-	}
-	packets, objectID, roll, err := s.spawnCampaignEquipmentWithPolicy(
-		game.CampaignScriptInvocation{
-			Position: enemy.Plan.Position, Challenge: campaignNPCEquipmentSourceAmount,
-		},
-		gameplayJoin, sourceTime, dropMask, enemy.Plan.IsBoss, false, "", nil,
-		equipmentDropBag, nil, true,
-	)
-	if err != nil {
-		reservation.Release()
-		return nil, 0, fmt.Errorf("enemyEquipmentSpawn: %w", err)
-	}
-	if objectID != 0 && roll.Part.RigblockAssetID == 0 {
-		reservation.Release()
-		return nil, 0, errors.New("campaign equipment roll incomplete")
-	}
-	err = reservation.Commit()
-	if err != nil {
-		return nil, 0, fmt.Errorf("enemyEquipmentCommit: %w", err)
-	}
-	if isLootBagEnabled {
-		pendingEquipmentDropBag.recordDrop(objectID != 0)
-		s.campaignEquipmentDropBag = pendingEquipmentDropBag
-	}
-	return packets, objectID, nil
 }
 
 func (s *gameplayPeerSession) reserveCampaignNPCDrop(
@@ -1551,11 +1530,20 @@ const campaignDNAPickupRadius = float32(2.5)
 func (s *gameplayPeerSession) spawnCampaignNPCDNA(
 	enemy zonenpc.Snapshot, sourceTime uint64, now time.Time,
 ) ([][]byte, uint32, error) {
-	if s == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
+	if s == nil || s.zone == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
 		return nil, 0, errors.New("campaign enemy DNA unavailable")
 	}
 	if !zoneloot.IsNPCDropAllowed(enemy.Plan.NPCProfile.DropTypes, zoneloot.NPCDropDNA) {
 		return nil, 0, nil
+	}
+	tuning := s.zone.DirectorDefinition().DNADropTuning
+	err := tuning.Validate()
+	if err != nil {
+		return nil, 0, fmt.Errorf("dnaTuning: %w", err)
+	}
+	stage, err := zoneLevelIndex(s.binding)
+	if err != nil {
+		return nil, 0, fmt.Errorf("dnaStage: %w", err)
 	}
 	reservation, isReserved := s.reserveCampaignNPCDrop(
 		enemy.Plan.ObjectID, zoneloot.NPCDropDNA,
@@ -1567,25 +1555,18 @@ func (s *gameplayPeerSession) spawnCampaignNPCDNA(
 		reservation.Release()
 		return nil, 0, errors.New("campaign drop random unavailable")
 	}
-	if s.binding.Difficulty < game.MinimumCampaignDifficulty {
+	if stage < tuning.MinimumStage {
 		err := reservation.Commit()
 		if err != nil {
 			return nil, 0, fmt.Errorf("dnaDifficultyCommit: %w", err)
 		}
 		return nil, 0, nil
 	}
-	draw, err := s.zone.DropRandom().Index(zoneloot.DNAChanceBasis)
-	if err != nil {
-		reservation.Release()
-		return nil, 0, fmt.Errorf("dnaChance: %w", err)
-	}
-	isDrop, err := zoneloot.IsNPCDNADrop(draw)
+	draw := s.zone.DropRandom().Float64()
+	isDrop, err := tuning.IsDrop(draw)
 	if err != nil {
 		reservation.Release()
 		return nil, 0, fmt.Errorf("dnaDecision: %w", err)
-	}
-	if zonenpc.IsGraviticRemnant(enemy.Plan) {
-		isDrop = draw < zoneloot.DNAChanceBasis*75/100
 	}
 	if !isDrop {
 		err = reservation.Commit()
@@ -1658,34 +1639,36 @@ func (s *gameplayPeerSession) spawnCampaignNPCDNA(
 func (s *gameplayPeerSession) collectCampaignDNA(
 	ctx context.Context, progression zoneloot.DNAGranter,
 	registry *gameplaySessionRegistry,
-	start raknet.Vector3, end raknet.Vector3, now time.Time,
+	start raknet.Vector3, end raknet.Vector3, now time.Time, objectIDs ...uint32,
 ) ([][]byte, error) {
 	if s == nil || progression == nil || s.zone == nil || s.zone.DNA() == nil {
 		return nil, nil
 	}
-	dnaReservation, isReserved := s.zone.DNA().ReserveContact(
+	objectID := uint32(0)
+	if len(objectIDs) == 1 {
+		objectID = objectIDs[0]
+	}
+	dnaReservation, isReserved := s.zone.DNA().ReserveContactID(
+		objectID,
 		game.Vec3{X: start.X, Y: start.Y, Z: start.Z},
 		game.Vec3{X: end.X, Y: end.Y, Z: end.Z},
 		now, campaignDNAPickupRadius,
 	)
 	if !isReserved {
+		if objectID != 0 && s.zone.DNA().IsReserved(objectID) {
+			return nil, errors.New("DNA contact temporarily reserved")
+		}
 		return nil, nil
 	}
 	pickup := dnaReservation.Pickup()
 	if pickup.Amount > ^uint32(0)-s.binding.DNA {
-		dnaReservation.Release()
+		if !dnaReservation.Release() {
+			return nil, errors.New("DNA overflow with missing reservation release")
+		}
 		return nil, errors.New("DNA overflow")
 	}
-	grantedDNA, err := progression.GrantDNA(
-		ctx, int64(s.binding.UserID), pickup.Amount,
-	)
-	if err != nil {
-		dnaReservation.Release()
-		return nil, fmt.Errorf("dnaGrant: %w", err)
-	}
-	s.binding.DNA = grantedDNA
 	packets, err := lootraknet.MarshalDNACollection(lootraknet.DNACollectionRequest{
-		Slot: uint8(s.binding.Slot), DNA: grantedDNA, Amount: pickup.Amount,
+		Slot: uint8(s.binding.Slot), Amount: pickup.Amount,
 		ActorObjectID: s.deployedObjectID, PickupObjectID: pickup.ObjectID,
 		Position: raknet.Vector3{
 			X: pickup.Position.X,
@@ -1694,20 +1677,37 @@ func (s *gameplayPeerSession) collectCampaignDNA(
 		},
 	})
 	if err != nil {
-		if !dnaReservation.Commit() {
+		if !dnaReservation.Release() {
 			return nil, errors.Join(
 				fmt.Errorf("dnaCollectionMarshal: %w", err),
-				errors.New("DNA reservation commit missing"),
+				errors.New("DNA reservation release missing"),
 			)
 		}
 		return nil, fmt.Errorf("dnaCollectionMarshal: %w", err)
 	}
-	if registry != nil {
-		type allyDNAUpdate struct {
-			sessionKey string
-			packet     []byte
+	grantedDNA, err := progression.GrantDNA(ctx, int64(s.binding.UserID), pickup.Amount)
+	if err != nil {
+		if !dnaReservation.Release() {
+			return nil, errors.Join(fmt.Errorf("dnaGrant: %w", err), errors.New("DNA reservation release missing"))
 		}
-		allyUpdates := make([]allyDNAUpdate, 0, len(registry.sessions))
+		return nil, fmt.Errorf("dnaGrant: %w", err)
+	}
+	s.binding.DNA = grantedDNA
+	packets[0] = lootraknet.DNAAccountUpdate(uint8(s.binding.Slot), grantedDNA)
+	isCommitted := dnaReservation.Commit()
+	if !isCommitted {
+		// The persistent grant is accepted even if its in-memory reservation
+		// disappeared. Never release it for another grant attempt.
+		isRemoved := s.zone.DNA().Remove(pickup.ObjectID)
+		if !isRemoved && registry != nil && registry.logger != nil {
+			registry.logger.Printf("RakNet committed DNA pickup already absent object=%d", pickup.ObjectID)
+		}
+	}
+	s.publishCommittedPickupLocked(registry, packets, nil)
+	if !isCommitted {
+		return nil, errors.New("DNA reservation commit missing after accepted grant")
+	}
+	if registry != nil {
 		sessionKeys := make([]string, 0, len(registry.sessions))
 		for sessionKey, candidate := range registry.sessions {
 			if !isActiveCoopPickupAlly(candidate, *s) {
@@ -1745,46 +1745,12 @@ func (s *gameplayPeerSession) collectCampaignDNA(
 				continue
 			}
 			candidate.binding.DNA = allyDNA
-			updatePacket, marshalErr := raknet.MarshalApplication(
-				raknet.LabsPlayerDNAUpdateMessage{
-					Slot: uint8(candidate.binding.Slot), DNA: allyDNA,
-				},
-			)
-			if marshalErr != nil {
-				registry.sessions[sessionKey] = candidate
-				if registry.logger != nil {
-					registry.logger.Printf(
-						"RakNet co-op DNA update marshal failed game=%d user=%d: %v",
-						candidate.binding.GameID, candidate.binding.UserID, marshalErr,
-					)
-				}
-				continue
-			}
+			updatePacket := lootraknet.DNAAccountUpdate(uint8(candidate.binding.Slot), allyDNA)
+			candidate.queueCampaignPackets([][]byte{updatePacket})
 			registry.sessions[sessionKey] = candidate
-			allyUpdates = append(allyUpdates, allyDNAUpdate{
-				sessionKey: sessionKey, packet: updatePacket,
-			})
 		}
-		if !dnaReservation.Commit() {
-			return nil, errors.New("DNA reservation commit missing")
-		}
-		for _, update := range allyUpdates {
-			candidate := registry.sessions[update.sessionKey]
-			publishErr := candidate.publishPackets([][]byte{update.packet})
-			if publishErr != nil && registry.logger != nil {
-				registry.logger.Printf(
-					"RakNet co-op DNA update queued game=%d user=%d: %v",
-					candidate.binding.GameID, candidate.binding.UserID, publishErr,
-				)
-			}
-			registry.sessions[update.sessionKey] = candidate
-		}
-		return packets, nil
 	}
-	if !dnaReservation.Commit() {
-		return nil, errors.New("DNA reservation commit missing")
-	}
-	return packets, nil
+	return nil, nil
 }
 
 const campaignOrbLifetime = 30 * time.Second
@@ -1793,8 +1759,9 @@ const campaignOrbLobDuration = 500 * time.Millisecond
 
 func (s *gameplayPeerSession) spawnCampaignHealthOrb(
 	invocation game.CampaignScriptInvocation, sourceTime uint64, now time.Time,
+	registry *gameplaySessionRegistry,
 ) ([][]byte, []uint32, error) {
-	packets, objectIDs, err := s.spawnCampaignResourceOrb(invocation, sourceTime, now, true)
+	packets, objectIDs, err := s.spawnCampaignResourceOrb(invocation, sourceTime, now, true, registry)
 	if err != nil {
 		return nil, nil, fmt.Errorf("healthOrb: %w", err)
 	}
@@ -1804,6 +1771,7 @@ func (s *gameplayPeerSession) spawnCampaignHealthOrb(
 func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 	invocation game.CampaignScriptInvocation, sourceTime uint64, now time.Time,
 	isResurrectionAllowed bool,
+	registry *gameplaySessionRegistry,
 ) ([][]byte, []uint32, error) {
 	if s == nil || s.zone == nil || s.squad == nil || invocation.Challenge <= 0 {
 		return nil, nil, errors.New("campaign orb unavailable")
@@ -1814,7 +1782,10 @@ func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 	if s.zone.Orbs() == nil {
 		return nil, nil, errors.New("campaign orb registry unavailable")
 	}
-	roster := make([]sim.OrbResourceSample, 0, squad.Size)
+	roster, err := s.campaignOrbRosterLocked(registry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("orbRoster: %w", err)
+	}
 	isResurrectionEnabled := isResurrectionAllowed && !strings.EqualFold(
 		s.binding.Level, game.InitialChainLevel,
 	) && invocation.CallbackName != "InteractHealthObelisk"
@@ -1824,21 +1795,11 @@ func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 		if !isFound || !character.IsAvailable || creature.Noun == 0 {
 			continue
 		}
-		maximumHitPoint, maximumMana := s.characterResourceMaximum(uint32(index))
-		roster = append(roster, sim.OrbResourceSample{
-			HitPoint:        min(character.HitPoints, maximumHitPoint),
-			MaximumHitPoint: maximumHitPoint,
-			Mana:            min(character.ManaPoints, maximumMana),
-			MaximumMana:     maximumMana,
-		})
 		if character.HitPoints <= 0 {
 			isDeadSquadMemberFound = true
 		}
 	}
 	isResurrectionEnabled = isResurrectionEnabled && isDeadSquadMemberFound
-	if len(roster) == 0 {
-		return nil, nil, errors.New("campaign orb roster unavailable")
-	}
 	if isResurrectionEnabled {
 		for _, orb := range s.zone.Orbs().Orbs() {
 			if orb.Request.Kind == sim.ResurrectionOrbDrop {
@@ -1887,7 +1848,8 @@ func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 		SimulationTime: time.Duration(sourceTime) * time.Millisecond,
 		PickupLifetime: campaignOrbLifetime, Roster: roster,
 		Destinations: destinations, PickupRoles: roles,
-		Random: s.zone.DropRandom(), IsResurrectionEnabled: isResurrectionEnabled,
+		Random: s.zone.DropRandom(), SelectionRandom: s.zone.CapsuleRandom(),
+		IsResurrectionEnabled: isResurrectionEnabled,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("orbPlan: %w", err)
@@ -1950,11 +1912,19 @@ func (s *gameplayPeerSession) rollbackCampaignOrbs(objectIDs []uint32) error {
 
 func (s *gameplayPeerSession) spawnCampaignNPCOrb(
 	enemy zonenpc.Snapshot, sourceTime uint64, now time.Time,
+	registry *gameplaySessionRegistry,
 ) ([][]byte, []uint32, error) {
 	if s == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
 		return nil, nil, errors.New("campaign enemy orb unavailable")
 	}
 	if !zoneloot.IsNPCDropAllowed(enemy.Plan.NPCProfile.DropTypes, zoneloot.NPCDropOrb) {
+		return nil, nil, nil
+	}
+	sourceAmount := campaignNPCOrbFallbackChallenge
+	if enemy.Plan.NPCProfile.IsClassKnown {
+		sourceAmount = enemy.Plan.NPCProfile.ChallengeValue
+	}
+	if sourceAmount <= 0 {
 		return nil, nil, nil
 	}
 	reservation, isReserved := s.reserveCampaignNPCDrop(
@@ -1963,18 +1933,12 @@ func (s *gameplayPeerSession) spawnCampaignNPCOrb(
 	if !isReserved {
 		return nil, nil, nil
 	}
-	isGraviticInstrument := zonenpc.IsGraviticRemnant(enemy.Plan)
-	sourceAmount := int32(campaignNPCOrbSourceAmount)
-	if isGraviticInstrument {
-		// The challenge is scaled by the stage before the native budget rolls.
-		sourceAmount = 10
-	}
 	packets, objectIDs, err := s.spawnCampaignResourceOrb(
 		game.CampaignScriptInvocation{
 			Position:  enemy.Plan.Position,
 			Challenge: sourceAmount,
 		},
-		sourceTime, now, !isGraviticInstrument,
+		sourceTime, now, true, registry,
 	)
 	if err != nil {
 		reservation.Release()
@@ -1990,7 +1954,7 @@ func (s *gameplayPeerSession) spawnCampaignNPCOrb(
 
 func (s *gameplayPeerSession) collectCampaignOrbs(
 	registry *gameplaySessionRegistry,
-	start raknet.Vector3, end raknet.Vector3, now time.Time,
+	start raknet.Vector3, end raknet.Vector3, now time.Time, objectIDs ...uint32,
 ) ([][]byte, error) {
 	if s == nil || s.zone.Orbs() == nil || s.squad == nil {
 		return nil, nil
@@ -2002,15 +1966,20 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 		campaignOrbPickupRadius,
 		now,
 	)
-	packets := make([][]byte, 0, len(pickups)*3)
 	for _, pickup := range pickups {
+		if len(objectIDs) == 1 && pickup.ObjectID != objectIDs[0] {
+			continue
+		}
 		if pickup.Request.Kind == sim.ResurrectionOrbDrop {
 			continue
 		}
 		registeredPickup, admission := s.reserveCampaignPickupContact(
-			pickup.ObjectID, start, end, campaignOrbPickupRadius,
+			pickup.ObjectID, start, end, campaignOrbPickupRadius, now,
 		)
 		if admission != zoneinteract.PickupAccepted {
+			if admission == zoneinteract.PickupRejectedReserved {
+				return nil, errors.New("orb contact temporarily reserved")
+			}
 			continue
 		}
 		if registeredPickup.Kind != zoneinteract.PickupOrb {
@@ -2060,7 +2029,7 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 			var allyPackets [][]byte
 			var allyErr error
 			alliedRestorations, allyPackets, alliedWorldPackets, allyErr =
-				registry.restoreAlliedZoneSquadsLocked(*s, kind, restoreFraction)
+				registry.restoreAlliedZoneSquadsLocked(*s, kind, campaignOrbRestoreFraction)
 			if allyErr != nil {
 				s.rollbackZoneSquadHealing(healing)
 				s.rollbackZoneSquadManaRestoration(manaRestorations)
@@ -2094,7 +2063,7 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 			isFirstNotice := s.markCampaignOrbFullContact(pickup.ObjectID)
 			s.zone.Pickups().Release(pickup.ObjectID)
 			if isFirstNotice {
-				packets = append(packets, encoded...)
+				s.queuePickupNoticeLocked(registry, encoded)
 			}
 			continue
 		}
@@ -2134,13 +2103,9 @@ func (s *gameplayPeerSession) collectCampaignOrbs(
 			return nil, errors.New("campaign orb commit missing")
 		}
 		s.zone.Orbs().Remove(pickup.ObjectID)
-		if registry != nil {
-			registry.publishAlliedPickupResourcesLocked(*s, partyResourcePackets)
-		}
-		packets = append(packets, encoded...)
+		s.publishCommittedPickupLocked(registry, encoded, partyResourcePackets)
 	}
-	s.clearExitedCampaignOrbFullContacts(endPosition)
-	return packets, nil
+	return nil, nil
 }
 
 func (s *gameplayPeerSession) markCampaignOrbFullContact(objectID uint32) bool {
@@ -2263,8 +2228,7 @@ func marshalCampaignOrbPickup(
 	return encoded, nil
 }
 
-// A source amount of 26 produces an exact four-percent attempt for the
-// integer [0,100) draw through the recovered source*0.15 threshold.
+// Compatibility budgets only for unresolved classes, not ordinary NPC tuning.
 const campaignNPCCrystalSourceAmount = int32(26)
 const campaignVerdanthTotemCrystalSourceAmount = int32(500)
 
@@ -2345,7 +2309,7 @@ func (s *gameplayPeerSession) spawnCampaignCrystal(
 	dropBag *campaignCrystalDropBag,
 	selectionBag *campaignCrystalSelectionBag,
 ) ([][]byte, uint32, error) {
-	if s == nil || invocation.Challenge <= 0 {
+	if s == nil || s.zone == nil || invocation.Challenge <= 0 {
 		return nil, 0, errors.New("campaign crystal unavailable")
 	}
 	if !zoneunlock.AreCatalystDropsUnlocked(s.binding) {
@@ -2367,19 +2331,18 @@ func (s *gameplayPeerSession) spawnCampaignCrystal(
 	destination := s.reachableCampaignDropDestination(source)
 	// Destination resolution belongs before the ordinary attempt. A stage
 	// below the catalyst minimum consumes neither chance nor selection draws.
-	if !sim.IsCrystalDropStageEligible(s.binding.Difficulty, 0) {
+	stage, err := zoneLevelIndex(s.binding)
+	if err != nil {
+		return nil, 0, fmt.Errorf("crystalStage: %w", err)
+	}
+	if !sim.IsCrystalDropStageEligible(stage, 0) {
 		return nil, 0, nil
 	}
 	draw, err := s.zone.DropRandom().Index(100)
 	if err != nil {
 		return nil, 0, fmt.Errorf("crystalChance: %w", err)
 	}
-	challenge := invocation.Challenge * int32(max(uint16(1), s.binding.ParticipantCount))
-	if invocation.CallbackName == "InteractWithObelisk" {
-		// Equipment uses the obelisk's large reward budget. Catalysts have
-		// a separate small chance for this single shared world pickup.
-		challenge = campaignObeliskCrystalSourceAmount
-	}
+	challenge := invocation.Challenge
 	chanceScale := 1 + s.campaignPartAttribute(campaignCrystalFindAttribute)
 	chanceThreshold := float32(0)
 	if dropBag != nil {
@@ -2400,7 +2363,7 @@ func (s *gameplayPeerSession) spawnCampaignCrystal(
 			RandomDraw: draw, ChanceThreshold: chanceThreshold,
 			IsChanceThresholdOverridden: dropBag != nil,
 			World: sim.CrystalDropInput{
-				CurrentDifficulty: s.binding.Difficulty,
+				CurrentDifficulty: stage,
 				MinorStageCount:   s.zone.CrystalMinorStageCount(),
 				PlayerRole:        zoneinteract.PlayerRole,
 				SourceRole:        zoneinteract.Role,
@@ -2536,55 +2499,6 @@ func (s *gameplayPeerSession) materializeCampaignCatalystUnlock(
 	s.binding.IsCatalystUnlocked = true
 	packets := append([][]byte(nil), batch.Packets...)
 	return append(packets, worldPackets...), nil
-}
-
-func (s *gameplayPeerSession) spawnCampaignNPCCrystal(
-	enemy zonenpc.Snapshot,
-	definitions []sim.CrystalDefinition,
-	offsets []sim.CrystalLevelOffset,
-	sourceTime uint64,
-) ([][]byte, uint32, error) {
-	if s == nil || !enemy.IsDefeated || enemy.Plan.ObjectID == 0 {
-		return nil, 0, errors.New("campaign enemy crystal unavailable")
-	}
-	if !zoneloot.IsNPCDropAllowed(enemy.Plan.NPCProfile.DropTypes, zoneloot.NPCDropCrystal) {
-		return nil, 0, nil
-	}
-	if enemy.Plan.IsFixture && !zonenpc.IsVerdanthTotem(enemy.Plan) {
-		return nil, 0, nil
-	}
-	reservation, isReserved := s.reserveCampaignNPCDrop(
-		enemy.Plan.ObjectID, zoneloot.NPCDropCrystal,
-	)
-	if !isReserved {
-		return nil, 0, nil
-	}
-	pendingDropBag := s.campaignCrystalDropBag
-	pendingSelectionBag := s.campaignCrystalSelectionBag.Clone()
-	challenge := campaignNPCCrystalSourceAmount
-	if zonenpc.IsVerdanthTotem(enemy.Plan) {
-		// Ancient Totems are authored as deliberate catalyst caches. A source
-		// amount of 500 yields a 75-percent base chance before find bonuses.
-		challenge = campaignVerdanthTotemCrystalSourceAmount
-	}
-	packets, objectID, err := s.spawnCampaignCrystal(
-		game.CampaignScriptInvocation{
-			Position:  enemy.Plan.Position,
-			Challenge: challenge,
-		},
-		definitions, offsets, sourceTime, &pendingDropBag, &pendingSelectionBag,
-	)
-	if err != nil {
-		reservation.Release()
-		return nil, 0, fmt.Errorf("enemyCrystalSpawn: %w", err)
-	}
-	err = reservation.Commit()
-	if err != nil {
-		return nil, 0, fmt.Errorf("enemyCrystalCommit: %w", err)
-	}
-	pendingDropBag.recordDrop(objectID != 0)
-	s.campaignCrystalDropBag = pendingDropBag
-	return packets, objectID, nil
 }
 
 func (s *gameplayPeerSession) releaseCampaignCrystalSchedule(
@@ -2759,39 +2673,39 @@ func (s campaignInteractableDropStep) produce() ([][]byte, error) {
 	switch s.use.Invocation.CallbackName {
 	case "InteractHealthObelisk":
 		dropPacket, _, err = peerSession.spawnHealthObeliskCapsules(
-			s.use.Invocation, dropSourceTime, s.runtime.now(),
+			s.use.Invocation, dropSourceTime, s.runtime.now(), s.runtime.registry,
 		)
 	case "InteractWithObelisk":
-		var equipmentPacket [][]byte
-		equipmentPacket, _, err = peerSession.spawnCampaignEquipment(
+		crystalPackets, crystalObjectIDs, crystalErr := peerSession.spawnCampaignCrystalAttempts(
+			s.use.Invocation, s.runtime.crystalDefinitions,
+			s.runtime.crystalLevelOffsets, dropSourceTime, 4, nil,
+		)
+		dropPacket = append(dropPacket, crystalPackets...)
+		equipmentPackets, equipmentObjectID, equipmentErr := peerSession.spawnCampaignEquipment(
 			s.use.Invocation, s.runtime.gameplayJoin, dropSourceTime,
 			campaignLootObeliskDropMask, false,
 		)
+		dropPacket = append(dropPacket, equipmentPackets...)
+		// Each category rolls back its unpublished batch on error. Preserve
+		// the other category's successful publication and consumed object IDs.
+		if len(crystalObjectIDs) == 0 && len(crystalPackets) != 0 {
+			crystalErr = errors.New("crystal batch identity missing")
+		}
+		if equipmentObjectID == 0 && len(equipmentPackets) != 0 {
+			equipmentErr = errors.New("equipment batch identity missing")
+		}
+		err = errors.Join(crystalErr, equipmentErr)
 		if err != nil {
-			s.runtime.logger.Printf(
-				"RakNet campaign equipment not generated for %s: %v",
-				s.sessionKey, err,
-			)
+			s.runtime.logger.Printf("RakNet campaign interactable loot partially generated for %s: %v", s.sessionKey, err)
+			// The schedule drops output on failure. Publish the successful
+			// independent category instead of turning it into invisible loot.
+			err = nil
 		}
-		var crystalPacket [][]byte
-		var crystalObjectID uint32
-		var crystalErr error
-		crystalPacket, crystalObjectID, crystalErr = peerSession.spawnCampaignCrystal(
-			s.use.Invocation, s.runtime.crystalDefinitions,
-			s.runtime.crystalLevelOffsets, dropSourceTime, nil, nil,
-		)
-		dropPacket = append(dropPacket, equipmentPacket...)
-		if crystalObjectID != 0 {
-			dropPacket = append(dropPacket, crystalPacket...)
-		}
-		err = crystalErr
 	}
-	if err == nil {
-		s.runtime.registry.sessions[s.sessionKey] = peerSession
-	}
+	s.runtime.registry.sessions[s.sessionKey] = peerSession
 	s.runtime.registry.mutex.Unlock()
 	if err != nil {
-		return nil, fmt.Errorf("campaignInteractableOrb: %w", err)
+		return append(packet, dropPacket...), fmt.Errorf("campaignInteractableLoot: %w", err)
 	}
 	return append(packet, dropPacket...), nil
 }

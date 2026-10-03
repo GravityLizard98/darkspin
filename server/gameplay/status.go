@@ -248,6 +248,7 @@ func (r gameplayStatusRuntime) handleChain(
 	if err != nil {
 		return nil, fmt.Errorf("statusRejoinPeers: %w", err)
 	}
+	r.registry.recordScenarioPrepareResponse(packet, peerSession, setupPacket)
 	return append([][]byte{playerPacket, setupPacket}, peerStatusPackets...), nil
 }
 
@@ -338,6 +339,7 @@ func (r gameplayStatusRuntime) startCampaign(
 		)
 		return [][]byte{playerPacket, startPacket, pingPacket}, nil
 	}
+	r.registry.recordScenarioPrepareAccepted(packet, peerSession, status)
 	r.logger.Printf(
 		"RakNet campaign game start handshake sent to %s level=%q difficulty=%d director_pools=%d director_marker_sets=%d director_markers=%d director_triggers=%d script_objects=%d peers=%d",
 		packet.Address, peerSession.binding.Level, peerSession.binding.Difficulty,
@@ -708,6 +710,11 @@ func (r gameplayStatusRuntime) commitCampaignBeamOut(
 		return gameplayPeerSession{}, false
 	}
 	peerSession.chainResult = resultSession
+	peerSession.retireChannelsLocked()
+	peerSession.retireAuraAreasLocked()
+	peerSession.retireChargeRunsLocked()
+	r.registry.retirePeerProjectileFreezesLocked(&peerSession)
+	r.registry.retireFieldMedicBuffsLocked(&peerSession, r.modifierPool)
 	r.registry.retireCampaignTreeOfLifeLocked(&peerSession)
 	if snapshot.FinalLevel != 0 {
 		peerSession.binding.AvatarLevel = snapshot.FinalLevel
@@ -868,6 +875,7 @@ func (r gameplayStatusRuntime) begin(
 	r.registry.mutex.Lock()
 	peerSession, isFound := r.registry.sessions[packet.Address.String()]
 	if isFound {
+		peerSession.recordScenarioPrepareStatus(packet, status, time.Now())
 		peerSession.lastPlayerStatus = status
 		peerSession.isPlayerStatusKnown = true
 		r.registry.sessions[packet.Address.String()] = peerSession
@@ -1397,7 +1405,7 @@ func (s *gameplayPeerSession) applyDeveloperEventCommand(
 		if interruptedBasic != nil {
 			interruptedBasic.Stop()
 		}
-		err := s.teleportPlayer(now, destination)
+		err := s.placeTeleportedPlayer(now, destination)
 		if err != nil {
 			return nil, fmt.Errorf("gotoMove: %w", err)
 		}
@@ -1677,6 +1685,11 @@ func (s *gameplayPeerSession) applyDeveloperKillCommand() (
 	result := make([]zoneability.AreaResult, 0, len(snapshot))
 	transition := make([]campaignDamageTransition, 0, len(snapshot))
 	for index, enemy := range snapshot {
+		currentEnemy, isEnemyFound := s.zone.NPCs().NPC(enemy.Plan.ObjectID)
+		// Defeating an owner can already defeat its owned actors in this batch.
+		if !isEnemyFound || currentEnemy.IsDefeated {
+			continue
+		}
 		if enemy.IsShieldActive {
 			err := s.zone.NPCs().EndShield(enemy.Plan.ObjectID)
 			if err != nil {

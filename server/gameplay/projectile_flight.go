@@ -139,21 +139,49 @@ func (e campaignProjectileStep) produceFlight(
 }
 
 func (e campaignProjectileStep) produceContinuation() ([][]byte, error) {
-	packets, err := e.produce()
+	packets, err := e.produceTracked()
 	if err == nil {
 		return packets, nil
 	}
-	schedule := e.schedule
-	schedule.runtime.registry.mutex.Lock()
-	peerSession, isFound := schedule.runtime.registry.sessions[schedule.sessionKey]
-	if isFound && peerSession.generation == schedule.generation &&
-		peerSession.sageAttacks[schedule.projectileObjectID] == schedule.run {
-		delete(peerSession.sageAttacks, schedule.projectileObjectID)
-		schedule.runtime.registry.sessions[schedule.sessionKey] = peerSession
-		schedule.run.Stop()
-	}
-	schedule.runtime.registry.mutex.Unlock()
 	return nil, fmt.Errorf("flightContinuation: %w", err)
+}
+
+func (e campaignProjectileStep) produceTracked() ([][]byte, error) {
+	retirement := e.schedule.retirement
+	if retirement == nil {
+		packets, err := e.produce()
+		if err != nil {
+			return nil, fmt.Errorf("flightProduce: %w", err)
+		}
+		return packets, nil
+	}
+	e.schedule.runtime.registry.mutex.Lock()
+	member, isFound := e.schedule.runtime.registry.sessions[e.schedule.sessionKey]
+	isCurrent := isFound && member.generation == e.schedule.generation && member.zone == retirement.originalZone &&
+		member.sageAttacks[e.schedule.projectileObjectID] == e.schedule.run
+	isStarted := isCurrent && e.schedule.runtime.registry.beginCampaignProjectilePublicationLocked(retirement)
+	e.schedule.runtime.registry.mutex.Unlock()
+	if !isStarted {
+		return nil, nil
+	}
+	packets, err := e.produce()
+	e.schedule.runtime.registry.mutex.Lock()
+	retireErr := e.schedule.runtime.registry.finishCampaignProjectilePublicationLocked(retirement, e.schedule.sessionKey, packets, err)
+	if err != nil {
+		member, isFound = e.schedule.runtime.registry.sessions[e.schedule.sessionKey]
+		if isFound && member.generation == e.schedule.generation {
+			member.basicSequenceSession().ReleaseHeld()
+			e.schedule.runtime.registry.sessions[e.schedule.sessionKey] = member
+		}
+	}
+	e.schedule.runtime.registry.mutex.Unlock()
+	if retireErr != nil && e.schedule.runtime.logger != nil {
+		e.schedule.runtime.logger.Printf("RakNet projectile producer cleanup failed projectile=%d: %v", e.schedule.projectileObjectID, retireErr)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("flightProduce: %w", err)
+	}
+	return nil, nil
 }
 
 func (e campaignProjectileStep) finishFlightLocked(peerSession *gameplayPeerSession) {

@@ -213,7 +213,10 @@ func (e *clientTraceSource) poll(path string) ([]clientObjectProbe, error) {
 }
 
 func (e *Service) pollClientObjectDrift() {
-	probes, err := e.clientMonitor.poll(e.traceDirectory)
+	e.mu.Lock()
+	traceDirectory := e.traceDirectory
+	e.mu.Unlock()
+	probes, err := e.clientMonitor.poll(traceDirectory)
 	if err != nil {
 		e.logger.Printf("Sync Snapshot client drift probe failed: %v", err)
 		return

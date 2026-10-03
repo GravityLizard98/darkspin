@@ -194,13 +194,24 @@ func (e heroHealingTicksSchedule) tick(
 			return e.stopPackets(cancel, deadline), nil
 		}
 	}
+	if e.definition.Name == "FieldMedicSupport" &&
+		(!isActivePartyRecipient(targetSession, peerSession) ||
+			targetSession.generation != e.target.generation ||
+			(!e.target.isCompanion &&
+				(targetSession.deployedObjectID != e.target.objectID ||
+					targetSession.deployedCreatureIndex != e.target.creatureIndex))) {
+		cancel := e.stopLocked(peerSession)
+		e.runtime.registry.mutex.Unlock()
+		return e.stopPackets(cancel, deadline), nil
+	}
 	hitPointBefore := float32(0)
 	maximumHitPoint := float32(0)
 	healingTargetProfile := game.HealingTargetProfile{}
 	if e.target.isCompanion {
 		companion, isCompanionFound :=
 			targetSession.zone.Companion().Snapshot(e.target.objectID)
-		if !isCompanionFound || !companion.IsTargetable || companion.HitPoint <= 0 {
+		if !isCompanionFound || !isPartyCompanionOwner(companion, targetSession) ||
+			!companion.IsTargetable || companion.HitPoint <= 0 {
 			cancel := e.stopLocked(peerSession)
 			e.runtime.registry.mutex.Unlock()
 			return e.stopPackets(cancel, deadline), nil

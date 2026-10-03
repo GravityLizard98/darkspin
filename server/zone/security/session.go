@@ -22,6 +22,7 @@ type Session struct {
 	presented              [RouteCount]bool
 	isPresentationReserved bool
 	reservedRouteIndex     int
+	anchorsBySourceID      map[uint32]uint32
 }
 
 type MovementRequest struct {

@@ -95,6 +95,8 @@ type Snapshot struct {
 	ClearedSpawnGroupIDs []uint32
 	DropRandom           sim.RandomSnapshot
 	IsDropRandomSet      bool
+	CapsuleRandom        sim.CapsuleRandomSnapshot
+	IsCapsuleRandomSet   bool
 }
 
 type Store interface {
@@ -132,6 +134,15 @@ func Validate(
 		}
 		if restoredRandom == nil {
 			return errors.New("checkpoint drop random unavailable")
+		}
+	}
+	if snapshot.IsCapsuleRandomSet {
+		restoredRandom, err := sim.NewCapsuleRandomFromSnapshot(snapshot.CapsuleRandom)
+		if err != nil {
+			return fmt.Errorf("checkpointCapsuleRandom: %w", err)
+		}
+		if restoredRandom == nil {
+			return errors.New("checkpoint capsule random unavailable")
 		}
 	}
 	if snapshot.ZoneID == 0 || snapshot.ZoneID != zoneID {

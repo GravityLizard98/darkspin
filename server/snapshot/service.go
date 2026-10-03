@@ -148,6 +148,7 @@ type automaticIncidentRecord struct {
 
 // Service retains bounded transport events and writes local incident bundles.
 type Service struct {
+	scenarioRecorderState
 	mu                       sync.Mutex
 	controlMu                sync.Mutex
 	directory                string

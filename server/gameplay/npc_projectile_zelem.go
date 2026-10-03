@@ -665,6 +665,9 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		projectileSourcePosition:    sourcePosition,
 		projectileTargetPosition:    targetPosition,
 		isProjectileTrajectoryFound: true,
+		retirement: &campaignProjectileRetirement{
+			originalZone: peerSession.zone, generation: generation, objectID: projectileObjectID, run: projectileRun,
+		},
 	}
 	producers := make([]raknet.ScheduledPacketProducer, 0, len(projectileDeadlines))
 	for _, scheduledDeadline := range projectileDeadlines {
@@ -733,8 +736,12 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	}
 	r.registry.mutex.Lock()
 	currentSession, isCurrentFound := r.registry.sessions[sessionKey]
-	isTracked := isCurrentFound && currentSession.generation == generation &&
+	isTracked := isCurrentFound && currentSession.generation == generation && currentSession.zone == projectileSchedule.retirement.originalZone && !projectileSchedule.retirement.isRetired && !projectileSchedule.retirement.isRetirementPending &&
 		currentSession.campaignNPCProjectiles[projectileObjectID] == projectileRun
+	if isTracked {
+		r.registry.queueCampaignProjectilePublicationLocked(projectileSchedule.retirement, sessionKey, immediatePackets)
+		r.registry.admitCampaignProjectilePublicationLocked(projectileSchedule.retirement, sessionKey)
+	}
 	if isTracked && flight == nil {
 		projectileRun.SetCancel(cancel)
 	}
@@ -755,5 +762,5 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		aimTarget.LinearVelocity.Z, distance, collisionDelay.Milliseconds(),
 		profile.HomingDelay > 0, profile.IsProjectilePiercing,
 	)
-	return immediatePackets, nil
+	return nil, nil
 }

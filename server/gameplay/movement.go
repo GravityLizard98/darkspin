@@ -182,22 +182,68 @@ type campaignMovementCommandRuntime struct {
 
 type campaignCompanionFollowStep struct {
 	registry   *gameplaySessionRegistry
-	sessionKey string
+	zone       *zone.Zone
+	userID     uint64
 	generation uint64
 	plan       zonecompanion.Follow
+	logger     *log.Logger
+}
+
+func (e campaignCompanionFollowStep) execute() {
+	packets, err := e.produce()
+	if err != nil && e.logger != nil {
+		e.logger.Printf("RakNet companion follow arrival failed object=%d: %v", e.plan.ObjectID, err)
+	}
+	// Arrival is queued to current peers by produce; it never returns packets
+	// to the transport that happened to admit the original follow.
+	if len(packets) != 0 && e.logger != nil {
+		e.logger.Printf("RakNet companion follow returned unexpected packets object=%d", e.plan.ObjectID)
+	}
 }
 
 func (e campaignCompanionFollowStep) produce() ([][]byte, error) {
 	e.registry.mutex.Lock()
 	defer e.registry.mutex.Unlock()
-	peerSession, isFound := e.registry.sessions[e.sessionKey]
-	if !isFound || peerSession.generation != e.generation ||
-		peerSession.zone == nil || peerSession.zone.Companion() == nil {
+	if e.zone == nil || e.zone.Companion() == nil {
 		return nil, nil
 	}
-	peerSession.zone.Companion().ReleaseFollow(
+	actor, isFound := e.zone.Companion().Snapshot(e.plan.ObjectID)
+	if !isFound || actor.UserID != e.userID || actor.PeerGeneration != e.generation ||
+		actor.OwnerObjectID != e.plan.OwnerObjectID || actor.HitPoint <= 0 ||
+		!actor.IsFollowing || actor.FollowRevision != e.plan.Revision {
+		return nil, nil
+	}
+	packets, err := companionraknet.FollowArrival(e.plan)
+	if err != nil {
+		return nil, fmt.Errorf("followArrival: %w", err)
+	}
+	isReleased := e.zone.Companion().ReleaseFollow(
 		e.plan.ObjectID, e.plan.Revision, e.plan.Destination,
 	)
+	if !isReleased {
+		return nil, nil
+	}
+	isOwnerConnected := false
+	for _, member := range e.zone.Snapshot().Members {
+		if member.UserID == e.userID && member.PeerGeneration == e.generation {
+			isOwnerConnected = member.IsConnected
+			break
+		}
+	}
+	if !isOwnerConnected {
+		// The retained pet still arrives while its owner is disconnected, but
+		// stays absent from peers until the owner's reconnect baseline creates it.
+		return nil, nil
+	}
+	// Queue under the same lock as completion, including reconnecting peers.
+	// Their pending gate keeps this correction behind the captured baseline.
+	for sessionKey, candidate := range e.registry.sessions {
+		if candidate.zone != e.zone || candidate.isZoneTerminal() {
+			continue
+		}
+		candidate.queueCampaignPackets(packets)
+		e.registry.sessions[sessionKey] = candidate
+	}
 	return nil, nil
 }
 
@@ -208,27 +254,115 @@ func (r campaignMovementCommandRuntime) scheduleCompanionFollows(
 	if len(plans) == 0 {
 		return nil
 	}
-	producers := make([]raknet.ScheduledPacketProducer, 0, len(plans))
-	for _, plan := range plans {
-		step := campaignCompanionFollowStep{
-			registry: r.registry, sessionKey: sessionKey,
-			generation: generation, plan: plan,
-		}
-		producers = append(producers, raknet.ScheduledPacketProducer{
-			Delay: plan.TravelDuration, Produce: step.produce,
-		})
+	r.registry.mutex.RLock()
+	peerSession, isFound := r.registry.sessions[sessionKey]
+	r.registry.mutex.RUnlock()
+	if !isFound || peerSession.generation != generation || peerSession.zone == nil {
+		return nil
 	}
-	producers = r.registry.producerGuard.scheduledProducers(sessionKey, producers)
-	if packet.ScheduleGroup == nil {
+	if r.npc.timer == nil {
 		r.cancelCompanionFollows(sessionKey, generation, plans)
 		return errors.New("companion follow schedule unavailable")
 	}
-	_, err := packet.ScheduleGroup(producers)
+	admission := campaignCompanionFollowAdmission{
+		runtime: r, zone: peerSession.zone, userID: peerSession.binding.UserID,
+		generation: generation, plans: append([]zonecompanion.Follow(nil), plans...),
+	}
+	// This callback is registered after the initial follow publication callback.
+	// Even an already elapsed deadline cannot queue arrival ahead of that goal.
+	err := packet.AfterResponseCommit(admission.commit)
 	if err != nil {
-		r.cancelCompanionFollows(sessionKey, generation, plans)
-		return fmt.Errorf("companionFollowSchedule: %w", err)
+		admission.cancel(false)
+		return fmt.Errorf("followCommit: %w", err)
 	}
 	return nil
+}
+
+type campaignCompanionFollowAdmission struct {
+	runtime    campaignMovementCommandRuntime
+	zone       *zone.Zone
+	userID     uint64
+	generation uint64
+	plans      []zonecompanion.Follow
+}
+
+func (e campaignCompanionFollowAdmission) commit() {
+	err := e.arm()
+	if err != nil && e.runtime.logger != nil {
+		e.runtime.logger.Printf("RakNet companion follow schedule failed user=%d: %v", e.userID, err)
+	}
+}
+
+func (e campaignCompanionFollowAdmission) arm() error {
+	for _, plan := range e.plans {
+		step := campaignCompanionFollowStep{
+			registry: e.runtime.registry, zone: e.zone, userID: e.userID,
+			generation: e.generation, plan: plan, logger: e.runtime.logger,
+		}
+		cancel, err := e.runtime.npc.timer.Schedule(max(time.Duration(0), plan.Deadline.Sub(e.runtime.now())), step.execute)
+		if err != nil {
+			e.cancel(true)
+			return fmt.Errorf("companionFollowSchedule: %w", err)
+		}
+		if cancel == nil {
+			e.cancel(true)
+			return errors.New("companion follow cancellation unavailable")
+		}
+	}
+	return nil
+}
+
+func (e campaignCompanionFollowAdmission) cancel(isPublished bool) {
+	e.runtime.registry.mutex.Lock()
+	defer e.runtime.registry.mutex.Unlock()
+	at := e.runtime.now()
+	packets := make([][]byte, 0, len(e.plans)*2)
+	for _, plan := range e.plans {
+		actor, isFound := e.zone.Companion().Snapshot(plan.ObjectID)
+		if !isFound || actor.UserID != e.userID || actor.PeerGeneration != e.generation ||
+			actor.OwnerObjectID != plan.OwnerObjectID || actor.HitPoint <= 0 {
+			continue
+		}
+		isCancelled := e.zone.Companion().CancelFollow(plan.ObjectID, plan.Revision, at)
+		if !isCancelled || !isPublished {
+			continue
+		}
+		actor, isFound = e.zone.Companion().Snapshot(plan.ObjectID)
+		if !isFound || actor.FollowRevision != plan.Revision {
+			continue
+		}
+		// Initial goals are already committed on this failure path. Retire each
+		// exact cancelled goal at its sampled pose, rather than its old endpoint.
+		plan.Destination = actor.Position
+		stopPackets, err := companionraknet.FollowArrival(plan)
+		if err != nil {
+			if e.runtime.logger != nil {
+				e.runtime.logger.Printf("RakNet companion follow cancellation failed object=%d: %v", plan.ObjectID, err)
+			}
+			continue
+		}
+		packets = append(packets, stopPackets...)
+	}
+	if len(packets) == 0 {
+		return
+	}
+	isOwnerConnected := false
+	for _, member := range e.zone.Snapshot().Members {
+		if member.UserID == e.userID && member.PeerGeneration == e.generation {
+			isOwnerConnected = member.IsConnected
+			break
+		}
+	}
+	if !isOwnerConnected {
+		return
+	}
+	for sessionKey, candidate := range e.runtime.registry.sessions {
+		if candidate.zone != e.zone || candidate.isZoneTerminal() {
+			continue
+		}
+		candidate.queueCampaignPackets(packets)
+		e.runtime.registry.sessions[sessionKey] = candidate
+	}
 }
 
 func (r campaignMovementCommandRuntime) cancelCompanionFollows(
@@ -242,7 +376,7 @@ func (r campaignMovementCommandRuntime) cancelCompanionFollows(
 		return
 	}
 	for _, plan := range plans {
-		peerSession.zone.Companion().CancelFollow(plan.ObjectID, plan.Revision)
+		peerSession.zone.Companion().CancelFollow(plan.ObjectID, plan.Revision, r.now())
 	}
 }
 
@@ -254,9 +388,7 @@ func (s *gameplayPeerSession) collectCampaignTeleportContacts(
 	if s == nil {
 		return nil, nil
 	}
-	packets, err := s.collectCampaignOrbs(
-		registry, destination, destination, now.Add(campaignOrbLobDuration),
-	)
+	err := s.collectPickupContacts(s.zone.Context(), nil, registry, destination, destination, now)
 	if err != nil {
 		return nil, fmt.Errorf("teleportOrb: %w", err)
 	}
@@ -264,7 +396,7 @@ func (s *gameplayPeerSession) collectCampaignTeleportContacts(
 	if err != nil {
 		return nil, fmt.Errorf("teleportContact: %w", err)
 	}
-	return append(packets, contactPackets...), nil
+	return contactPackets, nil
 }
 
 func (e *gameplayPeerSession) observeSecurityTeleporter(
@@ -394,7 +526,7 @@ type campaignMovementInterruption struct {
 // detached run after the authority releases the registry lock.
 func (e campaignActionAuthority) interruptMovement(
 	sessionKey string, generation uint64, objectID uint32, goal game.Vec3,
-	now time.Time,
+	now time.Time, sourceTimes ...uint64,
 ) campaignMovementInterruption {
 	e.registry.mutex.Lock()
 	defer e.registry.mutex.Unlock()
@@ -416,6 +548,7 @@ func (e campaignActionAuthority) interruptMovement(
 			heroDrain:      peerSession.heroDrain,
 			playerPosition: peerSession.playerPosition,
 		}
+		peerSession.retireChannelsLocked(sourceTimes...)
 		peerSession.heroDrain = nil
 		if isHealingChannel {
 			interruption.healingChannel = peerSession.heroHealingTicks
@@ -581,7 +714,7 @@ func (r campaignMovementCommandRuntime) handle(
 	sessionKey := packet.Address.String()
 	interruption := r.action.interruptMovement(
 		sessionKey, commandSession.generation, command.Common.ObjectID,
-		game.Vec3{X: goal.X, Y: goal.Y, Z: goal.Z}, r.now(),
+		game.Vec3{X: goal.X, Y: goal.Y, Z: goal.Z}, r.now(), packet.SourceTime,
 	)
 	if interruption.isAttackBlocked {
 		return r.rejectActiveAttackMovement(
@@ -830,6 +963,7 @@ func (r campaignMovementCommandRuntime) handle(
 			command.Common.ObjectID, current, peerSession.zone.NPCs().Snapshots(),
 			r.program.SupportHealerPassive.SpawnRadius*0.5,
 			zonecompanion.CompatibilityMovementSpeed,
+			movementNow,
 		)
 		if companionFollowErr != nil {
 			r.registry.mutex.Unlock()
@@ -922,6 +1056,23 @@ func (r campaignMovementCommandRuntime) handle(
 				r.registry.mutex.Unlock()
 				return nil, fmt.Errorf("moveCampaignNearBossPublish: %w", populationErr)
 			}
+			if r.logger != nil {
+				bossState := peerSession.zone.Boss().Snapshot()
+				r.logger.Printf(
+					"Campaign boss admission stage=published level=%q marker_set=%q actors=%d leader=%d phase=%d deferred=%t source=proximity",
+					peerSession.binding.Level, namedBossPlans[0].MarkerSetName,
+					len(namedBossPlans), bossState.LeaderObjectID,
+					bossState.Phase, bossState.IsLeaderDeferred,
+				)
+				if !bossState.IsLeaderDeferred &&
+					!isCampaignBossIntroDelayed(namedBossPlans[0]) {
+					r.logger.Printf(
+						"Campaign boss admission stage=active level=%q marker_set=%q leader=%d source=proximity",
+						peerSession.binding.Level, namedBossPlans[0].MarkerSetName,
+						bossState.LeaderObjectID,
+					)
+				}
+			}
 		}
 		threats := peerSession.zone.SecurityThreats()
 		if peerSession.zone.Security() != nil {
@@ -1013,6 +1164,9 @@ func (r campaignMovementCommandRuntime) handle(
 			r.registry.mutex.Unlock()
 			return nil, fmt.Errorf("moveTutorialTeleporter: %w", movementErr)
 		}
+		// These command-driven observers consumed the segment as well. Polling
+		// must continue from this pose rather than replaying an old gate contact.
+		peerSession.resetTeleporterSample()
 		if tutorialAbilityUnlock != nil {
 			installErr := peerSession.campaignUnlockPresentationSession().
 				InstallTutorialAbility(tutorialAbilityUnlock)
@@ -1650,12 +1804,24 @@ func (s campaignBossAdmissionStep) admitAndPublish() error {
 	if err != nil {
 		return err
 	}
+	if s.runtime.logger != nil {
+		s.runtime.logger.Printf(
+			"Campaign boss admission stage=admitted marker_set=%q leader=%d actors=%d source=initial",
+			s.markerSetName, s.plans[0].ObjectID, len(s.plans),
+		)
+	}
 	err = s.zone.PublishNPCSpawn(zoneprojection.NPCSpawn{
 		Plans: s.plans[1:], TargetObjectID: s.targetObjectID,
 		IsBossAddPhase: true,
 	}, 0, 0)
 	if err != nil {
 		return fmt.Errorf("campaignBossPublish: %w", err)
+	}
+	if s.runtime.logger != nil {
+		s.runtime.logger.Printf(
+			"Campaign boss admission stage=published marker_set=%q leader=%d actors=%d deferred=true source=initial",
+			s.markerSetName, s.plans[0].ObjectID, len(s.plans)-1,
+		)
 	}
 	return nil
 }
@@ -2098,22 +2264,13 @@ func (r campaignEncounterRuntime) advance(
 				movement, r.program.IntroHealthAndPower,
 			)
 		}
-		result.orbPackets, err = peerSession.collectCampaignOrbs(
-			r.registry,
-			previousPosition,
-			raknet.Vector3{X: result.current.X, Y: result.current.Y, Z: result.current.Z},
-			movementNow,
-		)
-		if err != nil {
-			return result, fmt.Errorf("moveCampaignOrb: %w", err)
-		}
-		result.dnaPackets, err = peerSession.collectCampaignDNA(
+		err = peerSession.collectPickupContacts(
 			ctx, r.progression, r.registry, previousPosition,
 			raknet.Vector3{X: result.current.X, Y: result.current.Y, Z: result.current.Z},
 			movementNow,
 		)
 		if err != nil {
-			return result, fmt.Errorf("moveCampaignDNA: %w", err)
+			return result, fmt.Errorf("moveCampaignPickup: %w", err)
 		}
 		result.publications, err = peerSession.zone.AdvanceDirector(
 			previous, result.current,
@@ -2293,6 +2450,14 @@ func (r campaignEncounterRuntime) advance(
 				result.bossPlans = plannedBoss
 				result.bossPackets = append(plannedBossPackets, activePacket)
 				result.bossPublication = publication
+				if r.logger != nil {
+					r.logger.Printf(
+						"Campaign boss admission stage=planned level=%q marker_set=%q trigger=%d leader=%q actors=%d source=initial",
+						peerSession.binding.Level, publication.MarkerSetName,
+						publication.TriggerMarkerID, plannedBoss[0].NounName,
+						len(plannedBoss),
+					)
+				}
 				continue
 			}
 			if zoneunlock.IsTutorialActivationCallback(publication.CallbackName) {
@@ -2352,9 +2517,22 @@ func (r campaignEncounterRuntime) advance(
 					peerSession.binding.ChainLevelIndex,
 				)
 			if namedBossErr != nil {
-				return result, fmt.Errorf("moveCampaignNearBossPlan: %w", namedBossErr)
+				r.logger.Printf(
+					"RakNet campaign near boss lookup deferred level=%q position=(%.3f,%.3f,%.3f): %v",
+					peerSession.binding.Level, result.current.X, result.current.Y,
+					result.current.Z, namedBossErr,
+				)
 			}
 			if isNamedBossPlanned {
+				if r.logger != nil && len(namedBossPlan.Actors) != 0 {
+					r.logger.Printf(
+						"Campaign boss admission stage=planned level=%q marker_set=%q trigger=%d anchor=%d leader=%q actors=%d source=proximity",
+						peerSession.binding.Level, namedBossPlan.Publication.MarkerSetName,
+						namedBossPlan.NamedPublication.SourceObjectID,
+						namedBossPlan.Publication.TriggerMarkerID,
+						namedBossPlan.Actors[0].NounName, len(namedBossPlan.Actors),
+					)
+				}
 				var isNamedBossAdmitted bool
 				result.namedBossPlans, result.namedBossPackets,
 					isNamedBossAdmitted, namedBossErr =
@@ -2366,6 +2544,16 @@ func (r campaignEncounterRuntime) advance(
 					result.namedBossPlans = nil
 					result.namedBossPackets = nil
 				} else {
+					if r.logger != nil {
+						bossState := peerSession.zone.Boss().Snapshot()
+						r.logger.Printf(
+							"Campaign boss admission stage=admitted level=%q marker_set=%q trigger=%d leader=%d phase=%d deferred=%t source=proximity",
+							peerSession.binding.Level, namedBossPlan.Publication.MarkerSetName,
+							namedBossPlan.NamedPublication.SourceObjectID,
+							bossState.LeaderObjectID, bossState.Phase,
+							bossState.IsLeaderDeferred,
+						)
+					}
 					peerSession.isClientBossBoundaryPending = false
 					result.overdriveUnlock = peerSession.
 						campaignUnlockPresentationSession().Overdrive()

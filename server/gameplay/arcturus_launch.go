@@ -214,6 +214,7 @@ type campaignArcturusMissile struct {
 	timestamp          uint64
 	shadowObjectID     uint32
 	projectileObjectID uint32
+	retirement         *campaignProjectileRetirement
 }
 
 func (e *campaignArcturusLaunch) dropMissile(current *gameplayPeerSession, boss zonenpc.Snapshot, timestamp uint64) ([][]byte, error) {
@@ -295,20 +296,33 @@ func (e *campaignArcturusLaunch) dropMissile(current *gameplayPeerSession, boss 
 		return nil, fmt.Errorf("missileLaunch: %w", err)
 	}
 	step := campaignArcturusMissile{launch: e, zone: current.zone, startedAt: e.runtime.now(), direction: sim.Position{Z: -1}, projectile: projectile, position: position, timestamp: timestamp,
-		shadowObjectID: shadowObjectID, projectileObjectID: objectID}
+		shadowObjectID: shadowObjectID, projectileObjectID: objectID,
+		retirement: &campaignProjectileRetirement{originalZone: current.zone, generation: e.generation, objectID: objectID, run: projectile},
+	}
+	cleanupPackets, cleanupErr := step.cleanupPackets()
+	if cleanupErr != nil {
+		projectile.Stop()
+		return nil, fmt.Errorf("missileCleanupPrepare: %w", cleanupErr)
+	}
+	step.retirement.extraPackets = cleanupPackets[:2]
 	err = current.trackCampaignNPCProjectile(objectID, projectile)
 	if err != nil {
 		projectile.Stop()
 		return nil, fmt.Errorf("missileTrack: %w", err)
 	}
-	err = scheduleNPCProducer(e.runtime.registry, e.packet, 50*time.Millisecond, step.poll)
+	err = scheduleNPCProducer(e.runtime.registry, e.packet, 50*time.Millisecond, step.pollTracked)
 	if err != nil {
 		current.untrackCampaignNPCProjectile(objectID, projectile)
 		projectile.Stop()
 		return nil, fmt.Errorf("missileSchedule: %w", err)
 	}
 	packets = append(packets, shadowPacket, shadowEffect)
-	return append(packets, shotPackets...), nil
+	packets = append(packets, shotPackets...)
+	e.runtime.registry.sessions[e.sessionKey] = *current
+	e.runtime.registry.queueCampaignProjectilePublicationLocked(step.retirement, e.sessionKey, packets)
+	e.runtime.registry.admitCampaignProjectilePublicationLocked(step.retirement, e.sessionKey)
+	*current = e.runtime.registry.sessions[e.sessionKey]
+	return nil, nil
 }
 
 func (e campaignArcturusMissile) impact() ([][]byte, error) {
@@ -316,6 +330,9 @@ func (e campaignArcturusMissile) impact() ([][]byte, error) {
 	run.runtime.registry.mutex.Lock()
 	defer run.runtime.registry.mutex.Unlock()
 	current, isFound := run.runtime.registry.sessions[run.sessionKey]
+	if e.retirement != nil && (e.retirement.isRetired || e.retirement.isRetirementPending) {
+		return nil, nil
+	}
 	if !isFound || current.generation != run.generation || current.zone != e.zone {
 		e.projectile.Stop()
 		return nil, nil

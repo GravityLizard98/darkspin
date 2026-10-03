@@ -10,9 +10,9 @@ import (
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/util"
+	"github.com/darkspinnet/darkspin/server/zone"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
-	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
@@ -28,122 +28,43 @@ type heroAuraAreaTarget struct {
 type heroAuraAreaProjectile struct {
 	instanceID uint32
 	run        *abilityraknet.ProjectileRun
+	lease      *abilityraknet.ProjectileTimeBubbleLease
 }
 
 type heroAuraAreaRun struct {
-	mutex        sync.Mutex
-	npc          *zonenpc.Session
-	modifierPool *modifierPool
-	targets      map[uint32]heroAuraAreaTarget
-	projectiles  map[uint32]heroAuraAreaProjectile
-	statusKind   sim.AbilityStatusKind
-	objectID     uint32
-	cancel       raknet.CancelSchedule
-	isCleaned    bool
-	isTimeBubble bool
+	mutex             sync.Mutex
+	cast              *channelCast
+	npc               *zonenpc.Session
+	modifierPool      *modifierPool
+	targets           map[uint32]heroAuraAreaTarget
+	projectiles       map[uint32]heroAuraAreaProjectile
+	statusKind        sim.AbilityStatusKind
+	objectID          uint32
+	cancel            raknet.CancelSchedule
+	isCleaned         bool
+	isTimeBubble      bool
+	isStopping        bool
+	isObjectPublished bool
+	runtime           campaignAbilityCommandRuntime
+	originalZone      *zone.Zone
+	stopContext       func() bool
 }
 
 func (e *heroAuraAreaRun) Stop() ([][]byte, error) {
 	if e == nil {
 		return nil, nil
 	}
-	e.mutex.Lock()
-	cancel := e.cancel
-	e.cancel = nil
-	e.mutex.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	packets, err := e.cleanupPackets()
-	if err != nil {
-		return nil, fmt.Errorf("auraStopCleanup: %w", err)
-	}
-	return packets, nil
-}
-
-func (e *heroAuraAreaRun) cleanupPackets() ([][]byte, error) {
-	deletes := e.Cleanup()
-	packets, err := marshalAuraAreaDeletes(deletes)
-	if err != nil {
-		return nil, fmt.Errorf("auraModifierCleanup: %w", err)
-	}
-	if e.objectID == 0 {
-		return packets, nil
-	}
 	if e.isTimeBubble {
-		packet, effectErr := raknet.MarshalApplication(raknet.AttachedEffectMessage{
-			Slot: 1, IsRemovalRequested: true, IsHardStop: true, ObjectID: e.objectID,
-		})
-		if effectErr != nil {
-			return nil, fmt.Errorf("auraEffectCleanup: %w", effectErr)
-		}
-		packets = append(packets, packet)
+		e.stopTimeBubble()
+		return nil, nil
 	}
-	packet, deleteErr := raknet.MarshalApplication(raknet.ObjectDeleteMessage{
-		ObjectID: []uint32{e.objectID},
-	})
-	if deleteErr != nil {
-		return nil, fmt.Errorf("auraObjectCleanup: %w", deleteErr)
-	}
-	return append(packets, packet), nil
-}
-
-func (e *heroAuraAreaRun) Cleanup() []heroAuraAreaTargetDelete {
-	if e == nil {
-		return nil
-	}
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	if e.isCleaned {
-		return nil
-	}
-	e.isCleaned = true
-	deleted := make([]heroAuraAreaTargetDelete, 0, len(e.targets))
-	for objectID, target := range e.targets {
-		e.clearStatus(objectID, target.expiresAt)
-		_ = e.modifierPool.Release(target.instanceID)
-		deleted = append(deleted, heroAuraAreaTargetDelete{
-			objectID: objectID, instanceID: target.instanceID,
-		})
-	}
-	for objectID, projectile := range e.projectiles {
-		projectile.run.SetSpeedScale(time.Now(), 1)
-		_ = e.modifierPool.Release(projectile.instanceID)
-		deleted = append(deleted, heroAuraAreaTargetDelete{
-			objectID: objectID, instanceID: projectile.instanceID,
-		})
-	}
-	e.targets = nil
-	e.projectiles = nil
-	return deleted
+	e.stopAura()
+	return nil, nil
 }
 
 type heroAuraAreaTargetDelete struct {
 	objectID   uint32
 	instanceID uint32
-}
-
-func (e *heroAuraAreaRun) breakSleepOnDamage(
-	objectID uint32,
-) (heroAuraAreaTargetDelete, bool) {
-	if e == nil || e.statusKind != sim.AbilityStatusKindSleep || objectID == 0 {
-		return heroAuraAreaTargetDelete{}, false
-	}
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	if e.isCleaned {
-		return heroAuraAreaTargetDelete{}, false
-	}
-	target, isFound := e.targets[objectID]
-	if !isFound {
-		return heroAuraAreaTargetDelete{}, false
-	}
-	e.clearStatus(objectID, target.expiresAt)
-	_ = e.modifierPool.Release(target.instanceID)
-	delete(e.targets, objectID)
-	return heroAuraAreaTargetDelete{
-		objectID: objectID, instanceID: target.instanceID,
-	}, true
 }
 
 func (r campaignDamageRuntime) breakSleepingCloudOnDamage(
@@ -153,32 +74,70 @@ func (r campaignDamageRuntime) breakSleepingCloudOnDamage(
 	if objectID == 0 || descriptorMask&4 != 0 {
 		return nil, nil
 	}
-	r.registry.mutex.RLock()
+	r.registry.mutex.Lock()
+	defer r.registry.mutex.Unlock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
-	if !isFound || peerSession.generation != generation {
-		r.registry.mutex.RUnlock()
+	if !isFound || peerSession.generation != generation || peerSession.zone == nil {
 		return nil, nil
 	}
-	runs := make([]*heroAuraAreaRun, 0, len(peerSession.heroAuraAreas))
-	for _, run := range peerSession.heroAuraAreas {
-		if run != nil && run.statusKind == sim.AbilityStatusKindSleep {
-			runs = append(runs, run)
+	// Keep each exact run locked until its deletions are queued and its handles
+	// are retired. A scan or cleanup cannot replace a membership in between.
+	runs := make(map[*heroAuraAreaRun]heroAuraAreaTarget)
+	deletes := make([]heroAuraAreaTargetDelete, 0)
+	for _, candidate := range r.registry.sessions {
+		if candidate.zone != peerSession.zone {
+			continue
 		}
-	}
-	r.registry.mutex.RUnlock()
-
-	deletes := make([]heroAuraAreaTargetDelete, 0, len(runs))
-	for _, run := range runs {
-		deleted, isDeleted := run.breakSleepOnDamage(objectID)
-		if isDeleted {
-			deletes = append(deletes, deleted)
+		for _, run := range candidate.heroAuraAreas {
+			if run == nil || run.statusKind != sim.AbilityStatusKindSleep ||
+				run.npc != peerSession.zone.NPCs() {
+				continue
+			}
+			if _, isTracked := runs[run]; isTracked {
+				continue
+			}
+			run.mutex.Lock()
+			if run.isCleaned {
+				run.mutex.Unlock()
+				continue
+			}
+			target, isTracked := run.targets[objectID]
+			if !isTracked {
+				run.mutex.Unlock()
+				continue
+			}
+			defer run.mutex.Unlock()
+			runs[run] = target
+			deletes = append(deletes, heroAuraAreaTargetDelete{
+				objectID: objectID, instanceID: target.instanceID,
+			})
 		}
 	}
 	packets, err := marshalAuraAreaDeletes(deletes)
 	if err != nil {
 		return nil, fmt.Errorf("sleepBreakMarshal: %w", err)
 	}
-	return packets, nil
+	for run, target := range runs {
+		run.clearStatus(objectID, target.expiresAt)
+		delete(run.targets, objectID)
+	}
+	// Include the attacker in the same queue boundary. Returning these packets
+	// to the caller could publish a stale deletion after the next scan's create.
+	for candidateKey, candidate := range r.registry.sessions {
+		if candidate.zone != peerSession.zone {
+			continue
+		}
+		candidate.queuePackets(packets)
+		r.registry.sessions[candidateKey] = candidate
+	}
+	var releaseErr error
+	for run, target := range runs {
+		err = run.modifierPool.Release(target.instanceID)
+		if err != nil && releaseErr == nil {
+			releaseErr = fmt.Errorf("sleepBreakRelease[%d]: %w", target.instanceID, err)
+		}
+	}
+	return nil, releaseErr
 }
 
 func (e *heroAuraAreaRun) clearStatus(objectID uint32, expiresAt time.Time) {
@@ -193,22 +152,18 @@ func (e *heroAuraAreaRun) clearStatus(objectID uint32, expiresAt time.Time) {
 }
 
 type heroAuraAreaSchedule struct {
-	runtime             campaignAbilityCommandRuntime
-	packet              raknet.Packet
-	sessionKey          string
-	generation          uint64
-	sourceObjectID      uint32
-	abilityID           uint32
-	creatureIndex       uint32
-	previousManaPoint   float32
-	center              raknet.Vector3
-	creature            game.GameplayCreature
-	definition          sim.AbilityDefinition
-	binding             game.GameplayBinding
-	run                 *heroAuraAreaRun
-	cooldownReservation zoneability.CooldownReservation
-	releaseReservation  zoneaction.ReleaseReservation
-	releasePacket       []byte
+	runtime        campaignAbilityCommandRuntime
+	packet         raknet.Packet
+	sessionKey     string
+	generation     uint64
+	sourceObjectID uint32
+	abilityID      uint32
+	center         raknet.Vector3
+	creature       game.GameplayCreature
+	definition     sim.AbilityDefinition
+	binding        game.GameplayBinding
+	run            *heroAuraAreaRun
+	releasePacket  []byte
 }
 
 type heroAuraAreaStep struct {
@@ -225,7 +180,10 @@ func (e heroAuraAreaStep) produce() ([][]byte, error) {
 func (e heroAuraAreaSchedule) isCurrent(
 	peerSession gameplayPeerSession, isFound bool,
 ) bool {
-	return isFound && peerSession.generation == e.generation &&
+	e.run.mutex.Lock()
+	isActive := !e.run.isCleaned && !e.run.isStopping
+	e.run.mutex.Unlock()
+	return isActive && isFound && peerSession.generation == e.generation &&
 		peerSession.heroAuraAreas[e.abilityID] == e.run
 }
 
@@ -238,7 +196,45 @@ func (e heroAuraAreaSchedule) tick(
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
-	statusPackets, err := e.reconcile(peerSession, deadline)
+	// A scan can commit field presentation, statuses or damage before a later
+	// encoding/publication failure. Its paid activation is no longer rollbackable.
+	e.run.cast.activateLocked(e.run.cast.revision)
+	if e.run.isTimeBubble && index == 0 {
+		spawnPackets, spawnErr := marshalAuraAreaSpawn(e.run.objectID, e.sourceObjectID, e.center, e.definition)
+		if spawnErr != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("bubbleSpawn: %w", spawnErr)
+		}
+		e.runtime.registry.sessions[e.sessionKey] = peerSession
+		e.runtime.registry.queueTimeBubblePresentationLocked(e.run.originalZone, spawnPackets)
+		peerSession = e.runtime.registry.sessions[e.sessionKey]
+		e.run.mutex.Lock()
+		e.run.isObjectPublished = true
+		e.run.mutex.Unlock()
+	}
+	if index == 0 && e.definition.SpawnNoun != "" && !e.run.isTimeBubble {
+		spawnPackets, marshalErr := marshalAuraAreaSpawn(
+			e.run.objectID, e.sourceObjectID, e.center, e.definition,
+		)
+		if marshalErr != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("auraAreaSpawn: %w", marshalErr)
+		}
+		e.queueNPCMembershipLocked(&peerSession, spawnPackets, true)
+		e.run.mutex.Lock()
+		e.run.isObjectPublished = true
+		e.run.mutex.Unlock()
+	} else if index == 0 && e.definition.ActivationEffectName != "" && !e.run.isTimeBubble {
+		effectPacket, marshalErr := raknet.MarshalApplication(raknet.DropPresentationMessage{
+			Asset: util.HashID(e.definition.ActivationEffectName), Position: e.center,
+		})
+		if marshalErr != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("auraAreaEffect: %w", marshalErr)
+		}
+		e.queueNPCMembershipLocked(&peerSession, [][]byte{effectPacket}, true)
+	}
+	statusPackets, err := e.reconcile(&peerSession, deadline)
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("auraAreaReconcile: %w", err)
@@ -278,29 +274,25 @@ func (e heroAuraAreaSchedule) tick(
 	}
 	if isFinal {
 		delete(peerSession.heroAuraAreas, e.abilityID)
+		e.run.mutex.Lock()
 		e.run.cancel = nil
+		e.run.mutex.Unlock()
 	}
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
+	if isFinal {
+		cleanupErr := e.run.retireAuraLocked()
+		peerSession = e.runtime.registry.sessions[e.sessionKey]
+		if cleanupErr != nil {
+			if !e.run.isTimeBubble {
+				auraRetirement{run: e.run}.schedule(heroAuraAreaScanInterval)
+			}
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("auraFinalRetire: %w", cleanupErr)
+		}
+	}
 	e.runtime.registry.mutex.Unlock()
 
 	packets := statusPackets
-	if index == 0 && e.definition.SpawnNoun != "" {
-		spawnPackets, marshalErr := marshalAuraAreaSpawn(
-			e.run.objectID, e.sourceObjectID, e.center, e.definition,
-		)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("auraAreaSpawn: %w", marshalErr)
-		}
-		packets = append(spawnPackets, packets...)
-	} else if index == 0 && e.definition.ActivationEffectName != "" {
-		effectPacket, marshalErr := raknet.MarshalApplication(raknet.DropPresentationMessage{
-			Asset: util.HashID(e.definition.ActivationEffectName), Position: e.center,
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("auraAreaEffect: %w", marshalErr)
-		}
-		packets = append([][]byte{effectPacket}, packets...)
-	}
 	if len(results) > 0 {
 		damagePackets, publishErr := e.runtime.damage.publishAreaResults(
 			e.packet, e.sessionKey, e.generation, e.sourceObjectID,
@@ -312,18 +304,11 @@ func (e heroAuraAreaSchedule) tick(
 		}
 		packets = append(packets, damagePackets...)
 	}
-	if isFinal {
-		cleanupPackets, marshalErr := e.run.cleanupPackets()
-		if marshalErr != nil {
-			return nil, fmt.Errorf("auraAreaFinalCleanup: %w", marshalErr)
-		}
-		packets = append(packets, cleanupPackets...)
-	}
 	return packets, nil
 }
 
 func (e heroAuraAreaSchedule) reconcile(
-	peerSession gameplayPeerSession, deadline time.Duration,
+	peerSession *gameplayPeerSession, deadline time.Duration,
 ) ([][]byte, error) {
 	now := e.runtime.now()
 	elapsed := max(time.Duration(0), deadline-e.definition.HitDelay)
@@ -338,117 +323,62 @@ func (e heroAuraAreaSchedule) reconcile(
 		}
 		live[target.Plan.ObjectID] = target
 	}
-	liveProjectile := make(map[uint32]*abilityraknet.ProjectileRun)
-	if e.definition.Name == timeBubbleAbilityName {
-		for objectID, run := range peerSession.campaignNPCProjectiles {
-			snapshot := run.Snapshot(now)
-			if !snapshot.IsActive || zonegeometry.Distance(
-				game.Vec3(e.center), game.Vec3(snapshot.Position),
-			) > e.definition.Radius {
-				continue
-			}
-			liveProjectile[objectID] = run
-		}
-	}
 	e.run.mutex.Lock()
 	defer e.run.mutex.Unlock()
-	if e.run.isCleaned {
+	if e.run.isCleaned || e.run.isStopping {
 		return nil, nil
 	}
-	messages := make([]raknet.ApplicationMessage, 0)
+	// Queue each accepted membership before advancing to a fallible target.
 	for objectID, tracked := range e.run.targets {
 		if _, isInside := live[objectID]; isInside {
 			continue
 		}
+		packets, err := marshalAuraAreaDeletes([]heroAuraAreaTargetDelete{{objectID: objectID, instanceID: tracked.instanceID}})
+		if err != nil {
+			return nil, fmt.Errorf("auraExitEncode: %w", err)
+		}
+		e.queueNPCMembershipLocked(peerSession, packets, false)
 		e.run.clearStatus(objectID, tracked.expiresAt)
-		_ = e.run.modifierPool.Release(tracked.instanceID)
 		delete(e.run.targets, objectID)
-		messages = append(messages, raknet.ModifierDeletedMessage{
-			TargetID: objectID, InstanceID: tracked.instanceID,
-		})
+		e.run.releaseAuraInstance(tracked.instanceID)
 	}
 	for objectID := range live {
 		if _, isTracked := e.run.targets[objectID]; isTracked {
 			continue
 		}
-		err := e.applyStatus(peerSession.zone.NPCs(), objectID, expiresAt)
+		instanceID, err := e.run.modifierPool.Allocate()
 		if err != nil {
-			return nil, fmt.Errorf("status[%d]: %w", objectID, err)
+			return nil, fmt.Errorf("auraEntryAllocate: %w", err)
+		}
+		packets, err := e.prepareNPCMembership(objectID, instanceID, deadline)
+		if err != nil {
+			e.run.releaseAuraInstance(instanceID)
+			return nil, fmt.Errorf("auraEntryEncode: %w", err)
+		}
+		err = e.applyStatus(peerSession.zone.NPCs(), objectID, expiresAt)
+		if err != nil {
+			e.run.releaseAuraInstance(instanceID)
+			return nil, fmt.Errorf("auraEntryApply: %w", err)
 		}
 		if e.statusRemaining(peerSession.zone.NPCs(), objectID, now) == 0 {
+			e.run.releaseAuraInstance(instanceID)
 			continue
 		}
-		instanceID, allocateErr := e.run.modifierPool.Allocate()
-		if allocateErr != nil {
-			e.run.clearStatus(objectID, expiresAt)
-			return nil, fmt.Errorf("modifier[%d]: %w", objectID, allocateErr)
-		}
-		e.run.targets[objectID] = heroAuraAreaTarget{
-			instanceID: instanceID, expiresAt: expiresAt,
-		}
-		messages = append(messages, raknet.ModifierCreatedMessage{
-			TargetID: objectID, ModifierGUID: e.definition.RootModifierID,
-			InstanceID:           instanceID,
-			DurationMilliseconds: 0,
-			StackCount:           1,
-			StartMilliseconds:    e.packet.SourceTime + uint64(deadline/time.Millisecond),
-			SourceID:             e.sourceObjectID,
-		})
-		if e.definition.HitEffectName != "" &&
-			e.definition.Name != timeBubbleAbilityName {
-			messages = append(messages, raknet.ServerEventMessage{
-				Asset:    util.HashID(e.definition.HitEffectName),
-				ObjectID: objectID,
-			})
-		}
+		e.run.targets[objectID] = heroAuraAreaTarget{instanceID: instanceID, expiresAt: expiresAt}
+		e.queueNPCMembershipLocked(peerSession, packets, true)
 	}
-	for objectID, tracked := range e.run.projectiles {
-		liveRun, isInside := liveProjectile[objectID]
-		if isInside && liveRun == tracked.run {
-			continue
-		}
-		tracked.run.SetSpeedScale(now, 1)
-		_ = e.run.modifierPool.Release(tracked.instanceID)
-		delete(e.run.projectiles, objectID)
-		messages = append(messages, raknet.ModifierDeletedMessage{
-			TargetID: objectID, InstanceID: tracked.instanceID,
-		})
-	}
-	for objectID, run := range liveProjectile {
-		if _, isTracked := e.run.projectiles[objectID]; isTracked ||
-			!run.SetSpeedScale(now, 0.40) {
-			continue
-		}
-		instanceID, allocateErr := e.run.modifierPool.Allocate()
-		if allocateErr != nil {
-			run.SetSpeedScale(now, 1)
-			return nil, fmt.Errorf("projectileModifier[%d]: %w", objectID, allocateErr)
-		}
-		e.run.projectiles[objectID] = heroAuraAreaProjectile{
-			instanceID: instanceID, run: run,
-		}
-		messages = append(messages, raknet.ModifierCreatedMessage{
-			TargetID: objectID, ModifierGUID: e.definition.RootModifierID,
-			InstanceID: instanceID, DurationMilliseconds: 0, StackCount: 1,
-			StartMilliseconds: e.packet.SourceTime + uint64(deadline/time.Millisecond),
-			SourceID:          e.sourceObjectID,
-		})
-		if e.definition.HitEffectName != "" &&
-			e.definition.Name != timeBubbleAbilityName {
-			messages = append(messages, raknet.ServerEventMessage{
-				Asset: util.HashID(e.definition.HitEffectName), ObjectID: objectID,
-			})
-		}
-	}
-	packets := make([][]byte, 0, len(messages))
-	for index, message := range messages {
-		packet, err := raknet.MarshalApplication(message)
+	if e.run.isTimeBubble {
+		err := e.reconcileTimeBubbleLocked(peerSession, deadline, now)
 		if err != nil {
-			return nil, fmt.Errorf("marshal[%d]: %w", index, err)
+			// This scan owns only tentative additions. Keep accepted memberships
+			// and retry on the next scan rather than failing the whole bubble.
+			if e.runtime.logger != nil {
+				e.runtime.logger.Printf("RakNet Time Bubble membership scan deferred: %v", err)
+			}
 		}
-		packets = append(packets, packet)
+		return nil, nil
 	}
-	return packets, nil
+	return nil, nil
 }
 
 func (e heroAuraAreaSchedule) applyStatus(
@@ -502,17 +432,24 @@ func (e heroAuraAreaSchedule) fail(scheduleErr error) {
 	isCurrent := e.isCurrent(peerSession, isFound)
 	if isCurrent {
 		delete(peerSession.heroAuraAreas, e.abilityID)
-		cleanupPackets, cleanupErr := e.run.Stop()
-		if cleanupErr != nil {
-			e.runtime.logger.Printf("RakNet hero aura cleanup failed: %v", cleanupErr)
-		}
-		peerSession.queuePackets(cleanupPackets)
-		_ = peerSession.setCampaignCharacterManaPoints(
-			e.creatureIndex, e.previousManaPoint,
-		)
-		peerSession.abilityCooldownSession().Rollback(e.cooldownReservation)
-		peerSession.abilityReleaseSession().Rollback(e.releaseReservation)
+	}
+	refundPacket, refundErr := e.run.cast.failLocked(&peerSession, isFound, e.run.cast.revision)
+	if isFound {
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
+	}
+	if len(refundPacket) != 0 {
+		e.runtime.registry.queueChannelPresentationLocked(e.run.originalZone, [][]byte{refundPacket})
+		peerSession = e.runtime.registry.sessions[e.sessionKey]
+	}
+	if refundErr != nil {
+		e.runtime.logger.Printf("RakNet hero aura refund failed: %v", refundErr)
+	}
+	cleanupErr := e.run.retireAuraLocked()
+	if cleanupErr != nil {
+		e.runtime.logger.Printf("RakNet hero aura cleanup deferred: %v", cleanupErr)
+		if !e.run.isTimeBubble {
+			auraRetirement{run: e.run}.schedule(heroAuraAreaScanInterval)
+		}
 	}
 	e.runtime.registry.mutex.Unlock()
 	if !isCurrent {
@@ -640,7 +577,6 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		return req.reject("power unavailable")
 	}
 	remainingManaPoint := peerSession.deployedManaPoint() - manaCost
-	previousManaPoint := peerSession.deployedManaPoint()
 	objectID := uint32(0)
 	if projected.SpawnNoun != "" {
 		objectID, err = peerSession.reserveCampaignObjectID()
@@ -682,17 +618,26 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		r.registry.mutex.Unlock()
 		return req.reject("aura area release unavailable")
 	}
+	cast := r.registry.reserveChannelCastLocked(peerSession, req.command.Common.ObjectID, cooldownReservation, releaseReservation)
 	err = peerSession.stopPlayerMovement(abilityStartTime)
 	if err == nil {
-		err = peerSession.setDeployedManaPoints(remainingManaPoint)
+		err = cast.debitLocked(&peerSession, manaCost)
 	}
 	if err != nil {
-		peerSession.abilityCooldownSession().Rollback(cooldownReservation)
-		peerSession.abilityReleaseSession().Rollback(releaseReservation)
+		refundPacket, refundErr := cast.failLocked(&peerSession, true, cast.revision)
+		r.registry.sessions[sessionKey] = peerSession
+		if len(refundPacket) != 0 {
+			r.registry.queueChannelPresentationLocked(peerSession.zone, [][]byte{refundPacket})
+		}
+		if refundErr != nil {
+			r.logger.Printf("RakNet hero aura admission refund failed: %v", refundErr)
+		}
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("auraAreaCommit: %w", err)
 	}
 	run := &heroAuraAreaRun{
+		cast:    cast,
+		runtime: r, originalZone: peerSession.zone,
 		isTimeBubble: definition.Name == timeBubbleAbilityName,
 		npc:          peerSession.zone.NPCs(), modifierPool: r.modifierPool,
 		targets: make(map[uint32]heroAuraAreaTarget), statusKind: projected.StatusKind,
@@ -703,19 +648,21 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 	}
 	peerSession.heroAuraAreas[activeAbilityID] = run
 	generation := peerSession.generation
-	creatureIndex := peerSession.deployedCreatureIndex
 	binding := peerSession.binding
 	r.registry.sessions[sessionKey] = peerSession
+	if run.isTimeBubble {
+		run.retainTimeBubbleLocked()
+	} else {
+		run.retainAuraLocked()
+	}
 	r.registry.mutex.Unlock()
 
 	schedule := heroAuraAreaSchedule{
 		runtime: r, packet: req.packet, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: req.command.Common.ObjectID,
-		abilityID: activeAbilityID, creatureIndex: creatureIndex,
-		previousManaPoint: previousManaPoint, center: center, creature: creature,
+		abilityID: activeAbilityID, center: center, creature: creature,
 		definition: projected, binding: binding, run: run,
-		cooldownReservation: cooldownReservation,
-		releaseReservation:  releaseReservation, releasePacket: start.Release,
+		releasePacket: start.Release,
 	}
 	stepCount := uint32(projected.Duration/heroAuraAreaScanInterval) + 1
 	producers := make([]raknet.ScheduledPacketProducer, 0, stepCount+1)
@@ -742,13 +689,31 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 	} else {
 		err = errors.New("schedule unavailable")
 	}
+	if err == nil && cancel == nil {
+		err = errors.New("schedule handle unavailable")
+	}
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		schedule.fail(err)
 		return nil, fmt.Errorf("auraAreaSchedule: %w", err)
 	}
 	run.mutex.Lock()
-	run.cancel = cancel
+	isRetired := run.isCleaned || run.isStopping
+	if !isRetired {
+		run.cancel = cancel
+	}
 	run.mutex.Unlock()
+	if isRetired && cancel != nil {
+		cancel()
+	}
+	admission := auraAreaAdmission{run: run, revision: cast.revision}
+	err = req.packet.AfterResponseCommit(admission.commit)
+	if err != nil {
+		schedule.fail(err)
+		return nil, fmt.Errorf("auraAdmissionCommit: %w", err)
+	}
 	r.logger.Printf(
 		"RakNet hero aura area accepted ability=%s source=%d object=%d noun=%q effect=%q center=(%g,%g,%g)",
 		projected.Name, req.command.Common.ObjectID, objectID, projected.SpawnNoun,
@@ -756,4 +721,16 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 	)
 	packets := append([][]byte{start.Acknowledge, manaPacket}, start.Presentation...)
 	return packets, nil
+}
+
+type auraAreaAdmission struct {
+	run      *heroAuraAreaRun
+	revision uint64
+}
+
+func (e auraAreaAdmission) commit() {
+	e.run.runtime.registry.mutex.Lock()
+	defer e.run.runtime.registry.mutex.Unlock()
+	// Response publication seals payment even if cancellation retired visuals.
+	e.run.cast.activateLocked(e.revision)
 }

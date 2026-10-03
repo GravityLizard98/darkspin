@@ -1549,7 +1549,7 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 	if plan.Definition.Name == "MissileTempestSupport" {
 		var destroyedCount uint32
 		projectilePackets, destroyedCount, err = destroyHostileProjectilesLocked(
-			&current, plan.Center, plan.Definition.Radius, e.runtime.now(),
+			e.runtime, &current, e.sessionKey, plan.Center, plan.Definition.Radius, e.runtime.now(),
 		)
 		if err != nil {
 			e.runtime.registry.mutex.Unlock()
@@ -1599,11 +1599,13 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 				return nil, fmt.Errorf("campaignTeleportAreaSilence: %w", err)
 			}
 			if e.definition.Name == "TimeRavagerSupport" {
+				e.runtime.registry.sessions[e.sessionKey] = current
 				freezePacket, freezeErr := freezeChronoObjectLocked(
 					e.runtime, e.packet, e.sessionKey, e.generation,
 					current.zone, result.Damage.ObjectID,
 					e.definition.StatusDuration,
 				)
+				current = e.runtime.registry.sessions[e.sessionKey]
 				if freezeErr != nil {
 					e.runtime.registry.mutex.Unlock()
 					return nil, fmt.Errorf("campaignTeleportFreeze: %w", freezeErr)
@@ -2594,6 +2596,7 @@ type campaignProjectileScheduleFailure struct {
 	creatureIndex              uint32
 	previousManaPoint          float32
 	runs                       []*abilityraknet.ProjectileRun
+	retirements                []*campaignProjectileRetirement
 	previousSequence           zoneability.SequenceSnapshot
 	sequenceRevision           uint64
 	cooldownReservation        zoneability.CooldownReservation
@@ -3127,24 +3130,26 @@ func (e campaignProjectileScheduleFailure) handle(scheduleErr error) {
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
-	if isCurrent {
-		for index, projectileObjectID := range e.projectileObjectIDs {
-			if peerSession.sageAttacks[projectileObjectID] == e.runs[index] {
-				delete(peerSession.sageAttacks, projectileObjectID)
-			}
+	for _, retirement := range e.retirements {
+		retireErr := e.runtime.registry.retireCampaignProjectileLocked(retirement)
+		if retireErr != nil && e.runtime.logger != nil {
+			e.runtime.logger.Printf("RakNet projectile schedule cleanup failed projectile=%d: %v", retirement.objectID, retireErr)
 		}
+	}
+	if isCurrent {
+		// Retirement updated the stored member's queued packets and run map.
+		peerSession = e.runtime.registry.sessions[e.sessionKey]
 		peerSession.basicSequenceSession().ReleaseHeld()
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
 	}
 	e.runtime.registry.mutex.Unlock()
-	if isCurrent {
-		for _, run := range e.runs {
-			run.Stop()
+	if isCurrent || len(e.retirements) > 0 {
+		if e.runtime.logger != nil {
+			e.runtime.logger.Printf(
+				"RakNet campaign projectile stopped after schedule failure for %s: %v",
+				e.sessionKey, scheduleErr,
+			)
 		}
-		e.runtime.logger.Printf(
-			"RakNet campaign projectile stopped after schedule failure for %s: %v",
-			e.sessionKey, scheduleErr,
-		)
 	}
 }
 

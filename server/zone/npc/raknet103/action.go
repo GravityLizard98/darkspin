@@ -15,22 +15,31 @@ import (
 func Blink(
 	plan zonenpc.AttackPlan, destination game.Vec3, timestamp uint64,
 ) ([][]byte, error) {
+	facing := plan.TargetPosition.Sub(destination)
+	facing.Z = 0
+	if facing.Length() <= 0 {
+		facing.Y = 1
+	}
+	return BlinkWithFacing(plan, destination, facing, timestamp)
+}
+
+// BlinkWithFacing models TeleportObject, which retains the actor's orientation.
+// Abilities that explicitly turn on arrival can continue to use Blink.
+func BlinkWithFacing(
+	plan zonenpc.AttackPlan, destination game.Vec3, facing game.Vec3, timestamp uint64,
+) ([][]byte, error) {
 	if plan.SourceObjectID == 0 || plan.Profile.TeleportAnimationName == "" ||
 		!isFiniteVec3(destination) {
 		return nil, errors.New("npc blink invalid")
 	}
+	posePacket, err := RestorePose(plan.SourceObjectID, destination, facing)
+	if err != nil {
+		return nil, fmt.Errorf("blinkPose: %w", err)
+	}
 	position := raknet.Vector3{
 		X: destination.X, Y: destination.Y, Z: destination.Z,
 	}
-	facing := plan.TargetPosition.Sub(destination)
-	yaw := math.Atan2(-float64(facing.X), float64(facing.Y))
 	messages := []raknet.ApplicationMessage{
-		raknet.ObjectTeleportMessage{
-			ObjectID: plan.SourceObjectID, Position: position,
-			Orientation: raknet.Quaternion{
-				Z: float32(math.Sin(yaw / 2)), W: float32(math.Cos(yaw / 2)),
-			},
-		},
 		raknet.ObjectUpdateMessage{
 			ObjectID: plan.SourceObjectID, PositionX: destination.X,
 			PositionY: destination.Y, PositionZ: destination.Z,
@@ -46,7 +55,11 @@ func Blink(
 			Timestamp: timestamp, Scale: 1,
 		},
 	}
-	return marshalMessages(messages, "blink")
+	packets, err := marshalMessages(messages, "blink")
+	if err != nil {
+		return nil, fmt.Errorf("blinkPresentation: %w", err)
+	}
+	return append([][]byte{posePacket}, packets...), nil
 }
 
 func RandomTeleport(
@@ -474,13 +487,13 @@ func FirstAggro(plan zonenpc.FirstActionPlan, timestamp uint64) ([][]byte, error
 			AttackerCount: attackerCount,
 		},
 	)
-	if isCinematic {
-		messages = append(messages, raknet.ObjectPlayerMoveMessage{
-			ObjectID: plan.ObjectID, GoalFlags: 0x20, GoalPosition: source,
-		})
-	} else {
-		messages = append(messages, attackTurn(plan.FirstAggroFacingPlan()))
+	turn := attackTurn(plan.FirstAggroFacingPlan())
+	if plan.Profile.FirstAggroAnimationName == "shadowboss_onaggro" {
+		// TurnToFace(..., true): build 103 sub_A0A800 adds 0x800 to the
+		// captured-point goal produced by sub_A15610.
+		turn.GoalFlags |= 0x800
 	}
+	messages = append(messages, turn)
 	if plan.Profile.FirstAggroRevealDelay <= 0 && plan.Profile.FirstAggroAnimationName != "" {
 		messages = append(messages, raknet.SetAnimationStateMessage{
 			ObjectID:  plan.ObjectID,

@@ -79,6 +79,17 @@ type options struct {
 }
 
 func main() {
+	isScenarioWorker, scenarioErr := runScenarioWorker(os.Args[1:])
+	if isScenarioWorker {
+		if scenarioErr != nil {
+			count, outputErr := fmt.Fprintln(os.Stderr, "Scenario worker failed:", scenarioErr)
+			if outputErr != nil || count == 0 {
+				// The parent also observes worker exit; stderr is best effort here.
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	privilegeErr := ensureStandardUser()
 	err := configureDarkSpinnerVersion()
 	if err != nil {

@@ -58,6 +58,7 @@ type PickupContactCommand struct {
 	SegmentEnd      game.Vec3
 	MaximumDistance float32
 	SimulationTime  time.Duration
+	SampleTime      time.Time
 }
 
 type PickupRegistry struct {
@@ -234,7 +235,7 @@ func (r *PickupRegistry) ReserveContact(
 	if pickup.ExpiresAt > 0 && command.SimulationTime >= pickup.ExpiresAt {
 		return Pickup{}, PickupRejectedNotFound
 	}
-	pickup = pickup.at(time.Now())
+	pickup = pickup.at(command.SampleTime)
 	r.pickups[command.TargetObjectID] = pickup
 	if r.set.IsReserved(command.TargetObjectID) {
 		return pickup, PickupRejectedReserved

@@ -105,6 +105,7 @@ func (s *Session) PurgeDebuffs(objectID uint32) bool {
 	isPurged := !status.banishExpiresAt.IsZero() ||
 		!status.curseExpiresAt.IsZero() ||
 		status.damageTakenIncrease > 0 ||
+		!status.physicalVulnerabilityEnd.IsZero() ||
 		!status.energyVulnerabilityEnd.IsZero() ||
 		!status.healingReductionEnd.IsZero() ||
 		!status.fearExpiresAt.IsZero() ||
@@ -123,6 +124,8 @@ func (s *Session) PurgeDebuffs(objectID uint32) bool {
 	status.curseDamage = CurseDamageProfile{}
 	status.damageTakenIncrease = 0
 	status.damageVulnerabilityOwner = 0
+	status.physicalTakenIncrease = 0
+	status.physicalVulnerabilityEnd = time.Time{}
 	status.energyTakenIncrease = 0
 	status.energyVulnerabilityOwner = 0
 	status.energyVulnerabilityEnd = time.Time{}

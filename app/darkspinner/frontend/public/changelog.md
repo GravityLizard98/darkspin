@@ -1,8 +1,51 @@
 # Changelog
 
 ### 2026-10-03
-- Audit selected campaign layouts with per-section population counts and fixture identity, transform, and load/rejoin takeover logs.
 
+- Restore Nashira's scripted entrance facing, correct Polaris's teleport center and orientation, and prevent interrupted boss callbacks from applying stale movement or activation.
+- Complete distant pickup commands on arrival without requiring a second click, canceling retained pickup pursuit when movement changes.
+- Limit each capsule drop batch to one resurrection capsule so consuming it does not expose an overlapping spare.
+- Keep /kill processing after an owner's defeat also defeats its owned NPCs, skipping those stale batch targets instead of aborting publication.
+- Use authored NPC loot budgets and client-backed co-op equipment/catalyst attempt counts, replacing fixed budgets, ordinary drop-chance pity, and guaranteed ordinary boss equipment.
+- Choose health and power capsules using the whole co-op party's squad resources, with a separate selection RNG preserved across checkpoint restores.
+- Remove inflated Gravitic DNA and capsule overrides, and match client rounding when calculating capsule drop budgets.
+- Use authored DNA drop chance and minimum stage, reducing ordinary drops from 50% to the installed 25%.
+- Reduce health obelisks from four or five capsule batches to one authored batch, and use each enemy's authored challenge for capsule drop budgets.
+- Collect landed capsules and DNA while standing still, retain pickups crossed in large groups, and prevent premature collection after teleporting.
+- Keep aura status effects synchronized across co-op clients when a scan fails or the caster leaves, and queue removals before reusing modifier handles.
+- Preserve capsule and DNA pickup messages when a later operation fails, including full-resource notices and accepted DNA balance updates.
+- Prevent persistent aura failures from refunding already activated casts or overwriting later power changes; refund failed startup only once.
+- Make Time Bubble slow shared co-op projectiles and preserve the slow until the last overlapping bubble releases them, without overwriting other speed changes.
+- Prevent late drain and Gravity Storm failures from refunding activated casts or overwriting newer power changes; refund failed unpublished admission only once.
+- Apply projectile freeze and destruction across co-op players, including Arcturus missiles, with ordered projectile and effect cleanup.
+- Let shared freezes expire after the caster disconnects or switches heroes while preserving later overlapping deadlines.
+- Remove interrupted drain and Gravity Storm effects for co-op allies and prevent canceled callbacks from recreating them or applying damage.
+- Preserve existing projectile freezes and movement when another freeze fails to initialize, and retain updates for earlier successful freezes.
+- Preserve charge-applied statuses across later actions, expire each at its own deadline, and remove statuses and attached effects reliably for co-op allies on departure.
+- Prevent an expired charge effect from resetting a newer hero animation, and keep charge-release command responses private to the caster.
+- Expire transferred buffs and temporary maximum-health bonuses after caster disconnects, and show their removal to co-op allies.
+- Keep an admitted pet charge running after the hero's impact when the hero starts another action, while canceling stale pet movement safely.
+- Remove failed hero and enemy projectile flights from co-op clients, with ordered cleanup of remaining freeze effects.
+- Detect teleporter crossings between movement polls while preventing false crossings after teleports or hero changes.
+- Stop enemies' old attacks and lingering laser beams when pulled, and leave their pose and attack unchanged if pull setup fails.
+- Restore companions' ongoing follow movement on reconnect and publish their final position to co-op peers.
+- Restrict allied healing and transferred buffs to active participants and their current companions, excluding players in results, reconnect or disconnected states.
+- Prevent stale companion pursuit callbacks from moving pets or canceling newer pursuits after teleport, replacement or death.
+- Restore companion maximum health and active enrage size changes on reconnect without replaying healing or restarting effects.
+- Restore remaining active and squad-support ability cooldowns after reconnect without restarting their timers.
+- Restrict Sage's Dendrone attacks and pursuits to that player's current summons so allies' pets keep their own targets and cooldowns.
+- Make qualifying allied hits wake Sleeping Cloud targets and remove the matching sleep effects for all players in the zone.
+- Retain Field Medic's first transferred companion buffs in session tracking so their expiry can remove the buffs and release their modifier instances.
+- Refresh surviving squad portraits and clear client deploy cooldowns after a hero dies, and handle death selection as an immediate replacement instead of a voluntary swap.
+- Stop active security and boss teleporter effects when enemies block the pad, prevent duplicate portal loops, and refresh their displayed state after reconnect.
+- Make enemy cleanses remove physical vulnerability and its extra physical damage taken.
+- Calculate shared health and power capsule bonuses per receiving player, and exclude disconnected, reconnecting or finished players from capsule and DNA sharing.
+- Cancel Fire Tempest pet shots still winding up when the pet teleports, then resume targeting from its new position after the existing cooldown.
+- Change security teleporter enemy detection from a 4.8-unit estimate to the authored 20-unit radius, excluding allies and enemies explicitly hidden from security checks.
+- Restore 1-2 boss progression after the red portal by honoring the authored four-second arena trigger and publishing the encounter to all players.
+- Show still-active allied Trees of Life after reconnect using their retained objects and original simulation expiry, without replaying growth, costs, cooldowns or healing.
+- Audit selected campaign layouts with per-section population counts and fixture identity, transform, and load/rejoin takeover logs.
+- Remove Tree of Life reliably for watching allies when its caster beams out or disconnects, clear retired tree state before rejoin, and prevent late cleanup from affecting a replacement tree.
 - Restore mission 1-2 enemy spawn candidates by reading authored marker sections before falling back to marker-set filenames.
 - Fix the Gravitic Stabilizer debuff visual lingering after leaving its shield by using the client's one-based effect slot for attachment and removal.
 - Fix Return to Ship retries after an interrupted victory by reusing the saved XP receipt and preparing the next-mission preview before committing XP.

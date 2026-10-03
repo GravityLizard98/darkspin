@@ -216,7 +216,7 @@ func IsEquipmentDrop(challenge int32, chanceScale float32, randomDraw float64) (
 	if err != nil {
 		return false, fmt.Errorf("equipmentThreshold: %w", err)
 	}
-	return float32(randomDraw) < threshold, nil
+	return randomDraw < float64(threshold), nil
 }
 
 func IsCrystalDrop(challenge int32, chanceScale float32, randomDraw uint32) (bool, error) {

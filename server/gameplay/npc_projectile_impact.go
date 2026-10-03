@@ -22,6 +22,10 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 	if e.deadline == schedule.impactDeadline {
 		runtime.registry.mutex.RLock()
 		current, isFound := runtime.registry.sessions[schedule.sessionKey]
+		if schedule.retirement != nil && (schedule.retirement.isRetired || schedule.retirement.isRetirementPending) {
+			runtime.registry.mutex.RUnlock()
+			return nil, nil
+		}
 		// Released homing shots outlive the boss's current cast/phase.
 		isSourceActive := schedule.isReleasedFlightCurrent(current, isFound)
 		runtime.registry.mutex.RUnlock()
@@ -38,7 +42,7 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 				)
 			}
 			resumeDelay := min(remainingFlight, campaignProjectileMotionPollInterval)
-			err := scheduleNPCProducer(runtime.registry, schedule.packet, resumeDelay, e.produce)
+			err := scheduleNPCProducer(runtime.registry, schedule.packet, resumeDelay, e.produceTracked)
 			if err != nil {
 				return schedule.fail("enemyProjectileResume", err)
 			}
@@ -48,6 +52,10 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 	if e.deadline != schedule.impactDeadline {
 		runtime.registry.mutex.RLock()
 		current, isFound := runtime.registry.sessions[schedule.sessionKey]
+		if schedule.retirement != nil && (schedule.retirement.isRetired || schedule.retirement.isRetirementPending) {
+			runtime.registry.mutex.RUnlock()
+			return nil, nil
+		}
 		isCurrent := schedule.isReleasedFlightCurrent(current, isFound) &&
 			(e.deadline > schedule.plan.Profile.HitDelay ||
 				current.isCampaignNPCSourceGenerationActive(
@@ -71,6 +79,10 @@ func (e campaignNPCProjectileStep) produce() ([][]byte, error) {
 	}
 	runtime.registry.mutex.Lock()
 	current, isFound := runtime.registry.sessions[schedule.sessionKey]
+	if schedule.retirement != nil && (schedule.retirement.isRetired || schedule.retirement.isRetirementPending) {
+		runtime.registry.mutex.Unlock()
+		return nil, nil
+	}
 	isSourceActive := schedule.isReleasedFlightCurrent(current, isFound)
 	if !isSourceActive {
 		runtime.registry.mutex.Unlock()

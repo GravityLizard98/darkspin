@@ -17,8 +17,9 @@ const (
 	TriggerRadius          = float32(2)
 	DefaultFootprintRadius = float32(0.8)
 	ContactRadius          = TriggerRadius - DefaultFootprintRadius
-	// Approximate three Blitz lengths using its authored collision diameter.
-	ThreatRadius     = 3 * 2 * DefaultFootprintRadius
+	// nModifier_Security_Teleporter_Template.securityZoneRadius, shared by normal
+	// and boss security teleporters.
+	ThreatRadius     = float32(20)
 	ActivationRadius = float32(12)
 )
 
@@ -202,7 +203,7 @@ func PlanActivation(
 
 func HasThreat(teleport Teleport, threats []Threat) bool {
 	for _, threat := range threats {
-		if threat.IsDefeated || threat.IsFixture {
+		if threat.IsDefeated || threat.IsFixture || threat.IsInvisible {
 			continue
 		}
 		deltaX := threat.Position.X - teleport.Source.X
@@ -216,6 +217,8 @@ func HasThreat(teleport Teleport, threats []Threat) bool {
 	return false
 }
 
+// PublishState owns only the steady loop. isPowerUp remains part of the caller
+// contract, but timed power choreography requires a separate scheduled owner.
 func PublishState(
 	objectID uint32, teleport Teleport, isActive bool, isPowerUp bool,
 ) (StatePublication, error) {
@@ -230,15 +233,13 @@ func PublishState(
 		}, nil
 	}
 	effectName := effectPrefix(teleport) + ".ServerEventDef"
-	effectNames := make([]string, 0, 2)
-	if isPowerUp {
-		effectNames = append(
-			effectNames, effectPrefix(teleport)+"_powerup.ServerEventDef",
-		)
-	}
-	effectNames = append(effectNames, effectName)
+	// Keep the persistent loop in one owned slot. Authored power transitions
+	// retain a separate effect index until their delayed replacement; emitting
+	// those without the delay/removal owner would create another untracked loop.
+	effectNames := []string{effectName}
 	return StatePublication{
-		ObjectID: objectID, Position: teleport.Source, EffectNames: effectNames,
+		ObjectID: objectID, Position: teleport.Source,
+		EffectNames: effectNames,
 	}, nil
 }
 

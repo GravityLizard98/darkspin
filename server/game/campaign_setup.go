@@ -259,6 +259,7 @@ type CampaignDirector struct {
 	selectedDefinitionsByMarkerID map[uint32]CampaignMarkerDefinition
 	IsEquipmentDropEnabled        bool
 	PickupTuning                  CampaignPickupTuning
+	DNADropTuning                 DNADropTuning
 	Level                         string
 	LevelCatalogAsset             CampaignAssetIdentity
 	PlanetConfigName              string

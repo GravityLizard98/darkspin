@@ -3,6 +3,7 @@ package gameplay
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sim"
 	"github.com/darkspinnet/darkspin/server/util"
+	"github.com/darkspinnet/darkspin/server/zone"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
@@ -25,26 +27,64 @@ type heroChargeModifier struct {
 	targetObjectID uint32
 	instanceID     uint32
 	expiresAt      time.Time
+	isPublished    bool
+	cancel         func()
 }
 
 type heroChargeRun struct {
-	mutex            sync.Mutex
-	npc              *zonenpc.Session
-	companion        *zonecompanion.Session
-	modifierPool     *modifierPool
-	effectPool       *attachedEffectPool
-	assetName        string
-	modifier         []heroChargeModifier
-	petPursuit       zonecompanion.Pursuit
-	effectPackets    [][]byte
-	effectObjectID   uint32
-	effectSlot       uint8
-	isEffectAttached bool
-	cancel           raknet.CancelSchedule
-	isCleaned        bool
+	mutex             sync.Mutex
+	npc               *zonenpc.Session
+	companion         *zonecompanion.Session
+	modifierPool      *modifierPool
+	effectPool        *attachedEffectPool
+	assetName         string
+	modifiers         []heroChargeModifier
+	petPursuit        zonecompanion.Pursuit
+	effectPackets     [][]byte
+	effectObjectID    uint32
+	effectSlot        uint8
+	isEffectAttached  bool
+	cancel            raknet.CancelSchedule
+	isCleaned         bool
+	zone              *zone.Zone
+	userID            uint64
+	generation        uint64
+	ownerObjectID     uint32
+	petFollowRevision uint64
+	petStartedAt      time.Time
+	petDeadline       time.Time
+	petDestination    game.Vec3
+	now               func() time.Time
+	isHeroImpacted    bool
+	isPetPending      bool
+	registry          *gameplaySessionRegistry
+	timer             zone.Timer
+	retiredPet        zonecompanion.Actor
 }
 
 func (e *heroChargeRun) Stop() [][]byte {
+	if e == nil {
+		return nil
+	}
+	e.mutex.Lock()
+	isCleaned := e.isCleaned
+	e.mutex.Unlock()
+	if isCleaned {
+		return nil
+	}
+	retirement := chargeRunRetirement{run: e}
+	if e.timer == nil {
+		log.Printf("RakNet charge retirement timer unavailable owner=%d", e.ownerObjectID)
+		return nil
+	}
+	cancel, err := e.timer.Schedule(0, retirement.execute)
+	if err != nil || cancel == nil {
+		log.Printf("RakNet charge retirement schedule failed owner=%d: %v", e.ownerObjectID, err)
+	}
+	return nil
+}
+
+func (e *heroChargeRun) stopLocked() [][]byte {
 	if e == nil {
 		return nil
 	}
@@ -55,7 +95,7 @@ func (e *heroChargeRun) Stop() [][]byte {
 	if cancel != nil {
 		cancel()
 	}
-	_, packets := e.cleanup()
+	packets := e.cleanupLocked()
 	return packets
 }
 
@@ -67,12 +107,12 @@ func (e *heroChargeRun) Interrupt() [][]byte {
 		return nil
 	}
 	e.mutex.Lock()
-	isImpacted := len(e.modifier) != 0
+	isImpacted := e.isHeroImpacted || len(e.modifiers) != 0
 	e.mutex.Unlock()
 	if isImpacted {
 		return nil
 	}
-	return e.Stop()
+	return e.stopLocked()
 }
 
 func (e *heroChargeRun) addModifier(modifier heroChargeModifier) bool {
@@ -85,11 +125,11 @@ func (e *heroChargeRun) addModifier(modifier heroChargeModifier) bool {
 	if e.isCleaned {
 		return false
 	}
-	e.modifier = append(e.modifier, modifier)
+	e.modifiers = append(e.modifiers, modifier)
 	return true
 }
 
-func (e *heroChargeRun) releaseEffect() [][]byte {
+func (e *heroChargeRun) releaseEffectLocked() [][]byte {
 	if e == nil {
 		return nil
 	}
@@ -101,44 +141,42 @@ func (e *heroChargeRun) releaseEffect() [][]byte {
 	e.isEffectAttached = false
 	packets := clonePendingPackets(e.effectPackets)
 	e.mutex.Unlock()
+	if e.registry != nil {
+		e.registry.queueChargePacketsLocked(e.zone, packets)
+		packets = nil
+	}
 	if e.effectPool != nil {
 		e.effectPool.Release(e.effectObjectID, e.effectSlot)
 	}
 	return packets
 }
 
-func (e *heroChargeRun) cleanup() ([]heroChargeModifier, [][]byte) {
+func (e *heroChargeRun) cleanupLocked() [][]byte {
 	if e == nil {
-		return nil, nil
+		return nil
 	}
-	effectPackets := e.releaseEffect()
+	if e.registry != nil {
+		e.registry.retireChargeModifiersLocked(e, 0)
+	}
+	effectPackets := e.releaseEffectLocked()
+	if e.registry != nil {
+		e.registry.pruneChargeRunLocked(e)
+	}
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 	if e.isCleaned {
-		return nil, effectPackets
+		return effectPackets
 	}
 	e.isCleaned = true
 	if e.petPursuit.ObjectID != 0 && e.companion != nil {
-		e.companion.CancelPursuit(
-			e.petPursuit.ObjectID, e.petPursuit.TargetObjectID,
-			e.petPursuit.Position,
-		)
-		e.petPursuit = zonecompanion.Pursuit{}
-	}
-	modifier := e.modifier
-	e.modifier = nil
-	for _, current := range modifier {
-		switch e.assetName {
-		case "BeastCharge":
-			e.npc.ClearStun(current.targetObjectID, current.expiresAt)
-		case "EntanglingRush":
-			e.npc.ClearRoot(current.targetObjectID, current.expiresAt)
-		case "PhantomCharge":
-			e.npc.ClearSilence(current.targetObjectID, current.expiresAt)
+		at := time.Now()
+		if e.now != nil {
+			at = e.now()
 		}
-		_ = e.modifierPool.Release(current.instanceID)
+		petPackets := e.retirePetLocked(at)
+		e.deferPetRetirement(petPackets)
 	}
-	return modifier, effectPackets
+	return effectPackets
 }
 
 type heroChargeSchedule struct {
@@ -175,8 +213,13 @@ func (e heroChargeSchedule) petImpact() ([][]byte, error) {
 	}
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
-	if !e.isCurrent(peerSession, isFound) || peerSession.zone == nil ||
-		peerSession.zone.Companion() == nil || peerSession.zone.NPCs() == nil {
+	if !e.isPetCurrent(peerSession, isFound) {
+		packets := e.run.retirePet(e.runtime.now())
+		if isFound && peerSession.generation == e.generation {
+			delete(peerSession.beastChargeRuns, e.run)
+			e.runtime.registry.sessions[e.sessionKey] = peerSession
+		}
+		e.run.queuePetRetirementLocked(packets)
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
@@ -184,15 +227,22 @@ func (e heroChargeSchedule) petImpact() ([][]byte, error) {
 	if !isReleased {
 		isReleased = peerSession.zone.Companion().ReleasePursuit(
 			e.petPursuit.ObjectID, e.petPursuit.TargetObjectID,
+			e.petPursuit.Revision,
 		)
 	}
 	if !isReleased {
+		packets := e.run.retirePet(e.runtime.now())
+		delete(peerSession.beastChargeRuns, e.run)
+		e.runtime.registry.sessions[e.sessionKey] = peerSession
+		e.run.queuePetRetirementLocked(packets)
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
 	e.run.mutex.Lock()
 	e.run.petPursuit = zonecompanion.Pursuit{}
+	e.run.isPetPending = false
 	e.run.mutex.Unlock()
+	delete(peerSession.beastChargeRuns, e.run)
 	pet, isPetFound := peerSession.zone.Companion().Snapshot(e.petPursuit.ObjectID)
 	if !isPetFound || pet.HitPoint <= 0 {
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
@@ -332,7 +382,10 @@ func (e heroChargeSchedule) applyBeastPetChargeStatus(
 		if err != nil {
 			return nil, fmt.Errorf("marshal[%d]: %w", npc.Plan.ObjectID, err)
 		}
-		packets = append(packets, packet)
+		err = e.commitModifierLocked(peerSession, instanceID, packet)
+		if err != nil {
+			return nil, fmt.Errorf("petChargeCommit: %w", err)
+		}
 	}
 	return packets, nil
 }
@@ -429,7 +482,7 @@ func (e heroChargeSchedule) impact() ([][]byte, error) {
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
-	err := peerSession.teleportPlayer(e.runtime.now(), e.destination)
+	err := peerSession.teleportPlayer(e.runtime.now(), e.destination, e.run)
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("heroChargePosition: %w", err)
@@ -499,7 +552,16 @@ func (e heroChargeSchedule) impact() ([][]byte, error) {
 			e.runtime.registry.mutex.Unlock()
 			return nil, fmt.Errorf("heroChargeModifierMarshal[%d]: %w", npc.Plan.ObjectID, marshalErr)
 		}
-		modifierPackets = append(modifierPackets, modifierPacket)
+		commitErr := e.commitModifierLocked(&peerSession, instanceID, modifierPacket)
+		if commitErr != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("chargeCommit: %w", commitErr)
+		}
+	}
+	if e.definition.Name == "BeastCharge" {
+		e.run.mutex.Lock()
+		e.run.isHeroImpacted = true
+		e.run.mutex.Unlock()
 	}
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
 	e.runtime.registry.mutex.Unlock()
@@ -625,7 +687,11 @@ func (e heroChargeSchedule) impactRoar(
 			e.runtime.registry.mutex.Unlock()
 			return nil, fmt.Errorf("heroRoarTauntMarshal: %w", marshalErr)
 		}
-		modifierPackets = append(modifierPackets, packet)
+		commitErr := e.commitModifierLocked(peerSession, instanceID, packet)
+		if commitErr != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("roarTauntCommit: %w", commitErr)
+		}
 	}
 	buffInstanceID, err := e.runtime.modifierPool.Allocate()
 	if err != nil {
@@ -653,7 +719,11 @@ func (e heroChargeSchedule) impactRoar(
 		e.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("heroRoarBuffMarshal: %w", err)
 	}
-	modifierPackets = append(modifierPackets, buffPacket)
+	err = e.commitModifierLocked(peerSession, buffInstanceID, buffPacket)
+	if err != nil {
+		e.runtime.registry.mutex.Unlock()
+		return nil, fmt.Errorf("roarBuffCommit: %w", err)
+	}
 	peerSession.roarReductionObjectID = e.sourceObjectID
 	peerSession.roarReductionExpiresAt = now.Add(e.definition.StatusDuration)
 	e.runtime.registry.sessions[e.sessionKey] = *peerSession
@@ -698,16 +768,23 @@ func (e heroChargeSchedule) impactRoar(
 }
 
 func (e heroChargeSchedule) release() ([][]byte, error) {
-	e.runtime.registry.mutex.RLock()
+	e.runtime.registry.mutex.Lock()
+	defer e.runtime.registry.mutex.Unlock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
-	e.runtime.registry.mutex.RUnlock()
 	if !isCurrent {
 		return nil, nil
 	}
 	packets := make([][]byte, 0, 2)
 	if e.definition.Name == "PhantomCharge" {
-		packets = append(packets, e.run.releaseEffect()...)
+		packets = append(packets, e.run.releaseEffectLocked()...)
+		animationPacket, err := abilityraknet.AnimationReset(
+			e.sourceObjectID, e.packet.SourceTime+uint64(e.finishDelay/time.Millisecond),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("phantomReleaseAnimation: %w", err)
+		}
+		packets = append(packets, animationPacket)
 	}
 	if e.definition.Name == "EntanglingRush" {
 		animationPacket, err := abilityraknet.AnimationReset(
@@ -730,7 +807,8 @@ func (e heroChargeSchedule) release() ([][]byte, error) {
 		packets = append(packets, animationPacket)
 	}
 	packets = append(packets, e.releasePacket)
-	return packets, nil
+	e.runtime.registry.queueChargeReleaseLocked(e.run, e.sessionKey, packets)
+	return nil, nil
 }
 
 func (e heroChargeSchedule) finish() ([][]byte, error) {
@@ -743,27 +821,22 @@ func (e heroChargeSchedule) finish() ([][]byte, error) {
 	if peerSession.heroCharge == e.run {
 		peerSession.heroCharge = nil
 	}
+	delete(peerSession.beastChargeRuns, e.run)
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
+	e.run.releaseEffectLocked()
+	e.runtime.registry.pruneChargeRunLocked(e.run)
 	e.runtime.registry.mutex.Unlock()
-	modifier, effectPackets := e.run.cleanup()
-	packets := make([][]byte, 0, len(modifier))
-	packets = append(packets, effectPackets...)
-	for _, current := range modifier {
-		packet, err := effectraknet.ModifierDelete(
-			current.targetObjectID, current.instanceID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("heroChargeModifierDelete: %w", err)
-		}
-		packets = append(packets, packet)
-	}
-	return packets, nil
+	return nil, nil
 }
 
 func (e heroChargeSchedule) fail(scheduleErr error) {
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := e.isCurrent(peerSession, isFound)
+	if isFound && peerSession.generation == e.generation {
+		delete(peerSession.beastChargeRuns, e.run)
+		e.runtime.registry.sessions[e.sessionKey] = peerSession
+	}
 	if isCurrent {
 		peerSession.heroCharge = nil
 		_ = peerSession.setCampaignCharacterManaPoints(
@@ -773,19 +846,15 @@ func (e heroChargeSchedule) fail(scheduleErr error) {
 		peerSession.abilityReleaseSession().Rollback(e.releaseReservation)
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
 	}
+	petPackets := e.run.retirePet(e.runtime.now())
+	e.run.queuePetRetirementLocked(petPackets)
+	e.run.stopLocked()
 	e.runtime.registry.mutex.Unlock()
 	if !isCurrent {
-		return
-	}
-	cleanupPackets := e.run.Stop()
-	if len(cleanupPackets) != 0 {
-		publishErr := peerSession.publishPackets(cleanupPackets)
-		if publishErr != nil {
-			e.runtime.logger.Printf(
-				"RakNet Phantom Charge cleanup omitted for %s: %v",
-				e.sessionKey, publishErr,
-			)
+		if e.definition.Name == "BeastCharge" && e.runtime.logger != nil {
+			e.runtime.logger.Printf("RakNet detached Beast Charge pet stopped after schedule failure for %s: %v", e.sessionKey, scheduleErr)
 		}
+		return
 	}
 	e.runtime.logger.Printf(
 		"RakNet hero charge stopped after schedule failure for %s: %v",
@@ -869,13 +938,14 @@ func (e heroChargeSchedule) clearStatus(
 }
 
 func prepareBeastPetCharge(
-	peerSession *gameplayPeerSession, target zonenpc.Snapshot,
+	peerSession *gameplayPeerSession, target zonenpc.Snapshot, capturedTimes ...time.Time,
 ) (zonecompanion.Pursuit, game.DamageRange, [][]byte, error) {
 	if peerSession == nil || peerSession.beastPetObjectID == 0 ||
 		peerSession.zone == nil || peerSession.zone.Companion() == nil {
 		return zonecompanion.Pursuit{}, game.DamageRange{}, nil, nil
 	}
 	companion := peerSession.zone.Companion()
+	peerSession.retireBeastChargePets(time.Time{})
 	pet, isPetFound := companion.Snapshot(peerSession.beastPetObjectID)
 	if !isPetFound || pet.HitPoint <= 0 || !pet.IsCombatant {
 		return zonecompanion.Pursuit{}, game.DamageRange{}, nil, nil
@@ -900,7 +970,7 @@ func prepareBeastPetCharge(
 	}
 	if pet.PursuitObjectID != 0 {
 		companion.CancelPursuit(
-			pet.ObjectID, pet.PursuitObjectID, pet.Position,
+			pet.ObjectID, pet.PursuitObjectID, pet.Position, pet.PursuitRevision,
 		)
 	}
 	pet, _ = companion.Snapshot(pet.ObjectID)
@@ -913,7 +983,7 @@ func prepareBeastPetCharge(
 	if distance > centerRange {
 		reserved, isReserved, err := companion.ReserveActorPursuit(
 			pet.ObjectID, []zonenpc.Snapshot{target}, 0.2, 125,
-			zonePlayerMoveSpeed*3,
+			zonePlayerMoveSpeed*3, capturedTimes...,
 		)
 		if err != nil {
 			return zonecompanion.Pursuit{}, game.DamageRange{}, nil,
@@ -926,7 +996,7 @@ func prepareBeastPetCharge(
 		movePackets, err := companionraknet.Pursuit(pursuit)
 		if err != nil {
 			companion.CancelPursuit(
-				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position,
+				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position, pursuit.Revision,
 			)
 			return zonecompanion.Pursuit{}, game.DamageRange{}, nil,
 				fmt.Errorf("beastPetChargeMove: %w", err)
@@ -936,7 +1006,7 @@ func prepareBeastPetCharge(
 		)
 		if err != nil {
 			companion.CancelPursuit(
-				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position,
+				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position, pursuit.Revision,
 			)
 			return zonecompanion.Pursuit{}, game.DamageRange{}, nil,
 				fmt.Errorf("beastPetChargeSpeed: %w", err)
@@ -954,7 +1024,7 @@ func prepareBeastPetCharge(
 	if err != nil {
 		if pursuit.TravelDuration > 0 {
 			companion.CancelPursuit(
-				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position,
+				pursuit.ObjectID, pursuit.TargetObjectID, pursuit.Position, pursuit.Revision,
 			)
 		}
 		return zonecompanion.Pursuit{}, game.DamageRange{}, nil,
@@ -1154,7 +1224,7 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	petPackets := make([][]byte, 0)
 	if projected.Name == "BeastCharge" {
 		petPursuit, petDamage, petPackets, err = prepareBeastPetCharge(
-			&peerSession, target,
+			&peerSession, target, r.now(),
 		)
 		if err != nil {
 			_ = peerSession.setDeployedManaPoints(previousManaPoint)
@@ -1179,7 +1249,6 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 			preparePhantomChargeEffect(
 				r.effectPool, req.command.Common.ObjectID,
 				projected.ActivationEffectName,
-				req.packet.SourceTime+uint64(finishDelay/time.Millisecond),
 			)
 		if err != nil {
 			_ = peerSession.setDeployedManaPoints(previousManaPoint)
@@ -1197,16 +1266,45 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 		effectObjectID:   req.command.Common.ObjectID,
 		effectSlot:       chargeEffectSlot,
 		isEffectAttached: chargeEffectPacket != nil,
+		zone:             peerSession.zone, userID: peerSession.binding.UserID,
+		generation: peerSession.generation, ownerObjectID: req.command.Common.ObjectID,
+		now: r.now, isPetPending: petPursuit.ObjectID != 0,
+		petStartedAt: r.now().Add(300 * time.Millisecond),
+		registry:     r.registry, timer: r.npc.timer,
+	}
+	if petPursuit.ObjectID != 0 {
+		pet, isPetFound := peerSession.zone.Companion().Snapshot(petPursuit.ObjectID)
+		if isPetFound {
+			run.petFollowRevision = pet.FollowRevision
+			run.petDestination = pet.PursuitPosition
+		}
+		run.petDeadline = run.petStartedAt.Add(petPursuit.TravelDuration)
+		if peerSession.beastChargeRuns == nil {
+			peerSession.beastChargeRuns = make(map[*heroChargeRun]struct{})
+		}
+		peerSession.beastChargeRuns[run] = struct{}{}
 	}
 	peerSession.heroCharge = run
+	if peerSession.chargeRuns == nil {
+		peerSession.chargeRuns = make(map[*heroChargeRun]struct{})
+	}
+	peerSession.chargeRuns[run] = struct{}{}
+	if r.registry.chargeRuns == nil {
+		r.registry.chargeRuns = make(map[*heroChargeRun]struct{})
+	}
+	r.registry.chargeRuns[run] = struct{}{}
 	generation := peerSession.generation
 	creatureIndex := peerSession.deployedCreatureIndex
 	binding := peerSession.binding
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
 
+	schedulePacket := req.packet
+	if projected.Name == "BeastCharge" {
+		schedulePacket = req.packet.Autonomous()
+	}
 	schedule := heroChargeSchedule{
-		runtime: r, packet: req.packet, sessionKey: sessionKey,
+		runtime: r, packet: schedulePacket, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: req.command.Common.ObjectID,
 		abilityID:      activeAbilityID,
 		targetObjectID: targetObjectID, creatureIndex: creatureIndex,
@@ -1234,10 +1332,10 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	sortScheduledPacketProducersByDelay(producer)
 	producers := r.registry.producerGuard.scheduledProducers(sessionKey, producer)
 	var cancel raknet.CancelSchedule
-	if req.packet.ScheduleGroupResult != nil {
-		cancel, err = req.packet.ScheduleGroupResult(producers, schedule.fail)
-	} else if req.packet.ScheduleGroup != nil {
-		cancel, err = req.packet.ScheduleGroup(producers)
+	if schedulePacket.ScheduleGroupResult != nil {
+		cancel, err = schedulePacket.ScheduleGroupResult(producers, schedule.fail)
+	} else if schedulePacket.ScheduleGroup != nil {
+		cancel, err = schedulePacket.ScheduleGroup(producers)
 	} else {
 		err = errors.New("schedule unavailable")
 	}
@@ -1245,13 +1343,20 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 		schedule.fail(err)
 		return nil, fmt.Errorf("heroChargeSchedule: %w", err)
 	}
+	run.mutex.Lock()
 	run.cancel = cancel
+	run.mutex.Unlock()
+	if chargeEffectPacket != nil {
+		expiry := chargeEffectExpiry{run: run, deadline: r.now().Add(finishDelay), packet: chargeEffectPacket}
+		err = req.packet.AfterResponseCommit(expiry.arm)
+		if err != nil {
+			schedule.fail(err)
+			return nil, fmt.Errorf("chargeEffectExpiry: %w", err)
+		}
+	}
 	packets := [][]byte{ackPacket, cooldownPacket, manaPacket, animationPacket, speedPacket}
 	packets = append(packets, movePackets...)
 	packets = append(packets, petPackets...)
-	if chargeEffectPacket != nil {
-		packets = append(packets, chargeEffectPacket)
-	}
 	if projected.Name != "BioRandom2" && projected.Name != "EntanglingRush" &&
 		projected.Name != "PhantomCharge" &&
 		(projected.ActivationEffectName != "" || projected.MuzzleEffectName != "") {
@@ -1274,7 +1379,6 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 
 func preparePhantomChargeEffect(
 	effectPool *attachedEffectPool, objectID uint32, effectName string,
-	finishTimestamp uint64,
 ) ([]byte, [][]byte, uint8, error) {
 	if effectPool == nil || objectID == 0 || effectName == "" {
 		return nil, nil, 0, errors.New("phantom charge effect unavailable")
@@ -1299,12 +1403,7 @@ func preparePhantomChargeEffect(
 		effectPool.Release(objectID, effectSlot)
 		return nil, nil, 0, fmt.Errorf("phantomEffectRemove: %w", err)
 	}
-	animationPacket, err := abilityraknet.AnimationReset(objectID, finishTimestamp)
-	if err != nil {
-		effectPool.Release(objectID, effectSlot)
-		return nil, nil, 0, fmt.Errorf("phantomAnimationReset: %w", err)
-	}
-	return startPacket, [][]byte{removePacket, animationPacket}, effectSlot, nil
+	return startPacket, [][]byte{removePacket}, effectSlot, nil
 }
 
 func heroChargeSpeedPacket(objectID uint32, speed float32) ([]byte, error) {

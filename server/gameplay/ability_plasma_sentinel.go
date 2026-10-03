@@ -612,6 +612,7 @@ func (r campaignDamageRuntime) startPlasmaSentinelPetActorAttack(
 				objectID, peerSession.zone.NPCs().LiveSnapshots(), ability.Range,
 				zonecompanion.CompatibilityAggroRadius,
 				zonecompanion.CompatibilityMovementSpeed,
+				r.npc.now(),
 			)
 		r.registry.mutex.Unlock()
 		if pursuitErr != nil {
@@ -624,7 +625,7 @@ func (r campaignDamageRuntime) startPlasmaSentinelPetActorAttack(
 		if marshalErr != nil {
 			r.cancelCompanionPursuit(
 				sessionKey, generation, pursuit.ObjectID,
-				pursuit.TargetObjectID, pursuit.Position,
+				pursuit.TargetObjectID, pursuit.Position, pursuit.Revision,
 			)
 			return nil, fmt.Errorf("plasmaSentinelPetPursuitMarshal: %w", marshalErr)
 		}

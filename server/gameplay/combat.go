@@ -966,6 +966,14 @@ func (s campaignBossFollowupStep) produce() ([][]byte, error) {
 			s.plans[0].ObjectID, publishErr,
 		)
 	}
+	if publishErr == nil && s.runtime.logger != nil &&
+		!isCampaignBossIntroDelayed(s.plans[0]) {
+		s.runtime.logger.Printf(
+			"Campaign boss admission stage=active level=%q marker_set=%q leader=%d actors=%d source=followup",
+			peerSession.binding.Level, s.plans[0].MarkerSetName,
+			s.plans[0].ObjectID, len(s.plans),
+		)
+	}
 	actionPacket, err := s.runtime.npc.scheduleFirstActions(
 		s.packet, s.sessionKey, s.generation, s.plans,
 		s.timestamp+uint64(s.delay/time.Millisecond),
@@ -1128,25 +1136,25 @@ func (r campaignDamageRuntime) startCompanionAttacks(
 	}
 	ability.MinimumDamage = damageRange.Minimum
 	ability.MaximumDamage = damageRange.Maximum
-	plans, err := peerSession.zone.Companion().ReserveAttacks(
-		peerSession.zone.NPCs().LiveSnapshots(), ability.Range, r.npc.now(),
-		ability.HitDelay+ability.Cooldown,
+	objectIDs := peerSession.sageCompanionObjectIDs(
+		r.npc.program.SupportHealerPassive.CompanionNoun,
 	)
-	if err != nil {
-		r.registry.mutex.Unlock()
-		return nil, fmt.Errorf("companionReserve: %w", err)
-	}
-	starts := make([]campaignCompanionAttackStep, 0, len(plans))
-	for _, plan := range plans {
-		actorAbility := applyCompanionAttackBuff(ability, plan)
-		activation, isActivationFound :=
-			peerSession.sagePassiveActivations[plan.ObjectID]
-		if !isActivationFound {
-			peerSession.zone.Companion().ReleaseAttack(
-				plan.ObjectID, plan.TargetObjectID,
-			)
+	targets := peerSession.zone.NPCs().LiveSnapshots()
+	at := r.npc.now()
+	starts := make([]campaignCompanionAttackStep, 0, len(objectIDs))
+	for _, objectID := range objectIDs {
+		plan, isReserved, reserveErr := peerSession.zone.Companion().ReserveActorAttack(
+			objectID, targets, ability.Range, at, ability.HitDelay+ability.Cooldown,
+		)
+		if reserveErr != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("companionReserve[%d]: %w", objectID, reserveErr)
+		}
+		if !isReserved {
 			continue
 		}
+		actorAbility := applyCompanionAttackBuff(ability, plan)
+		activation := peerSession.sagePassiveActivations[plan.ObjectID]
 		activation.Position = raknet.Vector3{
 			X: plan.Position.X, Y: plan.Position.Y, Z: plan.Position.Z,
 		}
@@ -1224,23 +1232,34 @@ func (r campaignDamageRuntime) startCompanionPursuits(
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}
-	plans, err := peerSession.zone.Companion().ReservePursuits(
-		peerSession.zone.NPCs().LiveSnapshots(),
-		r.npc.program.SupportHealerPetBasic.Range,
-		zonecompanion.CompatibilityAggroRadius,
-		zonecompanion.CompatibilityMovementSpeed,
+	objectIDs := peerSession.sageCompanionObjectIDs(
+		r.npc.program.SupportHealerPassive.CompanionNoun,
 	)
-	r.registry.mutex.Unlock()
-	if err != nil {
-		return nil, fmt.Errorf("pursuitReserve: %w", err)
+	targets := peerSession.zone.NPCs().LiveSnapshots()
+	plans := make([]zonecompanion.Pursuit, 0, len(objectIDs))
+	for _, objectID := range objectIDs {
+		plan, isReserved, err := peerSession.zone.Companion().ReserveActorPursuit(
+			objectID, targets, r.npc.program.SupportHealerPetBasic.Range,
+			zonecompanion.CompatibilityAggroRadius,
+			zonecompanion.CompatibilityMovementSpeed,
+			r.npc.now(),
+		)
+		if err != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("pursuitReserve[%d]: %w", objectID, err)
+		}
+		if isReserved {
+			plans = append(plans, plan)
+		}
 	}
+	r.registry.mutex.Unlock()
 	packets := make([][]byte, 0, len(plans))
 	for _, plan := range plans {
 		pursuitPackets, marshalErr := companionraknet.Pursuit(plan)
 		if marshalErr != nil {
 			r.cancelCompanionPursuit(
 				sessionKey, generation, plan.ObjectID, plan.TargetObjectID,
-				plan.Position,
+				plan.Position, plan.Revision,
 			)
 			return nil, fmt.Errorf("pursuitMarshal[%d]: %w", plan.ObjectID, marshalErr)
 		}
@@ -1285,6 +1304,7 @@ func (e campaignCompanionPursuitStep) schedule() error {
 func (e campaignCompanionPursuitStep) arrive() ([][]byte, error) {
 	isReleased := e.runtime.releaseCompanionPursuit(
 		e.sessionKey, e.generation, e.plan.ObjectID, e.plan.TargetObjectID,
+		e.plan.Revision,
 	)
 	if !isReleased {
 		return nil, nil
@@ -1310,7 +1330,7 @@ func (e campaignCompanionPursuitStep) arrive() ([][]byte, error) {
 func (e campaignCompanionPursuitStep) fail(scheduleErr error) {
 	isReleased := e.runtime.cancelCompanionPursuit(
 		e.sessionKey, e.generation, e.plan.ObjectID, e.plan.TargetObjectID,
-		e.plan.Position,
+		e.plan.Position, e.plan.Revision,
 	)
 	if !isReleased {
 		return
@@ -1323,7 +1343,7 @@ func (e campaignCompanionPursuitStep) fail(scheduleErr error) {
 
 func (r campaignDamageRuntime) cancelCompanionPursuit(
 	sessionKey string, generation uint64,
-	objectID uint32, targetObjectID uint32, position game.Vec3,
+	objectID uint32, targetObjectID uint32, position game.Vec3, revision uint64,
 ) bool {
 	r.registry.mutex.Lock()
 	defer r.registry.mutex.Unlock()
@@ -1333,13 +1353,13 @@ func (r campaignDamageRuntime) cancelCompanionPursuit(
 		return false
 	}
 	return peerSession.zone.Companion().CancelPursuit(
-		objectID, targetObjectID, position,
+		objectID, targetObjectID, position, revision,
 	)
 }
 
 func (r campaignDamageRuntime) releaseCompanionPursuit(
 	sessionKey string, generation uint64,
-	objectID uint32, targetObjectID uint32,
+	objectID uint32, targetObjectID uint32, revision uint64,
 ) bool {
 	r.registry.mutex.Lock()
 	defer r.registry.mutex.Unlock()
@@ -1349,7 +1369,7 @@ func (r campaignDamageRuntime) releaseCompanionPursuit(
 		return false
 	}
 	return peerSession.zone.Companion().ReleasePursuit(
-		objectID, targetObjectID,
+		objectID, targetObjectID, revision,
 	)
 }
 
@@ -3151,25 +3171,11 @@ func (r campaignNPCActionRuntime) spawnLoot(
 	isVerdanthTotem := zonenpc.IsVerdanthTotem(enemy.Plan)
 	equipmentPackets := make([][]byte, 0)
 	var equipmentErr error
-	if !isTutorial && !enemy.Plan.IsFixture {
-		equipmentPackets, _, equipmentErr = peerSession.spawnCampaignNPCEquipment(
-			enemy, r.gameplayJoin, sourceTime, true,
-		)
-		if equipmentErr == nil {
-			for candidateSessionKey, candidate := range r.registry.sessions {
-				if candidate.zone != peerSession.zone {
-					continue
-				}
-				candidate.campaignEquipmentDropBag = peerSession.campaignEquipmentDropBag
-				r.registry.sessions[candidateSessionKey] = candidate
-			}
-		}
-	}
 	orbPackets := make([][]byte, 0)
 	var orbErr error
 	if !isVerdanthTotem && (!isTutorial || peerSession.isTutorialCapsuleDropUnlocked) {
 		orbPackets, _, orbErr = peerSession.spawnCampaignNPCOrb(
-			enemy, sourceTime, r.now(),
+			enemy, sourceTime, r.now(), r.registry,
 		)
 	}
 	crystalPackets := make([][]byte, 0)
@@ -3195,6 +3201,20 @@ func (r campaignNPCActionRuntime) spawnLoot(
 		dnaPackets, _, dnaErr = peerSession.spawnCampaignNPCDNA(
 			enemy, sourceTime, r.now(),
 		)
+	}
+	if !isTutorial && !enemy.Plan.IsFixture {
+		equipmentPackets, _, equipmentErr = peerSession.spawnCampaignNPCEquipment(
+			enemy, r.gameplayJoin, sourceTime, false,
+		)
+		if equipmentErr == nil {
+			for candidateSessionKey, candidate := range r.registry.sessions {
+				if candidate.zone != peerSession.zone {
+					continue
+				}
+				candidate.campaignEquipmentDropBag = peerSession.campaignEquipmentDropBag
+				r.registry.sessions[candidateSessionKey] = candidate
+			}
+		}
 	}
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
@@ -3223,9 +3243,9 @@ func (r campaignNPCActionRuntime) spawnLoot(
 			enemy.Plan.ObjectID, dnaErr,
 		)
 	}
-	packets := append(equipmentPackets, orbPackets...)
-	packets = append(packets, crystalPackets...)
+	packets := append(orbPackets, crystalPackets...)
 	packets = append(packets, dnaPackets...)
+	packets = append(packets, equipmentPackets...)
 	return packets, nil
 }
 
@@ -5372,7 +5392,7 @@ func (e campaignNPCFirstActionStep) produce() ([][]byte, error) {
 	e.runtime.registry.mutex.RLock()
 	latest, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && latest.generation == e.generation &&
-		!latest.isZoneTerminal() && latest.zone.NPCs() != nil &&
+		!latest.isZoneTerminal() && latest.zone != nil && latest.zone.NPCs() != nil &&
 		(latest.zone.Boss() == nil || !latest.zone.Boss().IsBeamOutCommitted())
 	if !isCurrent {
 		e.runtime.registry.mutex.RUnlock()
@@ -5389,7 +5409,10 @@ func (e campaignNPCFirstActionStep) produce() ([][]byte, error) {
 		e.objectID, e.runtime.now(),
 	)
 	e.runtime.registry.mutex.RUnlock()
-	if !isNPCFound || npc.IsDefeated ||
+	owner := zonenpc.ActionOwner{
+		UserID: latest.binding.UserID, PeerGeneration: e.generation,
+	}
+	if !isNPCFound || npc.IsDefeated || !npc.IsActionStarted || npc.ActionOwner != owner ||
 		npc.ActionGeneration != e.actionGeneration {
 		return nil, nil
 	}
@@ -7994,6 +8017,7 @@ func (r campaignNPCActionRuntime) applyEnemyProjectileTeleport(
 	if err != nil {
 		if targetSession.playerMotion == nil {
 			targetSession.playerPosition = previousPosition
+			targetSession.resetPickupContacts()
 		} else {
 			targetSession.restorePlayerMotion(
 				motionSnapshot, targetSession.playerMotionRevision(),
@@ -8349,6 +8373,7 @@ func (r campaignNPCActionRuntime) applyEnemyForcedMovement(
 	if err != nil {
 		if targetSession.playerMotion == nil {
 			targetSession.playerPosition = previousPosition
+			targetSession.resetPickupContacts()
 		} else {
 			targetSession.restorePlayerMotion(
 				motionSnapshot, targetSession.playerMotionRevision(),

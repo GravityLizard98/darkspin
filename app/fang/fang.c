@@ -1,5 +1,14 @@
 #include "fang.h"
 #include "hook.h"
+#include "scenario_observation.h"
+#if FANG_SCENARIO
+#include "scenario_renderer.h"
+#include "scenario_dispatch.h"
+#include "scenario_selector.h"
+#include "scenario_primary.h"
+#include "scenario_alternate.h"
+#include "scenario_classification.h"
+#endif
 
 #include <limits.h>
 #include <ctype.h>
@@ -452,6 +461,659 @@ static void trace_client_object_registry(void);
 static void trace_client_object_probe_registry(void);
 static void trace_snapshot_action_state(void);
 
+#if FANG_SCENARIO
+void trace_scenario_primary_base(const ScenarioPrimaryBaseCallEvent* req) {
+    const size_t maximum_bytes = 64u * 1024u * 1024u;
+    const ULONGLONG maximum_age_ms = 300000;
+    // Sticky loss bits: unavailable trace, failed/short write, ring allocation,
+    // formatting, failed ring-node free. They never wrap or affect the callee.
+    static volatile LONG recorder_loss_flags;
+    DWORD last_error = GetLastError();
+    char line[3072];
+    char input[384];
+    char name_jsons[2][512];
+    char quoted_name[66];
+    char call_ordinal[16];
+    char loss_digits[9];
+    const char* phase;
+    const char* input_json = "null";
+    const char* normal_return = "null";
+    const char* result_nonzero = "null";
+    const char* ordinal_json = "null";
+    char* status_field;
+    char* loss_field;
+    snapshot_line* recorded;
+    ULONGLONG now;
+    DWORD written = 0;
+    BOOL is_written = FALSE;
+    LONG loss_flags;
+    int length;
+    int is_limit;
+    size_t loss_offset;
+    unsigned int name_index;
+    const ScenarioPrimaryResourceNameCopy* name_copies[2];
+    static const char* name_failures[] = {
+        "none", "holder_word_unreadable", "name_address_zero",
+        "name_bytes_unreadable", "holder_recheck_unreadable",
+        "holder_word_changed", "name_unterminated", "name_empty",
+        "name_non_ascii", "name_unexpected", "entry_copy_unavailable",
+        "entry_noun_recheck_unreadable", "entry_noun_changed"
+    };
+    if (req == NULL) {
+        return;
+    }
+    is_limit = req->Phase == SCENARIO_PRIMARY_BASE_LIMIT;
+    if (req->Phase == SCENARIO_PRIMARY_BASE_ENTRY) {
+        phase = "entry";
+    } else if (req->Phase == SCENARIO_PRIMARY_BASE_NORMAL_RETURN) {
+        phase = "normal_return";
+        normal_return = "true";
+        result_nonzero = req->IsResultNonzero ? "true" : "false";
+    } else if (is_limit) {
+        phase = "limit";
+    } else {
+        InterlockedOr(&recorder_loss_flags, 8);
+        SetLastError(last_error);
+        return;
+    }
+    if (!is_limit) {
+        snprintf(call_ordinal, sizeof(call_ordinal), "%u", req->CallOrdinal);
+        ordinal_json = call_ordinal;
+    }
+    if (req->IsInputCopyAvailable) {
+        length = snprintf(input, sizeof(input),
+            "{\"marker_id\":%u,\"raw_noun_reference\":%u,"
+            "\"position_bits\":[%u,%u,%u],\"rotation_bits\":[%u,%u,%u],"
+            "\"scale_bits\":%u}",
+            req->MarkerID, req->RawNounReference,
+            req->PositionBits[0], req->PositionBits[1], req->PositionBits[2],
+            req->RotationBits[0], req->RotationBits[1], req->RotationBits[2],
+            req->ScaleBits);
+        if (length <= 0 || (size_t)length >= sizeof(input)) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+        input_json = input;
+    }
+    name_copies[0] = &req->MarkerSetName;
+    name_copies[1] = &req->NounName;
+    for (name_index = 0; name_index < 2; name_index++) {
+        const ScenarioPrimaryResourceNameCopy* copy = name_copies[name_index];
+        const char* name_json = "null";
+        const char* failure = "invalid_failure";
+        if (copy->Failure >= SCENARIO_PRIMARY_NAME_NONE &&
+            copy->Failure <= SCENARIO_PRIMARY_NAME_ENTRY_NOUN_CHANGED) {
+            failure = name_failures[copy->Failure];
+        }
+        if (!copy->IsCopyAttempted && copy->Failure == SCENARIO_PRIMARY_NAME_NONE) {
+            failure = "not_attempted";
+        }
+        if (copy->IsNameAvailable) {
+            // The producer accepts only the five exact ASCII asset names;
+            // their actual copied spelling contains no JSON escape characters.
+            length = snprintf(quoted_name, sizeof(quoted_name), "\"%s\"", copy->Name);
+            if (length <= 0 || (size_t)length >= sizeof(quoted_name)) {
+                InterlockedOr(&recorder_loss_flags, 8);
+                SetLastError(last_error);
+                return;
+            }
+            name_json = quoted_name;
+        }
+        length = snprintf(name_jsons[name_index], sizeof(name_jsons[name_index]),
+            "{\"name\":%s,\"is_name_available\":%s,"
+            "\"is_copy_attempted\":%s,\"is_holder_word_copied\":%s,"
+            "\"is_name_bytes_copied\":%s,\"is_holder_recheck_available\":%s,"
+            "\"is_holder_word_unchanged\":%s,\"failure_reason\":\"%s\"}",
+            name_json, copy->IsNameAvailable ? "true" : "false",
+            copy->IsCopyAttempted ? "true" : "false",
+            copy->IsHolderWordCopied ? "true" : "false",
+            copy->IsNameBytesCopied ? "true" : "false",
+            copy->IsHolderRecheckAvailable ? "true" : "false",
+            copy->IsHolderRecheckAvailable ?
+                (copy->IsHolderWordUnchanged ? "true" : "false") : "null", failure);
+        if (length <= 0 || (size_t)length >= sizeof(name_jsons[name_index])) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+    }
+    recorded = (snapshot_line*)HeapAlloc(
+        GetProcessHeap(), 0, sizeof(*recorded) - 1 + sizeof(line));
+    if (recorded == NULL) {
+        InterlockedOr(&recorder_loss_flags, 4);
+    }
+    if (trace_file == INVALID_HANDLE_VALUE || !trace_lock_ready) {
+        InterlockedOr(&recorder_loss_flags, 1);
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    now = GetTickCount64();
+    // Status 0 = not yet known, 1 = completed, 2 = failed/unavailable.
+    // A raw trace row cannot attest to its own completed write. The ring copy
+    // records the actual write outcome; neither row promises later retention.
+    length = snprintf(line, sizeof(line),
+        "{\"time_ms\":%llu,\"protocol\":\"client_state\","
+        "\"kind\":\"scenario_primary_base_call\",\"phase\":\"%s\","
+        "\"thread\":%lu,\"frame_sequence\":%lu,\"call_ordinal\":%s,"
+        "\"raw_marker_set_reference\":%u,\"entry_ordinal\":%d,"
+        "\"input_provenance\":\"pre_call\",\"input\":%s,"
+        "\"is_copy_attempted\":%s,\"is_input_copy_available\":%s,"
+        "\"copy_byte_count\":%u,\"copy_error\":%u,"
+        "\"marker_set_name\":%s,\"noun_name\":%s,"
+        "\"is_noun_association_recheck_attempted\":%s,"
+        "\"is_noun_association_recheck_available\":%s,"
+        "\"is_noun_association_unchanged\":%s,"
+        "\"is_resource_name_copy_atomic\":null,\"is_holder_aba_excluded\":null,"
+        "\"is_normal_return_observed\":%s,\"is_result_nonzero\":%s,"
+        "\"is_call_limit_reached\":%s,\"call_limit\":4096,"
+        "\"is_input_copy_atomic\":null,\"is_reentrancy_excluded\":null,"
+        "\"trace_write_status\":0,\"ring_append_status\":%d,"
+        "\"is_ring_retention_complete\":null,"
+        "\"recorder_loss_flags\":\"0x%08lx\"}\r\n",
+        (unsigned long long)now, phase, (unsigned long)GetCurrentThreadId(),
+        (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+        ordinal_json, req->RawMarkerSetReference, req->EntryOrdinal, input_json,
+        req->IsCopyAttempted ? "true" : "false",
+        req->IsInputCopyAvailable ? "true" : "false",
+        req->CopyByteCount, req->CopyError, name_jsons[0], name_jsons[1],
+        req->IsNounAssociationRecheckAttempted ? "true" : "false",
+        req->IsNounAssociationRecheckAvailable ? "true" : "false",
+        req->IsNounAssociationRecheckAvailable ?
+            (req->IsNounAssociationUnchanged ? "true" : "false") : "null",
+        normal_return, result_nonzero,
+        is_limit ? "true" : "false", recorded == NULL ? 2 : 0,
+        (unsigned long)loss_flags);
+    if (length <= 0 || (size_t)length >= sizeof(line)) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        if (recorded != NULL && !HeapFree(GetProcessHeap(), 0, recorded)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+        SetLastError(last_error);
+        return;
+    }
+    if (trace_file != INVALID_HANDLE_VALUE && trace_lock_ready) {
+        EnterCriticalSection(&trace_lock);
+        is_written = WriteFile(trace_file, line, (DWORD)length, &written, NULL);
+        LeaveCriticalSection(&trace_lock);
+        if (!is_written || written != (DWORD)length) {
+            InterlockedOr(&recorder_loss_flags, 2);
+        }
+    }
+    if (recorded == NULL) {
+        SetLastError(last_error);
+        return;
+    }
+    status_field = strstr(line, "\"trace_write_status\":0");
+    status_field[strlen("\"trace_write_status\":")] =
+        is_written && written == (DWORD)length ? '1' : '2';
+    status_field = strstr(line, "\"ring_append_status\":0");
+    status_field[strlen("\"ring_append_status\":")] = '1';
+    loss_field = strstr(line, "\"recorder_loss_flags\":\"0x");
+    loss_offset = (size_t)(loss_field - line) +
+        strlen("\"recorder_loss_flags\":\"0x");
+    recorded->next = NULL;
+    recorded->time_ms = now;
+    recorded->size = (unsigned int)length;
+    memcpy(recorded->contents, line, (size_t)length);
+    AcquireSRWLockExclusive(&snapshot_ring_lock);
+    if (snapshot_ring_tail == NULL) {
+        snapshot_ring_head = recorded;
+    } else {
+        snapshot_ring_tail->next = recorded;
+    }
+    snapshot_ring_tail = recorded;
+    snapshot_ring_byte_count += (size_t)length;
+    while (snapshot_ring_head != NULL &&
+        (snapshot_ring_byte_count > maximum_bytes ||
+         now - snapshot_ring_head->time_ms > maximum_age_ms)) {
+        snapshot_line* removed = snapshot_ring_head;
+        int is_capacity_drop = snapshot_ring_byte_count > maximum_bytes;
+        snapshot_ring_head = removed->next;
+        snapshot_ring_byte_count -= removed->size;
+        if (is_capacity_drop) {
+            snapshot_ring_capacity_dropped_line_count++;
+            snapshot_ring_capacity_dropped_byte_count += removed->size;
+            snapshot_ring_capacity_last_dropped_time_ms = removed->time_ms;
+        }
+        if (!HeapFree(GetProcessHeap(), 0, removed)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    snprintf(loss_digits, sizeof(loss_digits), "%08lx", (unsigned long)loss_flags);
+    memcpy(recorded->contents + loss_offset, loss_digits, 8);
+    ReleaseSRWLockExclusive(&snapshot_ring_lock);
+    SetLastError(last_error);
+}
+
+void trace_scenario_alternate_selection(const ScenarioAlternateSelectionEvent* req) {
+    const size_t maximum_bytes = 64u * 1024u * 1024u;
+    const ULONGLONG maximum_age_ms = 300000;
+    // Sticky loss bits: unavailable trace, failed/short write, ring allocation,
+    // formatting, failed ring-node free; bit32 adds a saved-state-only bypass.
+    // They never wrap or affect the callee.
+    static volatile LONG recorder_loss_flags;
+    DWORD last_error = GetLastError();
+    char line[3072];
+    char input[384];
+    char name_jsons[2][512];
+    char quoted_name[66];
+    char call_ordinal[16];
+    char loss_digits[9];
+    const char* phase;
+    const char* input_json = "null";
+    const char* normal_return = "null";
+    const char* ordinal_json = "null";
+    char* status_field;
+    char* loss_field;
+    snapshot_line* recorded;
+    ULONGLONG now;
+    DWORD written = 0;
+    BOOL is_written = FALSE;
+    LONG loss_flags;
+    int length;
+    int is_limit;
+    size_t loss_offset;
+    unsigned int name_index;
+    const ScenarioPrimaryResourceNameCopy* name_copies[2];
+    static const char* name_failures[] = {
+        "none", "holder_word_unreadable", "name_address_zero",
+        "name_bytes_unreadable", "holder_recheck_unreadable",
+        "holder_word_changed", "name_unterminated", "name_empty",
+        "name_non_ascii", "name_unexpected", "entry_copy_unavailable",
+        "entry_noun_recheck_unreadable", "entry_noun_changed"
+    };
+    if (req == NULL) {
+        return;
+    }
+    InterlockedOr(&recorder_loss_flags, (LONG)req->LossFlags);
+    is_limit = req->Phase == SCENARIO_ALTERNATE_LIMIT;
+    if (req->Phase == SCENARIO_ALTERNATE_ENTRY) {
+        phase = "entry";
+    } else if (req->Phase == SCENARIO_ALTERNATE_NORMAL_RETURN) {
+        phase = "normal_return";
+        normal_return = "true";
+    } else if (is_limit) {
+        phase = "limit";
+    } else {
+        InterlockedOr(&recorder_loss_flags, 8);
+        SetLastError(last_error);
+        return;
+    }
+    if (!is_limit) {
+        snprintf(call_ordinal, sizeof(call_ordinal), "%u", req->CallOrdinal);
+        ordinal_json = call_ordinal;
+    }
+    if (req->Input.IsInputCopyAvailable) {
+        length = snprintf(input, sizeof(input),
+            "{\"marker_id\":%u,\"raw_noun_reference\":%u,"
+            "\"position_bits\":[%u,%u,%u],\"rotation_bits\":[%u,%u,%u],"
+            "\"scale_bits\":%u}",
+            req->Input.MarkerID, req->Input.RawNounReference,
+            req->Input.PositionBits[0], req->Input.PositionBits[1], req->Input.PositionBits[2],
+            req->Input.RotationBits[0], req->Input.RotationBits[1], req->Input.RotationBits[2],
+            req->Input.ScaleBits);
+        if (length <= 0 || (size_t)length >= sizeof(input)) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+        input_json = input;
+    }
+    name_copies[0] = &req->Input.MarkerSetName;
+    name_copies[1] = &req->Input.NounName;
+    for (name_index = 0; name_index < 2; name_index++) {
+        const ScenarioPrimaryResourceNameCopy* copy = name_copies[name_index];
+        const char* name_json = "null";
+        const char* failure = "invalid_failure";
+        if (copy->Failure >= SCENARIO_PRIMARY_NAME_NONE &&
+            copy->Failure <= SCENARIO_PRIMARY_NAME_ENTRY_NOUN_CHANGED) {
+            failure = name_failures[copy->Failure];
+        }
+        if (!copy->IsCopyAttempted && copy->Failure == SCENARIO_PRIMARY_NAME_NONE) {
+            failure = "not_attempted";
+        }
+        if (copy->IsNameAvailable) {
+            // The producer accepts only the five exact ASCII asset names;
+            // their actual copied spelling contains no JSON escape characters.
+            length = snprintf(quoted_name, sizeof(quoted_name), "\"%s\"", copy->Name);
+            if (length <= 0 || (size_t)length >= sizeof(quoted_name)) {
+                InterlockedOr(&recorder_loss_flags, 8);
+                SetLastError(last_error);
+                return;
+            }
+            name_json = quoted_name;
+        }
+        length = snprintf(name_jsons[name_index], sizeof(name_jsons[name_index]),
+            "{\"name\":%s,\"is_name_available\":%s,"
+            "\"is_copy_attempted\":%s,\"is_holder_word_copied\":%s,"
+            "\"is_name_bytes_copied\":%s,\"is_holder_recheck_available\":%s,"
+            "\"is_holder_word_unchanged\":%s,\"failure_reason\":\"%s\"}",
+            name_json, copy->IsNameAvailable ? "true" : "false",
+            copy->IsCopyAttempted ? "true" : "false",
+            copy->IsHolderWordCopied ? "true" : "false",
+            copy->IsNameBytesCopied ? "true" : "false",
+            copy->IsHolderRecheckAvailable ? "true" : "false",
+            copy->IsHolderRecheckAvailable ?
+                (copy->IsHolderWordUnchanged ? "true" : "false") : "null", failure);
+        if (length <= 0 || (size_t)length >= sizeof(name_jsons[name_index])) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+    }
+    recorded = (snapshot_line*)HeapAlloc(
+        GetProcessHeap(), 0, sizeof(*recorded) - 1 + sizeof(line));
+    if (recorded == NULL) {
+        InterlockedOr(&recorder_loss_flags, 4);
+    }
+    if (trace_file == INVALID_HANDLE_VALUE || !trace_lock_ready) {
+        InterlockedOr(&recorder_loss_flags, 1);
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    now = GetTickCount64();
+    // Status 0 = not yet known, 1 = completed, 2 = failed/unavailable.
+    // A raw trace row cannot attest to its own completed write. The ring copy
+    // records the actual write outcome; neither row promises later retention.
+    length = snprintf(line, sizeof(line),
+        "{\"time_ms\":%llu,\"protocol\":\"client_state\","
+        "\"kind\":\"scenario_alternate_selection_call\",\"phase\":\"%s\","
+        "\"thread\":%lu,\"frame_sequence\":%lu,\"call_ordinal\":%s,"
+        "\"raw_marker_set_reference\":%u,\"entry_ordinal\":%d,"
+        "\"input_provenance\":\"pre_call\",\"input\":%s,"
+        "\"is_copy_attempted\":%s,\"is_input_copy_available\":%s,"
+        "\"copy_byte_count\":%u,\"copy_error\":%u,"
+        "\"marker_set_name\":%s,\"noun_name\":%s,"
+        "\"is_noun_association_recheck_attempted\":%s,"
+        "\"is_noun_association_recheck_available\":%s,"
+        "\"is_noun_association_unchanged\":%s,"
+        "\"is_resource_name_copy_atomic\":null,\"is_holder_aba_excluded\":null,"
+        "\"is_normal_return_observed\":%s,"
+        "\"is_call_limit_reached\":%s,\"call_limit\":4096,"
+        "\"is_input_copy_atomic\":null,\"is_reentrancy_excluded\":null,"
+        "\"trace_write_status\":0,\"ring_append_status\":%d,"
+        "\"is_ring_retention_complete\":null,"
+        "\"recorder_loss_flags\":\"0x%08lx\"}\r\n",
+        (unsigned long long)now, phase, (unsigned long)GetCurrentThreadId(),
+        (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+        ordinal_json, req->RawMarkerSetReference, req->EntryOrdinal, input_json,
+        req->Input.IsCopyAttempted ? "true" : "false",
+        req->Input.IsInputCopyAvailable ? "true" : "false",
+        req->Input.CopyByteCount, req->Input.CopyError, name_jsons[0], name_jsons[1],
+        req->Input.IsNounAssociationRecheckAttempted ? "true" : "false",
+        req->Input.IsNounAssociationRecheckAvailable ? "true" : "false",
+        req->Input.IsNounAssociationRecheckAvailable ?
+            (req->Input.IsNounAssociationUnchanged ? "true" : "false") : "null",
+        normal_return,
+        is_limit ? "true" : "false", recorded == NULL ? 2 : 0,
+        (unsigned long)loss_flags);
+    if (length <= 0 || (size_t)length >= sizeof(line)) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        if (recorded != NULL && !HeapFree(GetProcessHeap(), 0, recorded)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+        SetLastError(last_error);
+        return;
+    }
+    if (trace_file != INVALID_HANDLE_VALUE && trace_lock_ready) {
+        EnterCriticalSection(&trace_lock);
+        is_written = WriteFile(trace_file, line, (DWORD)length, &written, NULL);
+        LeaveCriticalSection(&trace_lock);
+        if (!is_written || written != (DWORD)length) {
+            InterlockedOr(&recorder_loss_flags, 2);
+        }
+    }
+    if (recorded == NULL) {
+        SetLastError(last_error);
+        return;
+    }
+    status_field = strstr(line, "\"trace_write_status\":0");
+    status_field[strlen("\"trace_write_status\":")] =
+        is_written && written == (DWORD)length ? '1' : '2';
+    status_field = strstr(line, "\"ring_append_status\":0");
+    status_field[strlen("\"ring_append_status\":")] = '1';
+    loss_field = strstr(line, "\"recorder_loss_flags\":\"0x");
+    loss_offset = (size_t)(loss_field - line) +
+        strlen("\"recorder_loss_flags\":\"0x");
+    recorded->next = NULL;
+    recorded->time_ms = now;
+    recorded->size = (unsigned int)length;
+    memcpy(recorded->contents, line, (size_t)length);
+    AcquireSRWLockExclusive(&snapshot_ring_lock);
+    if (snapshot_ring_tail == NULL) {
+        snapshot_ring_head = recorded;
+    } else {
+        snapshot_ring_tail->next = recorded;
+    }
+    snapshot_ring_tail = recorded;
+    snapshot_ring_byte_count += (size_t)length;
+    while (snapshot_ring_head != NULL &&
+        (snapshot_ring_byte_count > maximum_bytes ||
+         now - snapshot_ring_head->time_ms > maximum_age_ms)) {
+        snapshot_line* removed = snapshot_ring_head;
+        int is_capacity_drop = snapshot_ring_byte_count > maximum_bytes;
+        snapshot_ring_head = removed->next;
+        snapshot_ring_byte_count -= removed->size;
+        if (is_capacity_drop) {
+            snapshot_ring_capacity_dropped_line_count++;
+            snapshot_ring_capacity_dropped_byte_count += removed->size;
+            snapshot_ring_capacity_last_dropped_time_ms = removed->time_ms;
+        }
+        if (!HeapFree(GetProcessHeap(), 0, removed)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    snprintf(loss_digits, sizeof(loss_digits), "%08lx", (unsigned long)loss_flags);
+    memcpy(recorded->contents + loss_offset, loss_digits, 8);
+    ReleaseSRWLockExclusive(&snapshot_ring_lock);
+    SetLastError(last_error);
+}
+
+void trace_scenario_marker_mask(const ScenarioMarkerMaskObservation* req) {
+    const size_t maximum_bytes = 64u * 1024u * 1024u;
+    const ULONGLONG maximum_age_ms = 300000;
+    // Independent sticky loss: unavailable1/write2/allocation4/format8/free16,
+    // plus saved-state bypass32. No record attests to exhaustive retention.
+    static volatile LONG recorder_loss_flags;
+    DWORD last_error = GetLastError();
+    char line[768], digits[5][16], loss_digits[9], position_digits[35];
+    const char* position_bits = "null";
+    int digit_lengths[5];
+    unsigned int digit_index;
+    const char* phase;
+    const char* normal_return = "null";
+    const char* failure;
+    static const char* failures[] = {
+        "none", "entry_null", "address_range", "read_failed", "short_read"
+    };
+    snapshot_line* recorded;
+    char* write_field;
+    char* append_field;
+    char* loss_field;
+    size_t loss_offset;
+    ULONGLONG now;
+    DWORD written = 0;
+    BOOL is_written = FALSE;
+    LONG loss_flags;
+    int length;
+    int is_limit;
+    if (req == NULL) {
+        SetLastError(last_error);
+        return;
+    }
+    InterlockedOr(&recorder_loss_flags, (LONG)req->LossFlags);
+    is_limit = req->Phase == SCENARIO_MARKER_MASK_LIMIT;
+    if (req->Phase == SCENARIO_MARKER_MASK_ENTRY) {
+        phase = "entry";
+    } else if (req->Phase == SCENARIO_MARKER_MASK_NORMAL_RETURN) {
+        phase = "normal_return";
+        normal_return = "true";
+    } else if (is_limit) {
+        phase = "limit";
+    } else {
+        InterlockedOr(&recorder_loss_flags, 8);
+        SetLastError(last_error);
+        return;
+    }
+    if (req->CopyFailure < SCENARIO_MARKER_COPY_NONE ||
+        req->CopyFailure > SCENARIO_MARKER_COPY_SHORT_READ ||
+        (is_limit && (req->CallOrdinal != 0 || req->IsCopyAttempted ||
+            req->IsMarkerIDAvailable || req->IsPositionAvailable)) ||
+        (!is_limit && (req->CallOrdinal == 0 || req->CallOrdinal > 4096)) ||
+        req->IsPositionAvailable != req->IsMarkerIDAvailable ||
+        (req->IsMarkerIDAvailable && (!req->IsCopyAttempted ||
+            req->CopyFailure != SCENARIO_MARKER_COPY_NONE || req->CopyByteCount != 36))) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        SetLastError(last_error);
+        return;
+    }
+    failure = failures[req->CopyFailure];
+    if (!req->IsCopyAttempted && req->CopyFailure == SCENARIO_MARKER_COPY_NONE) {
+        failure = "not_attempted";
+    }
+    digit_lengths[0] = snprintf(digits[0], sizeof(digits[0]), "%u", (unsigned int)req->CallOrdinal);
+    digit_lengths[1] = snprintf(digits[1], sizeof(digits[1]), "%u", (unsigned int)req->MarkerID);
+    digit_lengths[2] = snprintf(digits[2], sizeof(digits[2]), "%u", (unsigned int)req->RawMask);
+    digit_lengths[3] = snprintf(digits[3], sizeof(digits[3]), "%u", (unsigned int)req->CopyByteCount);
+    digit_lengths[4] = snprintf(digits[4], sizeof(digits[4]), "%u", (unsigned int)req->CopyError);
+    for (digit_index = 0; digit_index < 5; digit_index++) {
+        if (digit_lengths[digit_index] <= 0 || (size_t)digit_lengths[digit_index] >= sizeof(digits[0])) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+    }
+    if (req->IsPositionAvailable) {
+        length = snprintf(position_digits, sizeof(position_digits), "[%u,%u,%u]",
+            (unsigned int)req->PositionBits[0], (unsigned int)req->PositionBits[1],
+            (unsigned int)req->PositionBits[2]);
+        if (length <= 0 || (size_t)length >= sizeof(position_digits)) {
+            InterlockedOr(&recorder_loss_flags, 8);
+            SetLastError(last_error);
+            return;
+        }
+        position_bits = position_digits;
+    }
+    recorded = (snapshot_line*)HeapAlloc(
+        GetProcessHeap(), 0, sizeof(*recorded) - 1 + sizeof(line));
+    if (recorded == NULL) {
+        InterlockedOr(&recorder_loss_flags, 4);
+    }
+    if (trace_file == INVALID_HANDLE_VALUE || !trace_lock_ready) {
+        InterlockedOr(&recorder_loss_flags, 1);
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    now = GetTickCount64();
+    // Raw own write/append starts unknown0; only the later ring copy can
+    // describe actual completed write/append, without a retention promise.
+    length = snprintf(line, sizeof(line),
+        "{\"time_ms\":%llu,\"protocol\":\"client_state\","
+        "\"kind\":\"scenario_marker_mask_call\",\"phase\":\"%s\","
+        "\"thread\":%lu,\"frame_sequence\":%lu,\"call_ordinal\":%s,"
+        "\"marker_id\":%s,\"raw_mask\":%s,\"input_provenance\":\"pre_call\","
+        "\"is_copy_attempted\":%s,\"is_marker_id_available\":%s,"
+        "\"is_position_available\":%s,\"authored_position_bits\":%s,"
+        "\"copy_byte_count\":%s,\"copy_error\":%s,\"copy_failure\":\"%s\","
+        "\"is_normal_return_observed\":%s,\"is_call_limit_reached\":%s,"
+        "\"call_limit\":4096,\"is_input_copy_atomic\":null,"
+        "\"is_reentrancy_excluded\":null,\"trace_write_status\":0,"
+        "\"ring_append_status\":%d,\"is_ring_retention_complete\":null,"
+        "\"recorder_loss_flags\":\"0x%08lx\"}\r\n",
+        (unsigned long long)now, phase, (unsigned long)GetCurrentThreadId(),
+        (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+        is_limit ? "null" : digits[0], req->IsMarkerIDAvailable ? digits[1] : "null",
+        req->Phase == SCENARIO_MARKER_MASK_NORMAL_RETURN ? digits[2] : "null",
+        req->IsCopyAttempted ? "true" : "false", req->IsMarkerIDAvailable ? "true" : "false",
+        req->IsPositionAvailable ? "true" : "false", position_bits,
+        req->IsCopyAttempted ? digits[3] : "null",
+        req->CopyFailure == SCENARIO_MARKER_COPY_READ_FAILED ? digits[4] : "null",
+        failure, normal_return, is_limit ? "true" : "false", recorded == NULL ? 2 : 0,
+        (unsigned long)loss_flags);
+    if (length <= 0 || (size_t)length >= sizeof(line)) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        if (recorded != NULL && !HeapFree(GetProcessHeap(), 0, recorded)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+        SetLastError(last_error);
+        return;
+    }
+    if (trace_file != INVALID_HANDLE_VALUE && trace_lock_ready) {
+        EnterCriticalSection(&trace_lock);
+        is_written = WriteFile(trace_file, line, (DWORD)length, &written, NULL);
+        LeaveCriticalSection(&trace_lock);
+        if (!is_written || written != (DWORD)length) {
+            InterlockedOr(&recorder_loss_flags, 2);
+        }
+    }
+    if (recorded == NULL) {
+        SetLastError(last_error);
+        return;
+    }
+    write_field = strstr(line, "\"trace_write_status\":0");
+    append_field = strstr(line, "\"ring_append_status\":0");
+    loss_field = strstr(line, "\"recorder_loss_flags\":\"0x");
+    if (write_field == NULL || append_field == NULL || loss_field == NULL) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        if (!HeapFree(GetProcessHeap(), 0, recorded)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+        SetLastError(last_error);
+        return;
+    }
+    loss_offset = (size_t)(loss_field - line) + strlen("\"recorder_loss_flags\":\"0x");
+    if (loss_offset + 8 > (size_t)length) {
+        InterlockedOr(&recorder_loss_flags, 8);
+        if (!HeapFree(GetProcessHeap(), 0, recorded)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+        SetLastError(last_error);
+        return;
+    }
+    write_field[strlen("\"trace_write_status\":")] =
+        is_written && written == (DWORD)length ? '1' : '2';
+    append_field[strlen("\"ring_append_status\":")] = '1';
+    recorded->next = NULL;
+    recorded->time_ms = now;
+    recorded->size = (unsigned int)length;
+    memcpy(recorded->contents, line, (size_t)length);
+    AcquireSRWLockExclusive(&snapshot_ring_lock);
+    if (snapshot_ring_tail == NULL) {
+        snapshot_ring_head = recorded;
+    } else {
+        snapshot_ring_tail->next = recorded;
+    }
+    snapshot_ring_tail = recorded;
+    snapshot_ring_byte_count += (size_t)length;
+    while (snapshot_ring_head != NULL &&
+        (snapshot_ring_byte_count > maximum_bytes ||
+         (now >= snapshot_ring_head->time_ms &&
+          now - snapshot_ring_head->time_ms > maximum_age_ms))) {
+        snapshot_line* removed = snapshot_ring_head;
+        int is_capacity_drop = snapshot_ring_byte_count > maximum_bytes;
+        snapshot_ring_head = removed->next;
+        snapshot_ring_byte_count -= removed->size;
+        if (is_capacity_drop) {
+            snapshot_ring_capacity_dropped_line_count++;
+            snapshot_ring_capacity_dropped_byte_count += removed->size;
+            snapshot_ring_capacity_last_dropped_time_ms = removed->time_ms;
+        }
+        if (!HeapFree(GetProcessHeap(), 0, removed)) {
+            InterlockedOr(&recorder_loss_flags, 16);
+        }
+    }
+    loss_flags = InterlockedCompareExchange(&recorder_loss_flags, 0, 0);
+    length = snprintf(loss_digits, sizeof(loss_digits), "%08lx", (unsigned long)loss_flags);
+    if (length == 8) {
+        memcpy(recorded->contents + loss_offset, loss_digits, 8);
+    } else {
+        InterlockedOr(&recorder_loss_flags, 8);
+    }
+    ReleaseSRWLockExclusive(&snapshot_ring_lock);
+    SetLastError(last_error);
+}
+#endif
+
 static void trace_object_association(const char* kind,
     unsigned int network_object_id, unsigned int client_handle) {
     char line[384];
@@ -533,6 +1195,9 @@ static float __cdecl hooked_frame_delta(void* frame) {
     InterlockedIncrement(&snapshot_frame_sequence);
     InterlockedExchange(&snapshot_frame_delta_bits, (LONG)delta_bits);
     InterlockedExchange(&snapshot_frame_time_ms, (LONG)GetTickCount());
+#if FANG_SCENARIO
+    observe_scenario_dispatch_frame();
+#endif
     if (InterlockedCompareExchange(&snapshot_keyframe_pending, 2, 1) == 1) {
         InterlockedExchange(&snapshot_keyframe_started_time_ms, (LONG)GetTickCount());
         trace_client_object_registry();
@@ -2420,6 +3085,24 @@ static void trace_client_object_probe_registry(void) {
     }
 }
 
+#if FANG_SCENARIO
+static void trace_scenario_registry(const char* status,
+    ULONGLONG started_time_ms, unsigned int object_count,
+    unsigned int unreadable_slot_count, unsigned int changed_handle_count,
+    unsigned long started_message_count) {
+    char line[768];
+    int length = fang_scenario_registry_line(line, sizeof(line), status,
+        started_time_ms, GetTickCount64(),
+        (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+        object_count, unreadable_slot_count, changed_handle_count,
+        started_message_count);
+    if (length <= 0 || (size_t)length >= sizeof(line)) {
+        return;
+    }
+    snapshot_ring_append(line, (unsigned int)length);
+}
+#endif
+
 static void trace_client_object_registry(void) {
     const BYTE* registry;
     const BYTE* table;
@@ -2428,16 +3111,31 @@ static void trace_client_object_registry(void) {
     unsigned int stride;
     unsigned int index;
     unsigned int captured = 0;
+#if FANG_SCENARIO
+    ULONGLONG started_time_ms = GetTickCount64();
+    unsigned int unreadable_slot_count = 0;
+    unsigned int changed_handle_count = 0;
+    unsigned long started_message_count = fang_scenario_message_count();
+#endif
     if (InterlockedCompareExchange(&snapshot_capture_enabled, 0, 0) == 0 ||
         original_game_object_registry == NULL) {
+#if FANG_SCENARIO
+        trace_scenario_registry("unavailable", started_time_ms, 0, 0, 0, started_message_count);
+#endif
         return;
     }
     registry = (const BYTE*)original_game_object_registry();
     if (!readable_range(registry, 8)) {
+#if FANG_SCENARIO
+        trace_scenario_registry("unreadable_registry", started_time_ms, 0, 0, 0, started_message_count);
+#endif
         return;
     }
     table = *(const BYTE* const*)(registry + 4);
     if (!readable_range(table, 24)) {
+#if FANG_SCENARIO
+        trace_scenario_registry("unreadable_table", started_time_ms, 0, 0, 0, started_message_count);
+#endif
         return;
     }
     slots = *(const BYTE* const*)table;
@@ -2447,6 +3145,9 @@ static void trace_client_object_registry(void) {
         stride < 668 || stride > 16384 ||
         (size_t)(capacity - 1) >
             (SIZE_MAX - (size_t)(uintptr_t)slots) / stride) {
+#if FANG_SCENARIO
+        trace_scenario_registry("invalid_table", started_time_ms, 0, 0, 0, started_message_count);
+#endif
         return;
     }
     for (index = 0; index < capacity; index++) {
@@ -2454,6 +3155,9 @@ static void trace_client_object_registry(void) {
         const BYTE* locomotion;
         unsigned int object_id;
         if (!readable_range(object, 668)) {
+#if FANG_SCENARIO
+            unreadable_slot_count++;
+#endif
             continue;
         }
         object_id = *(const unsigned int*)object;
@@ -2468,8 +3172,18 @@ static void trace_client_object_registry(void) {
                 "snapshot_boundary", object_id, object, locomotion);
         }
         captured++;
+#if FANG_SCENARIO
+        if (!readable_range(object, 668) ||
+            *(const unsigned int*)object != object_id) {
+            changed_handle_count++;
+        }
+#endif
     }
     trace_client_state("snapshot_object_count", captured);
+#if FANG_SCENARIO
+    trace_scenario_registry("observed", started_time_ms, captured,
+        unreadable_slot_count, changed_handle_count, started_message_count);
+#endif
 }
 
 static void reset_movement_trace_context(void) {
@@ -2642,6 +3356,19 @@ static void* __fastcall hooked_message_construct(
 #endif
     void* constructed_message;
     (void)ignored;
+#if FANG_SCENARIO
+    if (id >= 0x8C && id <= 0x95 &&
+        InterlockedCompareExchange(&snapshot_capture_enabled, 0, 0) != 0) {
+        char line[512];
+        int length = fang_scenario_message_line(line, sizeof(line), id,
+            GetTickCount64(),
+            (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+            (unsigned long)GetCurrentThreadId());
+        if (length > 0 && (size_t)length < sizeof(line)) {
+            snapshot_ring_append(line, (unsigned int)length);
+        }
+    }
+#endif
     if (InterlockedExchange(&action_response_trace_pending, 0) != 0 &&
         original_combat_input_state != NULL) {
         const BYTE* state = (const BYTE*)original_combat_input_state();
@@ -4155,6 +4882,20 @@ static void __cdecl hooked_scene_load(void* scene, unsigned int markerset, unsig
     unsigned int asset_id = traced_scene_id(scene);
     trace_scene_state("scene_load_request", asset_id, markerset, index, asset_id != 0);
     original_scene_load(scene, markerset, index);
+#if FANG_SCENARIO
+    if (InterlockedCompareExchange(&snapshot_capture_enabled, 0, 0) != 0) {
+        char line[512];
+        unsigned int load_argument_0 = markerset;
+        unsigned int load_argument_1 = index;
+        int length = fang_scenario_scene_load_line(line, sizeof(line),
+            asset_id, load_argument_0, load_argument_1, GetTickCount64(),
+            (unsigned long)InterlockedCompareExchange(&snapshot_frame_sequence, 0, 0),
+            (unsigned long)GetCurrentThreadId());
+        if (length > 0 && (size_t)length < sizeof(line)) {
+            snapshot_ring_append(line, (unsigned int)length);
+        }
+    }
+#endif
 }
 
 static void __cdecl hooked_scene_change(void* simulator, void* scene) {
@@ -6251,6 +6992,26 @@ int fang_install(const char* hostname, unsigned short port, unsigned short party
     trace_client_state("snapshot_capture_mode",
         (unsigned int)InterlockedCompareExchange(
             &snapshot_capture_enabled, 0, 0));
+#if FANG_SCENARIO
+    if (!install_scenario_renderer_observation(executable)) {
+        result |= 0x8;
+    }
+    if (!install_scenario_dispatch_observation(executable)) {
+        result |= 0x8;
+    }
+    if (!install_scenario_selector_observation(executable)) {
+        result |= 0x8;
+    }
+    if (!install_scenario_primary_observation(executable)) {
+        result |= 0x8;
+    }
+    if (!install_scenario_alternate_observation(executable)) {
+        result |= 0x8;
+    }
+    if (!install_scenario_classification_observation(executable)) {
+        result |= 0x8;
+    }
+#endif
     if (enable_borderless_fullscreen) {
         int is_display_hook_installed = fang_install_display_preferences(executable);
         trace_client_state("display_preferences_hook", (unsigned int)is_display_hook_installed);

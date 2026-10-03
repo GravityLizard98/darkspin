@@ -100,6 +100,7 @@ type ZoneInfo struct {
 	Timer                   Timer
 	NPCRandom               *sim.SimulatorRandom
 	DropRandom              *sim.SimulatorRandom
+	CapsuleRandom           *sim.CapsuleRandom
 	Checkpoint              zonecheckpoint.Repository
 	Restore                 *zonecheckpoint.Snapshot
 }
@@ -234,6 +235,7 @@ func New(id uint64, generation uint64, info ZoneInfo) (*Zone, error) {
 		info.ProjectileID == nil || info.Outcome == nil || info.Result == nil ||
 		info.Timeline == nil || info.ResultVote == nil || info.Timer == nil ||
 		info.NPCRandom == nil || info.DropRandom == nil ||
+		info.CapsuleRandom == nil ||
 		info.Security == nil || info.Effect == nil {
 		return nil, errors.New("zone info incomplete")
 	}
@@ -2222,6 +2224,7 @@ func (e *Zone) SaveCheckpoint(reason zonecheckpoint.Reason) {
 	}
 	recorder := e.info.Checkpoint
 	dropRandom := e.info.DropRandom.Snapshot()
+	capsuleRandom := e.info.CapsuleRandom.Snapshot()
 	e.mu.Unlock()
 	sort.Slice(members, func(left int, right int) bool {
 		return members[left].UserID < members[right].UserID
@@ -2295,6 +2298,7 @@ func (e *Zone) SaveCheckpoint(reason zonecheckpoint.Reason) {
 		Security:          security, Objectives: objectives, ScriptUses: scriptUses,
 		ClearedSpawnGroupIDs: clearedSpawnGroupIDs,
 		DropRandom:           dropRandom, IsDropRandomSet: true,
+		CapsuleRandom: capsuleRandom, IsCapsuleRandomSet: true,
 	}
 	// Serialize the queue operation with terminal state. Without this final
 	// fence, completion could discard a checkpoint while an older capture was
@@ -2546,6 +2550,13 @@ func (e *Zone) DropRandom() *sim.SimulatorRandom {
 	return e.info.DropRandom
 }
 
+func (e *Zone) CapsuleRandom() *sim.CapsuleRandom {
+	if e == nil {
+		return nil
+	}
+	return e.info.CapsuleRandom
+}
+
 func (e *Zone) HordeBarrierPlans(markerSetName string) []zonebarrier.Plan {
 	if e == nil {
 		return nil
@@ -2679,6 +2690,9 @@ func (e *Zone) SecurityThreats() []zonesecurity.Threat {
 	npcs := e.info.NPCs.LiveSnapshots()
 	threats := make([]zonesecurity.Threat, 0, len(npcs))
 	for _, npc := range npcs {
+		if npc.Faction == zonenpc.FactionPlayerAligned {
+			continue
+		}
 		threats = append(threats, zonesecurity.Threat{
 			Position:    npc.Plan.Position,
 			Footprint:   npc.Plan.NPCProfile.FootprintRadius,

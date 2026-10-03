@@ -3,6 +3,7 @@ package gameplay
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
@@ -13,7 +14,10 @@ import (
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 	barrierraknet "github.com/darkspinnet/darkspin/server/zone/barrier/raknet103"
+	zoneboss "github.com/darkspinnet/darkspin/server/zone/boss"
+	bossraknet "github.com/darkspinnet/darkspin/server/zone/boss/raknet103"
 	zonecompanion "github.com/darkspinnet/darkspin/server/zone/companion"
+	companionraknet "github.com/darkspinnet/darkspin/server/zone/companion/raknet103"
 	zonehero "github.com/darkspinnet/darkspin/server/zone/hero"
 	heroraknet "github.com/darkspinnet/darkspin/server/zone/hero/raknet103"
 	zoneinteract "github.com/darkspinnet/darkspin/server/zone/interact"
@@ -60,14 +64,31 @@ func (r gameplaySetupRuntime) publishRejoin(
 	if peerSession.zone != nil && peerSession.zone.TreeOfLife() != nil {
 		treeRevision = peerSession.zone.TreeOfLife().Revision()
 	}
+	if peerSession.zone == nil {
+		return nil, errors.New("rejoin zone unavailable")
+	}
+	companionRevision := peerSession.zone.Companion().MotionRevision()
+	baselineTime := r.now()
 	baseline, revision, err := marshalGameplayRejoinBaseline(
-		peerSession, packet.SourceTime,
+		peerSession, packet.SourceTime, baselineTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinBaseline: %w", err)
 	}
+	cooldownPackets, err := marshalGameplayRejoinCooldowns(
+		peerSession, r.program, r.now(), packet.SourceTime,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("rejoinCooldown: %w", err)
+	}
+	// The baseline's final deployment can reset the native action bar. Restore
+	// remaining cooldowns afterward, only in this owner's reconnect response.
+	baseline = append(baseline, cooldownPackets...)
 	if peerSession.zone.TreeOfLife() != nil && peerSession.zone.TreeOfLife().Revision() != treeRevision {
 		return nil, fmt.Errorf("rejoinTreeCapture: %w", errRejoinSnapshotActive)
+	}
+	if peerSession.zone.Companion().MotionRevision() != companionRevision {
+		return nil, fmt.Errorf("rejoinCompanionCapture: %w", errRejoinSnapshotActive)
 	}
 	r.registry.mutex.Lock()
 	current, isFound := r.registry.sessions[packet.Address.String()]
@@ -81,7 +102,7 @@ func (r gameplaySetupRuntime) publishRejoin(
 	err = packet.AfterResponseCommit(func() {
 		r.commitRejoin(
 			packet.Address.String(), peerSession.transportGeneration,
-			revision, treeRevision,
+			revision, treeRevision, companionRevision,
 		)
 		r.scheduleCampaignClock(packet, peerSession)
 	})
@@ -98,6 +119,7 @@ func (r gameplaySetupRuntime) publishRejoin(
 
 func (r gameplaySetupRuntime) commitRejoin(
 	sessionKey string, transportGeneration uint64, revision uint64, treeRevision uint64,
+	companionRevisions ...uint64,
 ) {
 	r.registry.mutex.RLock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
@@ -152,6 +174,11 @@ func (r gameplaySetupRuntime) commitRejoin(
 		r.registry.mutex.Unlock()
 		return
 	}
+	if len(companionRevisions) == 1 &&
+		peerSession.zone.Companion().MotionRevision() != companionRevisions[0] {
+		r.registry.mutex.Unlock()
+		return
+	}
 	isCurrent = isFound &&
 		current.transportGeneration == transportGeneration &&
 		current.isRejoinPending
@@ -159,6 +186,9 @@ func (r gameplaySetupRuntime) commitRejoin(
 		current.isRejoinPending = false
 		current.isGraviticSpeedPresented = false
 		current.isNPCRecoveryPending = true
+		current.securityTeleporterStates = nil
+		current.campaignTeleporterStates = nil
+		current.isTutorialTeleporterPresentationPending = true
 		r.registry.sessions[sessionKey] = current
 	}
 	r.registry.mutex.Unlock()
@@ -168,7 +198,7 @@ func (r gameplaySetupRuntime) commitRejoin(
 		)
 		return
 	}
-	companionPackets, companionErr := marshalGameplayCompanions(peerSession, peerSession.binding.UserID)
+	companionErr := r.publishRejoinedCompanions(sessionKey, peerSession)
 	if companionErr != nil {
 		if r.logger != nil {
 			r.logger.Printf("RakNet reconnect companion publication failed user=%d: %v",
@@ -176,32 +206,31 @@ func (r gameplaySetupRuntime) commitRejoin(
 		}
 		return
 	}
-	r.registry.queuePeerPresentation(
-		gameplayProducerIdentityFromSession(sessionKey, peerSession, true), companionPackets,
-	)
 }
 
 func marshalGameplayRejoinBaseline(
-	peerSession gameplayPeerSession, sourceTime uint64,
+	peerSession gameplayPeerSession, sourceTime uint64, capturedTimes ...time.Time,
 ) ([][]byte, uint64, error) {
 	if peerSession.zone == nil {
 		return nil, 0, errors.New("rejoin zone unavailable")
 	}
 	for attempt := 0; attempt < rejoinSnapshotAttemptLimit; attempt++ {
 		revision := peerSession.zone.ProjectionRevision()
+		companionRevision := peerSession.zone.Companion().MotionRevision()
 		trees := peerSession.zone.TreeOfLife()
 		treeRevision := uint64(0)
 		if trees != nil {
 			treeRevision = trees.Revision()
 		}
 		packets, err := marshalGameplayRejoinBaselineState(
-			peerSession, sourceTime,
+			peerSession, sourceTime, capturedTimes...,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("rejoinSnapshot[%d]: %w", attempt, err)
 		}
 		isTreeSnapshotCurrent := trees == nil || trees.Revision() == treeRevision
-		if peerSession.zone.ProjectionRevision() == revision && isTreeSnapshotCurrent {
+		isCompanionSnapshotCurrent := peerSession.zone.Companion().MotionRevision() == companionRevision
+		if peerSession.zone.ProjectionRevision() == revision && isTreeSnapshotCurrent && isCompanionSnapshotCurrent {
 			return packets, revision, nil
 		}
 	}
@@ -209,7 +238,7 @@ func marshalGameplayRejoinBaseline(
 }
 
 func marshalGameplayRejoinBaselineState(
-	peerSession gameplayPeerSession, sourceTime uint64,
+	peerSession gameplayPeerSession, sourceTime uint64, capturedTimes ...time.Time,
 ) ([][]byte, error) {
 	if peerSession.zone == nil || peerSession.squad == nil ||
 		peerSession.deployedObjectID == 0 ||
@@ -363,7 +392,8 @@ func marshalGameplayRejoinBaselineState(
 		}
 		packets = append(packets, objectivePacket)
 	}
-	for index, npc := range peerSession.zone.NPCs().LiveSnapshots() {
+	liveNPCs := peerSession.zone.NPCs().LiveSnapshots()
+	for index, npc := range liveNPCs {
 		if !npc.IsPublished {
 			continue
 		}
@@ -390,6 +420,31 @@ func marshalGameplayRejoinBaselineState(
 		}
 		packets = append(packets, resourcePacket)
 	}
+	bossState := peerSession.zone.Boss().Snapshot()
+	if bossState.Phase == zoneboss.PhaseActive {
+		if bossState.IsLeaderDeferred {
+			phasePacket, phaseErr := bossraknet.AddPhase()
+			if phaseErr != nil {
+				return nil, fmt.Errorf("rejoinBossPhase: %w", phaseErr)
+			}
+			packets = append(packets, phasePacket)
+		} else {
+			for _, npc := range liveNPCs {
+				if npc.Plan.ObjectID != bossState.LeaderObjectID || !npc.IsPublished {
+					continue
+				}
+				activePacket, activeErr := bossraknet.Active(
+					bossState.LeaderObjectID,
+					zoneboss.IsFinalBossNoun(npc.Plan.NounName),
+				)
+				if activeErr != nil {
+					return nil, fmt.Errorf("rejoinBossActive: %w", activeErr)
+				}
+				packets = append(packets, activePacket)
+				break
+			}
+		}
+	}
 	remnantPackets, err := npcraknet.Remnants(peerSession.zone.NPCs().Snapshots())
 	if err != nil {
 		return nil, fmt.Errorf("rejoinRemnants: %w", err)
@@ -402,7 +457,7 @@ func marshalGameplayRejoinBaselineState(
 		return nil, fmt.Errorf("rejoinNPCTarget: %w", err)
 	}
 	packets = append(packets, targetPackets...)
-	companionPackets, err := marshalGameplayRejoinCompanions(peerSession)
+	companionPackets, err := marshalGameplayRejoinCompanions(peerSession, capturedTimes...)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinCompanion: %w", err)
 	}
@@ -421,12 +476,23 @@ func marshalGameplayRejoinBaselineState(
 	if peerSession.zone.Security() != nil {
 		securityPackets, err = securityraknet.SnapshotState(
 			peerSession.zone.Security().Snapshot(),
+			peerSession.zone.SecurityThreats(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("rejoinSecurity: %w", err)
 		}
 	}
 	packets = append(packets, securityPackets...)
+	tutorialTeleporterPackets, err := peerSession.tutorialTeleporterInitialState()
+	if err != nil {
+		return nil, fmt.Errorf("rejoinTutorialTeleporter: %w", err)
+	}
+	packets = append(packets, tutorialTeleporterPackets...)
+	campaignTeleporterPackets, err := peerSession.campaignTeleporterInitialState()
+	if err != nil {
+		return nil, fmt.Errorf("rejoinCampaignTeleporter: %w", err)
+	}
+	packets = append(packets, campaignTeleporterPackets...)
 	if peerSession.isHeroSelectionPending && activeHitPoint <= 0 {
 		beamPackets, marshalErr := heroraknet.BeamOut(
 			peerSession.deployedObjectID,
@@ -742,9 +808,9 @@ func marshalGameplayRejoinSimplePickup(
 }
 
 func marshalGameplayRejoinCompanions(
-	peerSession gameplayPeerSession,
+	peerSession gameplayPeerSession, capturedTimes ...time.Time,
 ) ([][]byte, error) {
-	packets, err := marshalGameplayCompanions(peerSession, 0)
+	packets, err := marshalGameplayCompanions(peerSession, 0, capturedTimes...)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinCompanions: %w", err)
 	}
@@ -752,7 +818,7 @@ func marshalGameplayRejoinCompanions(
 }
 
 func marshalGameplayCompanions(
-	peerSession gameplayPeerSession, ownerUserID uint64,
+	peerSession gameplayPeerSession, ownerUserID uint64, capturedTimes ...time.Time,
 ) ([][]byte, error) {
 	if peerSession.zone == nil || peerSession.zone.Companion() == nil {
 		return nil, nil
@@ -764,7 +830,12 @@ func marshalGameplayCompanions(
 		}
 	}
 	packets := make([][]byte, 0)
-	for index, companion := range peerSession.zone.Companion().Snapshots() {
+	at := time.Now()
+	if len(capturedTimes) > 0 {
+		at = capturedTimes[0]
+	}
+	for index, motion := range peerSession.zone.Companion().MotionSnapshots(at) {
+		companion := motion.Actor
 		if companion.HitPoint <= 0 ||
 			(ownerUserID != 0 && companion.UserID != ownerUserID) ||
 			connectedGenerations[companion.UserID] != companion.PeerGeneration {
@@ -783,12 +854,21 @@ func marshalGameplayCompanions(
 		if err != nil {
 			return nil, fmt.Errorf("create[%d]: %w", index, err)
 		}
+		movementSpeed := float32(zonecompanion.CompatibilityMovementSpeed)
+		if motion.IsFollowing {
+			movementSpeed = motion.MovementSpeed
+			if movementSpeed <= 0 || math.IsNaN(float64(movementSpeed)) || math.IsInf(float64(movementSpeed), 0) {
+				return nil, fmt.Errorf("companionSpeed[%d]: invalid retained motion", index)
+			}
+		}
 		attribute, err := raknet.MarshalApplication(raknet.AttributeDataUpdateMessage{
 			ObjectID: companion.ObjectID,
 			Value: map[uint8]float32{
-				11: zonecompanion.CompatibilityMovementSpeed,
-				12: zonecompanion.CompatibilityMovementSpeed,
-				48: 0,
+				4:   companion.MaximumHitPoint,
+				11:  movementSpeed,
+				12:  movementSpeed,
+				48:  0,
+				113: companion.BodyScale,
 			},
 		})
 		if err != nil {
@@ -807,13 +887,22 @@ func marshalGameplayCompanions(
 		if err != nil {
 			return nil, fmt.Errorf("companionPosition[%d]: %w", index, err)
 		}
+		packets = append(packets, create, position, attribute, resource)
+		if motion.IsFollowing {
+			followPackets, followErr := companionraknet.Follow([]zonecompanion.Follow{motion.Follow})
+			if followErr != nil {
+				return nil, fmt.Errorf("companionFollow[%d]: %w", index, followErr)
+			}
+			packets = append(packets, followPackets...)
+			continue
+		}
 		stop, err := raknet.MarshalApplication(raknet.ObjectPlayerMoveMessage{
 			ObjectID: companion.ObjectID, GoalFlags: 0x20, GoalPosition: raknet.Vector3(companion.Position),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("companionStop[%d]: %w", index, err)
 		}
-		packets = append(packets, create, position, stop, attribute, resource)
+		packets = append(packets, stop)
 	}
 	return packets, nil
 }
