@@ -2,6 +2,7 @@
 
 ### 2026-10-04
 
+- Prevent delayed miniboss admissions from replacing an active or completed encounter and spawning its enemies again.
 - Restore miniboss opening enemies at authored arena spawn points before the captain appears, including Catalyst and Overdrive tutorial arenas.
 - Restore the correct miniboss phase when reconnecting during the wave transition or after the captain appears.
 - Change ordinary lieutenant population from captain variants to the authored special-enemy roster, preserving separate captain and boss encounters.

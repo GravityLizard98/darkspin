@@ -688,8 +688,15 @@ func (e *Zone) admitNamedBossEncounter(
 	if e.info.Director == nil || e.info.NPCs == nil || e.info.Boss == nil {
 		return errors.New("named boss authority unavailable")
 	}
+	// Plans may wait for tutorial activation while another admission completes.
+	// Validate the live encounter under the zone lock before adding actors or
+	// accepting events; a fresh candidate alone always appears dormant.
+	err := e.info.Boss.CanArm(publication, plans)
+	if err != nil {
+		return fmt.Errorf("namedBossState: %w", err)
+	}
 	candidateBoss := zoneboss.NewSession()
-	err := candidateBoss.Arm(publication, plans)
+	err = candidateBoss.Arm(publication, plans)
 	if err == nil {
 		err = candidateBoss.Admit(plans)
 	}

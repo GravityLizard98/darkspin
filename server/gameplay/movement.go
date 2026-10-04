@@ -2647,6 +2647,12 @@ func (s *gameplayPeerSession) admitCampaignGenericBossPlan(
 func (s *gameplayPeerSession) admitCampaignGenericBossNow(
 	encounterPlan zone.NamedBossPlan, targetObjectID uint32,
 ) ([]zonenpc.SpawnPlan, [][]byte, bool, error) {
+	// Delayed tutorial callbacks can outlive a competing boss admission or its
+	// victory. Do not encode or publish their original full-health spawn again.
+	if s == nil || s.zone == nil || s.zone.Boss() == nil ||
+		!s.zone.Boss().IsDormant() {
+		return nil, nil, false, nil
+	}
 	namedPublication := encounterPlan.NamedPublication
 	publication := encounterPlan.Publication
 	plans := encounterPlan.Actors
