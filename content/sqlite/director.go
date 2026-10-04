@@ -166,6 +166,7 @@ type LevelDirector struct {
 	PrimaryType      uint32
 	SecondaryType    uint32
 	TertiaryType     uint32
+	QuaternaryType   uint32
 	EntryPositions   [][3]float32
 	Pools            []LevelDirectorPool
 	ExternalPools    []LevelDirectorPool
@@ -190,7 +191,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 	var levelCatalogOrdinal sql.NullInt64
 	err := s.database.QueryRowContext(ctx, `
 		SELECT level.id, level.name, level.planet_config,
-		       level.primary_type, level.secondary_type, level.tertiary_type,
+		       level.primary_type, level.secondary_type, level.tertiary_type, level.quaternary_type,
 		       catalog.ordinal, COALESCE(catalog.asset_name, ''), COALESCE(catalog.source_file_name, '')
 		FROM level
 		JOIN level_alias ON level_alias.level_id=level.id
@@ -199,6 +200,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		WHERE level_alias.alias=? COLLATE NOCASE
 		LIMIT 1`, levelName).Scan(&director.LevelID, &director.Name, &director.PlanetConfigName,
 		&director.PrimaryType, &director.SecondaryType, &director.TertiaryType,
+		&director.QuaternaryType,
 		&levelCatalogOrdinal, &director.CatalogAssetName, &director.CatalogSourceName)
 	if err != nil {
 		return LevelDirector{}, fmt.Errorf("directorLevel[%s]: %w", levelName, err)

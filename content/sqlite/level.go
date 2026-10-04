@@ -46,6 +46,7 @@ type levelAsset struct {
 	primaryType     uint32
 	secondaryType   uint32
 	tertiaryType    uint32
+	quaternaryType  uint32
 	cameraPitch     *float32
 	cameraYaw       *float32
 	cameraDistance  *float32
@@ -260,9 +261,9 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 	levelStatement, err := transaction.PrepareContext(ctx, `
 		INSERT INTO level
 		(id, content_source_resource_id, name, package_group_id, music, nav_mesh, physics_mesh,
-		 rendering_config, planet_config, primary_type, secondary_type, tertiary_type, camera_pitch, camera_yaw,
+		 rendering_config, planet_config, primary_type, secondary_type, tertiary_type, quaternary_type, camera_pitch, camera_yaw,
 		 camera_distance, source_sha256, source_size, source_compression, source_payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("levelPrepare: %w", err)
 	}
@@ -351,6 +352,7 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 		_, err = levelStatement.ExecContext(ctx, levelID, level.ordinal+1, level.name,
 			int64(uint32(level.entry.Instance)), level.music, level.navMesh, level.physicsMesh,
 			level.renderingConfig, level.planetConfig, level.primaryType, level.secondaryType, level.tertiaryType,
+			level.quaternaryType,
 			level.cameraPitch, level.cameraYaw, level.cameraDistance, fmt.Sprintf("%x", sourceDigest),
 			len(level.payload), "zlib", compressedPayload)
 		if err != nil {
@@ -544,7 +546,7 @@ func insertLevelAssets(ctx context.Context, transaction *sql.Tx, pkg *dbpf.Reade
 }
 
 func decodeLevelAsset(ordinal int, entry dbpf.Entry, payload []byte) (levelAsset, error) {
-	if len(payload) < 0x80 {
+	if len(payload) < 0x84 {
 		return levelAsset{}, fmt.Errorf("payloadSize: %d", len(payload))
 	}
 	fields := scanCStringFields(payload)
@@ -560,6 +562,8 @@ func decodeLevelAsset(ordinal int, entry dbpf.Entry, payload []byte) (levelAsset
 		primaryType:   binary.LittleEndian.Uint32(payload[0x74:0x78]),
 		secondaryType: binary.LittleEndian.Uint32(payload[0x78:0x7c]),
 		tertiaryType:  binary.LittleEndian.Uint32(payload[0x7c:0x80]),
+		// The client calls the fourth science field "quadernaryType" (+128).
+		quaternaryType: binary.LittleEndian.Uint32(payload[0x80:0x84]),
 	}
 	camera, cameraErr := decodeLevelCamera(payload)
 	if cameraErr != nil {

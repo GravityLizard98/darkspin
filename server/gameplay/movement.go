@@ -1349,7 +1349,7 @@ func (r campaignMovementCommandRuntime) handle(
 	for _, plan := range populationAggroPlans {
 		r.logger.Printf("RakNet campaign enemy acquired hero for %s object=%d noun=%q radius=%.1f",
 			packet.Address, plan.ObjectID, plan.NounName,
-			zonenpc.EffectiveAggroRange(plan.NPCProfile, campaignPopulationAggroRadius))
+			zonenpc.AcquisitionRange(plan, campaignPopulationAggroRadius))
 	}
 	for _, plan := range hordePlans {
 		r.logger.Printf("RakNet campaign horde enemy admitted for %s object=%d noun=%q marker_set=%q trigger=%d position=(%.3f,%.3f,%.3f)",

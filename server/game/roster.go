@@ -38,21 +38,23 @@ func composeCampaignRoster(
 	if len(director.ExternalPools) == 0 || director.PlanetConfigName == "" {
 		return director, nil
 	}
-	primaryName, err := campaignScienceConfig(director.PrimaryType, director.Difficulty >= 25)
-	if err != nil {
-		return CampaignDirector{}, fmt.Errorf("rosterPrimary: %w", err)
-	}
-	secondaryName, err := campaignScienceConfig(director.SecondaryType, director.Difficulty >= 49)
+	// sub_9F6AA0 reads +120/+124/+128: secondary, tertiary and
+	// quadernaryType. Primary (+116) is already represented by the planet.
+	secondaryName, err := campaignScienceConfig(director.SecondaryType, director.Difficulty >= 25)
 	if err != nil {
 		return CampaignDirector{}, fmt.Errorf("rosterSecondary: %w", err)
 	}
-	tertiaryName, err := campaignScienceConfig(director.TertiaryType, false)
+	tertiaryName, err := campaignScienceConfig(director.TertiaryType, director.Difficulty >= 49)
 	if err != nil {
 		return CampaignDirector{}, fmt.Errorf("rosterTertiary: %w", err)
 	}
+	quaternaryName, err := campaignScienceConfig(director.QuaternaryType, false)
+	if err != nil {
+		return CampaignDirector{}, fmt.Errorf("rosterQuaternary: %w", err)
+	}
 	// Native composition requires all four external resources, even when a
 	// branch asks for zero draws from one of them. Empty Planets is valid.
-	for _, configName := range []string{director.PlanetConfigName, primaryName, secondaryName, tertiaryName} {
+	for _, configName := range []string{director.PlanetConfigName, secondaryName, tertiaryName, quaternaryName} {
 		isFound := false
 		for _, pool := range director.ExternalPools {
 			if strings.EqualFold(pool.ConfigurationName, configName) {
@@ -65,15 +67,15 @@ func composeCampaignRoster(
 		}
 	}
 	minions := make([]CampaignDirectorEntry, 0, 3)
-	planetMinionCount, secondaryMinionCount := 1, 0
+	planetMinionCount, tertiaryMinionCount := 1, 0
 	if director.Difficulty >= 49 {
-		planetMinionCount, secondaryMinionCount = 0, 1
+		planetMinionCount, tertiaryMinionCount = 0, 1
 	}
 	draws := []campaignRosterDraw{
 		{configurationName: "levelConfig", configKind: "minion", count: 1},
 		{configurationName: director.PlanetConfigName, configKind: "minion", count: planetMinionCount, offset: 1, isExternal: true},
-		{configurationName: primaryName, configKind: "minion", count: 1, offset: planetMinionCount + 1, isExternal: true},
-		{configurationName: secondaryName, configKind: "minion", count: secondaryMinionCount, offset: planetMinionCount + 2, isExternal: true},
+		{configurationName: secondaryName, configKind: "minion", count: 1, offset: planetMinionCount + 1, isExternal: true},
+		{configurationName: tertiaryName, configKind: "minion", count: tertiaryMinionCount, offset: planetMinionCount + 2, isExternal: true},
 	}
 	for _, draw := range draws {
 		minions, err = drawCampaignRoster(director, minions, draw, random)
@@ -85,24 +87,24 @@ func composeCampaignRoster(
 	if err != nil {
 		return CampaignDirector{}, fmt.Errorf("rosterShuffle: %w", err)
 	}
-	planetSpecialCount, primarySpecialCount := 1, 1
-	secondarySpecialCount, tertiarySpecialCount := 0, 0
+	planetSpecialCount, secondarySpecialCount := 1, 1
+	tertiarySpecialCount, quaternarySpecialCount := 0, 0
 	switch {
 	case director.Difficulty >= 49:
-		tertiarySpecialCount = 1
+		quaternarySpecialCount = 1
 	case director.Difficulty >= 25:
-		secondarySpecialCount = 1
+		tertiarySpecialCount = 1
 	case random.Float64() >= 0.25:
 		planetSpecialCount = 2
 	default:
-		primarySpecialCount = 2
+		secondarySpecialCount = 2
 	}
 	specials := append([]CampaignDirectorEntry(nil), firstTimeSpecials...)
 	draws = []campaignRosterDraw{
 		{configurationName: director.PlanetConfigName, configKind: "special", count: planetSpecialCount, isExternal: true},
-		{configurationName: primaryName, configKind: "special", count: primarySpecialCount, offset: planetSpecialCount, isExternal: true},
-		{configurationName: secondaryName, configKind: "special", count: secondarySpecialCount, offset: planetSpecialCount + 1, isExternal: true},
-		{configurationName: tertiaryName, configKind: "special", count: tertiarySpecialCount, offset: secondaryMinionCount + planetSpecialCount + 1, isExternal: true},
+		{configurationName: secondaryName, configKind: "special", count: secondarySpecialCount, offset: planetSpecialCount, isExternal: true},
+		{configurationName: tertiaryName, configKind: "special", count: tertiarySpecialCount, offset: planetSpecialCount + 1, isExternal: true},
+		{configurationName: quaternaryName, configKind: "special", count: quaternarySpecialCount, offset: tertiaryMinionCount + planetSpecialCount + 1, isExternal: true},
 	}
 	for _, draw := range draws {
 		specials, err = drawCampaignRoster(director, specials, draw, random)

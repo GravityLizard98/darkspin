@@ -2,6 +2,9 @@
 
 ### 2026-10-04
 
+- Stop spurious "Objective 00:02" arrival notifications by removing the forced HELIX introduction that incorrectly announced the mission timer.
+- Restore Herbipod detection from the shortened 5/7/9-unit aggro ranges to their authored 19/20/21-unit perception ranges, consistently across visibility, acquisition, and retargeting.
+- Correct campaign enemy composition from shifted science fields and fixed map rosters to the client's authored auxiliary science fields and per-section enemy choices.
 - Prevent delayed miniboss admissions from replacing an active or completed encounter and spawning its enemies again.
 - Restore miniboss opening enemies at authored arena spawn points before the captain appears, including Catalyst and Overdrive tutorial arenas.
 - Restore the correct miniboss phase when reconnecting during the wave transition or after the captain appears.

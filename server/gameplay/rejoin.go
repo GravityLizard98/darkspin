@@ -380,7 +380,7 @@ func marshalGameplayRejoinBaselineState(
 		packets = append(packets, statePacket)
 	}
 	objectiveMessages, err := campaignObjectiveMessages(
-		peerSession.zone.Objective().State(), uint8(binding.Slot), 0,
+		peerSession.zone.Objective().State(), uint8(binding.Slot),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("rejoinObjective: %w", err)

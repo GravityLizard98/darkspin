@@ -4,10 +4,32 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
 )
+
+// AcquisitionRange retains the server's ordinary aggro policy except for the
+// stationary Herbipod turret family. Its authored alert and aggro entries both
+// run FirstAggro_Turret; limiting acquisition to aggroRange stranded the turret
+// at 5/7/9 units despite its 19/20/21-unit native perception circle.
+// Using that recovered circle for automatic acquisition is a scoped
+// compatibility rule, not a reconstruction of the native proximity updater.
+func AcquisitionRange(plan SpawnPlan, fallback float32) float32 {
+	profile := plan.NPCProfile
+	if !profile.IsClassKnown || profile.IsPlayerPet {
+		return EffectiveAggroRange(profile, fallback)
+	}
+	switch strings.ToLower(strings.TrimSpace(plan.NounName)) {
+	case "verdanthbasicranged.noun", "verdanthbasicranged_2.noun", "verdanthbasicranged_3.noun":
+		radius := EffectivePerceptionRange(&profile)
+		if zonegeometry.IsFinitePositiveScalar(radius) {
+			return radius
+		}
+	}
+	return EffectiveAggroRange(profile, fallback)
+}
 
 type PerceptionQuery struct {
 	ObjectID         uint32

@@ -590,7 +590,7 @@ func (s *Session) acquireTargets(
 			deltaX := npc.Plan.Position.X - target.Position.X
 			deltaY := npc.Plan.Position.Y - target.Position.Y
 			deltaZ := npc.Plan.Position.Z - target.Position.Z
-			distance := EffectiveAggroRange(npc.Plan.NPCProfile, s.aggroRadius) + target.FootprintRadius +
+			distance := AcquisitionRange(npc.Plan, s.aggroRadius) + target.FootprintRadius +
 				max(float32(0), npc.Plan.NPCProfile.FootprintRadius)
 			distanceSquared := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
 			if (bossObjectID == 0 && distanceSquared > distance*distance) ||
@@ -884,7 +884,7 @@ func (s *Session) ReplaceTarget(
 			deltaX := npc.Plan.Position.X - target.Position.X
 			deltaY := npc.Plan.Position.Y - target.Position.Y
 			deltaZ := npc.Plan.Position.Z - target.Position.Z
-			distance := EffectiveAggroRange(npc.Plan.NPCProfile, s.aggroRadius) + target.FootprintRadius +
+			distance := AcquisitionRange(npc.Plan, s.aggroRadius) + target.FootprintRadius +
 				max(float32(0), npc.Plan.NPCProfile.FootprintRadius)
 			distanceSquared := deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ
 			if distanceSquared > distance*distance ||

@@ -229,8 +229,6 @@ type zoneEffectPresentation struct {
 // zonePresentationRuntime owns connection-local scheduling and transfers.
 // Authoritative world state remains on Zone.
 type zonePresentationRuntime struct {
-	missionVoiceID         uint32
-	missionVoiceReadyAt    time.Time
 	cryosFungusExpirations map[uint32]time.Time
 	cryosGeyserWarnings    map[uint32]uint64
 	cryosGeyserSpouts      map[uint32]uint64

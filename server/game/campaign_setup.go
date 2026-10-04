@@ -266,6 +266,7 @@ type CampaignDirector struct {
 	PrimaryType                   uint32
 	SecondaryType                 uint32
 	TertiaryType                  uint32
+	QuaternaryType                uint32
 	Difficulty                    uint32
 	CompositionTuning             CampaignCompositionTuning
 	OrbDifficultyScales           []float32

@@ -2467,15 +2467,6 @@ func (r gameplayPendingRuntime) poll(
 		}
 		if peerSession.zone != nil && peerSession.stage.IsDungeon() &&
 			!peerSession.isZoneTerminal() && peerSession.dungeonSetup.IsCommitted() {
-			voicePackets, voiceErr := peerSession.pollMissionVoice(r.now())
-			if voiceErr != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("missionVoicePoll: %w", voiceErr)
-			}
-			if len(voicePackets) != 0 {
-				r.logger.Printf("RakNet HELIX mission introduction sent user=%d level=%q after arrival", peerSession.binding.UserID, peerSession.binding.Level)
-			}
-			rootHazardPackets = append(rootHazardPackets, voicePackets...)
 			geyserPackets, geyserErr := peerSession.pollCryosGeyserEffects(r.now())
 			if geyserErr != nil {
 				r.registry.mutex.Unlock()
@@ -3645,7 +3636,7 @@ func campaignObjectiveRecord(record zoneobjective.Record) raknet.ObjectiveRecord
 }
 
 func campaignObjectiveMessages(
-	state *sim.ObjectiveState, playerIndex uint8, openingVoiceover uint32,
+	state *sim.ObjectiveState, playerIndex uint8,
 ) ([]raknet.ApplicationMessage, error) {
 	publication, err := zoneobjective.InitializationPublication(state, playerIndex)
 	if err != nil {
@@ -3664,9 +3655,9 @@ func campaignObjectiveMessages(
 			ObjectiveID: publication.Update.ObjectiveID,
 			PlayerIndex: publication.Update.PlayerIndex,
 			Medal:       publication.Update.Medal,
-			Voiceover:   openingVoiceover,
-			// The original server leaves this clear so the client presents
-			// the voice cue and its HELIX portrait for the current squad.
+			// Initialization is silent. Build 103's 0x536DA0 gates both the
+			// objective popup and voice playback on this flag; it cannot be
+			// used for a mission introduction without announcing the timer.
 			IsShown: false,
 			Token:   publication.Update.Token,
 		},
@@ -5024,19 +5015,8 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignRemnants: %w", err)
 	}
 	response = append(response, remnantPackets...)
-	// Initialize objectives now, but defer HELIX until after setup commits and
-	// the arrival window ends. Packet order alone still delivers this on frame 1.
-	r.registry.mutex.Lock()
-	voiceSession, isVoiceSessionFound := r.registry.sessions[packet.Address.String()]
-	if isVoiceSessionFound && voiceSession.generation == peerSession.generation {
-		voiceSession.missionVoiceID = zonepreview.CampaignMissionVoice(peerSession.binding.Level)
-		voiceSession.missionVoiceReadyAt = time.Time{}
-		r.registry.sessions[packet.Address.String()] = voiceSession
-	}
-	r.registry.mutex.Unlock()
 	objectiveMessages, err := campaignObjectiveMessages(
 		peerSession.zone.Objective().State(), uint8(peerSession.binding.Slot),
-		0,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("pingCampaignObjective: %w", err)

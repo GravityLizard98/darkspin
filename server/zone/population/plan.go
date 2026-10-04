@@ -72,6 +72,13 @@ func (s *Session) planSpawns(
 	nextObjectID := firstObjectID
 	for _, decision := range decisions {
 		firstDecisionPlanIndex := len(plans)
+		sectionMinions := minionEntries
+		for _, roster := range s.sectionRosters {
+			if roster.Section == decision.Section {
+				sectionMinions = roster.Minions
+				break
+			}
+		}
 		if len(decision.ProvisionalNounNames) > 0 {
 			if len(decision.ProvisionalNounNames) > int(zoneobject.ProjectileIDStart-nextObjectID) {
 				return nil, firstObjectID, errors.New("spawnAuthoredID: exhausted")
@@ -117,7 +124,7 @@ func (s *Session) planSpawns(
 		positions := GroupPositions(decision.Positions, count)
 		for index := 0; index < count; index++ {
 			isCaptain := index < captainCount
-			entries := minionEntries
+			entries := sectionMinions
 			if isCaptain {
 				entries = captainEntries
 			}

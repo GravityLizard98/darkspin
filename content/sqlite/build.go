@@ -20,7 +20,7 @@ import (
 const (
 	SourceVersion  = "5.3.0.103"
 	SourceBuild    = 103
-	RecipeVersion  = 89
+	RecipeVersion  = 90
 	ContentRelease = "build-103-content"
 	RuntimeRole    = "runtime-content"
 )
@@ -1806,6 +1806,7 @@ func writeContentDatabase(
 			primary_type INTEGER NOT NULL,
 			secondary_type INTEGER NOT NULL,
 			tertiary_type INTEGER NOT NULL,
+			quaternary_type INTEGER NOT NULL,
 			camera_pitch REAL,
 			camera_yaw REAL,
 			camera_distance REAL,
