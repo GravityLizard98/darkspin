@@ -457,15 +457,22 @@ func (o *enemyDeathOutbox) ApplyPositionedEffect(
 	if intent.EffectName == "" {
 		return errors.New("positioned effect empty")
 	}
-	packet, err := raknet.MarshalApplication(raknet.PositionedEffectMessage{
-		Asset: util.HashID(intent.EffectName),
-		Position: raknet.Vector3{
-			X: intent.Position.X, Y: intent.Position.Y, Z: intent.Position.Z,
-		},
+	position := raknet.Vector3{
+		X: intent.Position.X, Y: intent.Position.Y, Z: intent.Position.Z,
+	}
+	var message raknet.ApplicationMessage = raknet.PositionedEffectMessage{
+		Asset:    util.HashID(intent.EffectName),
+		Position: position,
 		Facing: raknet.Vector3{
 			X: intent.Facing.X, Y: intent.Facing.Y, Z: intent.Facing.Z,
 		},
-	})
+	}
+	if intent.IsFacingOmitted {
+		message = raknet.DropPresentationMessage{
+			Asset: util.HashID(intent.EffectName), Position: position,
+		}
+	}
+	packet, err := raknet.MarshalApplication(message)
 	if err != nil {
 		return fmt.Errorf("positionedEffectMarshal: %w", err)
 	}

@@ -596,6 +596,7 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	snapshot.ScriptUses = append(
 		[]game.CampaignScriptUse(nil), snapshot.ScriptUses...,
 	)
+	snapshot.TriggerProgresses = append([]game.CampaignTriggerProgress(nil), snapshot.TriggerProgresses...)
 	snapshot.ClearedSpawnGroupIDs = append(
 		[]uint32(nil), snapshot.ClearedSpawnGroupIDs...,
 	)

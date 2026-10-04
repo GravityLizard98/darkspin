@@ -34,7 +34,7 @@ func (e gameplayPendingRuntime) pollTeleporters(packet raknet.Packet) ([][]byte,
 	publications := make([]game.CampaignDirectorPublication, 0)
 	if err == nil && isTeleported && peerSession.binding.Mode == game.ModeChain {
 		arrival := game.Vec3(peerSession.playerPosition)
-		arrivals, advanceErr := peerSession.zone.AdvanceDirector(arrival, arrival)
+		arrivals, advanceErr := e.registry.advanceCampaignTriggersLocked(peerSession, arrival, arrival, now)
 		if advanceErr != nil {
 			if e.logger != nil {
 				e.logger.Printf("RakNet teleporter arrival trigger deferred for %s: %v", packet.Address, advanceErr)

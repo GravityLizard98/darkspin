@@ -434,13 +434,15 @@ func (s *DirectorSource) LoadCampaignDirector(
 			})
 		}
 		for _, marker := range markerSet.Markers {
+			nounStem := strings.TrimSuffix(strings.ToLower(marker.NounName), ".noun")
 			mappedMarker := game.CampaignDirectorMarker{
-				NounType:      result.NounTypeForAsset(marker.NounName),
-				SpawnTrigger:  campaignSpawnTrigger(marker.SpawnTrigger),
-				EventListener: campaignEventListener(marker.EventListener),
-				Interactable:  campaignInteractable(marker.Interactable),
-				Combatant:     campaignCombatant(marker.Combatant),
-				Ordinal:       marker.Ordinal, MarkerID: marker.MarkerID, MarkerSetName: markerSet.Name,
+				NounType:         result.NounTypeForAsset(marker.NounName),
+				SpawnTrigger:     campaignSpawnTrigger(marker.SpawnTrigger),
+				EventListener:    campaignEventListener(marker.EventListener),
+				Interactable:     campaignInteractable(marker.Interactable),
+				NounInteractable: nounInteractablesByID[util.HashID(nounStem)],
+				Combatant:        campaignCombatant(marker.Combatant),
+				Ordinal:          marker.Ordinal, MarkerID: marker.MarkerID, MarkerSetName: markerSet.Name,
 				Name:     marker.Name,
 				NounName: marker.NounName, SpawnKind: marker.SpawnKind, PoolKind: marker.PoolKind,
 				IsSpawnKindKnown:    marker.IsSpawnKindKnown,
@@ -505,6 +507,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 		}
 		for _, trigger := range markerSet.Triggers {
 			mappedTrigger := game.CampaignDirectorTrigger{
+				Rotation:        game.Vec3{X: trigger.RotationX, Y: trigger.RotationY, Z: trigger.RotationZ},
 				SpawnTrigger:    campaignSpawnTrigger(trigger.SpawnTrigger),
 				EventListener:   campaignEventListener(trigger.EventListener),
 				Interactable:    campaignInteractable(trigger.Interactable),
@@ -530,9 +533,10 @@ func (s *DirectorSource) LoadCampaignDirector(
 		result.MarkerSets = append(result.MarkerSets, mapped)
 	}
 	for _, script := range director.Scripts {
+		nounStem := strings.TrimSuffix(strings.ToLower(script.NounName), ".noun")
 		result.Scripts = append(result.Scripts, game.CampaignScriptBinding{
 			Interactable:     campaignInteractable(script.Interactable),
-			NounInteractable: nounInteractablesByID[util.HashID(script.NounName)],
+			NounInteractable: nounInteractablesByID[util.HashID(nounStem)],
 			MarkerSetOrdinal: script.MarkerSetOrdinal, MarkerSetName: script.MarkerSetName,
 			MarkerSetWeight: script.MarkerSetWeight, MarkerOrdinal: script.MarkerOrdinal,
 			MarkerID: script.MarkerID, MarkerName: script.MarkerName, NounName: script.NounName,

@@ -89,6 +89,9 @@ type LevelDirectorMarker struct {
 // director marker set. Its callback remains metadata until server policy owns
 // the corresponding event publication.
 type LevelDirectorTrigger struct {
+	RotationX         float32
+	RotationY         float32
+	RotationZ         float32
 	ExclusionRadius   float32
 	IsExclusionVolume bool
 	Ordinal           int
@@ -327,6 +330,9 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		JOIN marker ON marker.level_marker_set_id=level_marker_set.id
 		WHERE level_marker_set.level_id=?
 		  AND (marker.event_listener_definition IS NOT NULL
+		       OR marker.interactable_definition IS NOT NULL
+		       OR marker.noun_name COLLATE NOCASE IN (
+		           'prefab_boss_obelisk.Noun', 'boss_obelisk.Noun', 'prefab_health_obelisk.Noun')
 		       OR marker.spawn_trigger_definition IS NOT NULL
 		       OR marker.noun_name LIKE 'SpawnPoint_Director%.Noun' COLLATE NOCASE
 		       OR marker.exclusion_radius IS NOT NULL
@@ -553,6 +559,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 			continue
 		}
 		trigger := LevelDirectorTrigger{
+			RotationX: marker.RotationX, RotationY: marker.RotationY, RotationZ: marker.RotationZ,
 			Ordinal: marker.Ordinal, MarkerID: marker.MarkerID, Name: marker.Name,
 			NounName: marker.NounName, PositionX: marker.PositionX,
 			PositionY: marker.PositionY, PositionZ: marker.PositionZ,
@@ -715,9 +722,9 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 	if closeErr != nil {
 		return LevelDirector{}, fmt.Errorf("directorScriptClose: %w", closeErr)
 	}
-	// Placement loading above intentionally filters out scenery and script-only
-	// markers. Layout selection still needs every authored set, including sets
-	// containing obelisks and empty alternatives, to preserve native random draws.
+	// Placement loading above intentionally filters out unrelated scenery.
+	// Layout selection still needs every authored set, including empty
+	// alternatives, to preserve native random draws.
 	loadedSetIndexes := make(map[int]int, len(director.MarkerSets))
 	for index, markerSet := range director.MarkerSets {
 		loadedSetIndexes[markerSet.Ordinal] = index

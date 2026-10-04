@@ -206,6 +206,10 @@ type zoneNPCDeathDefinition struct {
 func destructibleDeathPresentation(
 	snapshot zonenpc.Snapshot, physics zoneNounPhysics,
 ) (string, time.Duration) {
+	if zonenpc.IsCryosGeyser(snapshot.Plan) {
+		// CryosGeyserDeath retains the unblocked vent; no debris explosion.
+		return "", time.Millisecond
+	}
 	if strings.EqualFold(snapshot.Plan.NounName, game.CryosFungusNoun) {
 		// The dead graphics state and poison-stalk particle own this transition.
 		return "", 8 * time.Second
@@ -222,11 +226,12 @@ func destructibleDeathPresentation(
 		// for deletion; it is not an ordinary exploding scenery fixture.
 		return "gravity_orb_fizzle.ServerEventDef", time.Millisecond
 	}
-	if strings.EqualFold(snapshot.Plan.NounName, nocturnaSupernaturalPlantNounName) ||
-		strings.EqualFold(snapshot.Plan.NounName, nocturnaPrefabSupernaturalPlantNounName) {
-		// These nouns own their purple smoke and spectral-ring transition in
-		// the authored dead graphics state. A generic debris explosion masks it.
-		return "", destructibleLargeDeleteDelay
+	plantEffectName := nocturnaPlantDeathEffect(snapshot.Plan.NounName)
+	if plantEffectName != "" {
+		return plantEffectName, nocturnaPlantDeleteDelay
+	}
+	if isToxicactus(snapshot.Plan.NounName) {
+		return toxicactusDeathEffect, toxicactusDeleteDelay
 	}
 	if zonenpc.IsVerdanthTotem(snapshot.Plan) {
 		// HeadstatueDeath emits the authored destruction event before leaving
@@ -322,6 +327,17 @@ func campaignNPCDeathDefinition(
 	isNightmareVine := strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName)
 	isGraviticRemnant := zonenpc.IsGraviticRemnant(snapshot.Plan)
 	isVerdanthTotem := zonenpc.IsVerdanthTotem(snapshot.Plan)
+	isCryosGeyser := zonenpc.IsCryosGeyser(snapshot.Plan)
+	if isCryosGeyser {
+		graphicsState = util.HashID("unblocked")
+	}
+	isNocturnaPlant := isFixture && nocturnaPlantDeathEffect(snapshot.Plan.NounName) != ""
+	isToxicactusPlant := isFixture && isToxicactus(snapshot.Plan.NounName)
+	if isNocturnaPlant || isToxicactusPlant {
+		// The dedicated burst owns presentation; these authored death scripts
+		// do not request a dead graphics state or creature death animation.
+		graphicsState = 0
+	}
 	isIllusion := snapshot.Plan.OwnerObjectID != 0 && zonenpc.IsNashiraNoun(snapshot.Plan.NounName)
 	if isIllusion {
 		// Duplicates dissolve; only the real boss owns the long death scene.
@@ -363,10 +379,10 @@ func campaignNPCDeathDefinition(
 		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
 		isFixture:           isFixture,
 		isBoss:              snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem,
+		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser,
 		isCollisionRetained: isGraviticRemnant,
 		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRemnant ||
-			isVerdanthTotem,
+			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant,
 		ordinaryDeathAnimation: ordinaryDeathAnimation,
 		corpseFadeDelay:        deathPresentation.PresentationDuration,
 		graphicsState:          graphicsState,

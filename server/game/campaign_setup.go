@@ -117,6 +117,7 @@ type CampaignDirectorEvent struct {
 type CampaignDirectorMarker struct {
 	NounType                NounType
 	Interactable            *CampaignInteractableDefinition
+	NounInteractable        *CampaignInteractableDefinition
 	Combatant               *CampaignCombatantDefinition
 	SpawnTrigger            *CampaignSpawnTriggerDefinition
 	EventListener           *CampaignEventListenerDefinition
@@ -168,6 +169,7 @@ type CampaignHordeBarrierSet struct {
 // CampaignDirectorTrigger is one authored player-entry trigger carried as
 // immutable setup metadata. It does not publish its named event by itself.
 type CampaignDirectorTrigger struct {
+	Rotation          Vec3
 	Interactable      *CampaignInteractableDefinition
 	Combatant         *CampaignCombatantDefinition
 	SpawnTrigger      *CampaignSpawnTriggerDefinition
@@ -674,7 +676,7 @@ func (d CampaignDirector) InitialChainFirstClearInteractables() ([]CampaignScrip
 // CampaignInteractables uses the selected layout when available. Legacy
 // callers retain an independently weighted interactable variant for a match.
 func (d CampaignDirector) CampaignInteractables(matchID uint32) ([]CampaignScriptObject, error) {
-	objects, err := d.ScriptObjects()
+	objects, err := d.obeliskObjects()
 	if err != nil {
 		return nil, fmt.Errorf("interactableObjects: %w", err)
 	}

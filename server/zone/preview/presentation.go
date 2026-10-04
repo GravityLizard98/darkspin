@@ -14,17 +14,20 @@ type campaignScene struct {
 	voiceName       string
 }
 
+// AssetData_Binary 0xa8a25294:0:0x304f6f19 stores 72-byte records
+// after a 12-byte header. The voice hash at record+56 belongs to that
+// record's level, not the following level in the serialized string pool.
 var campaignScenes = []campaignScene{
 	{chainLevelIndex: 1, movieName: "cam_fmv_02_zelems"},
 	{chainLevelIndex: 3, movieName: "cam_fmv_03_nocturna"},
 	{chainLevelIndex: 5, movieName: "cam_fmv_04_verdanth"},
 	{chainLevelIndex: 7, voiceName: "vo_ship_flow_reinfect_zelems"},
 	{chainLevelIndex: 9, movieName: "cam_fmv_05_cryos"},
-	{chainLevelIndex: 12, voiceName: "vo_ship_flow_reinfect_verdanth"},
+	{chainLevelIndex: 11, voiceName: "vo_ship_flow_reinfect_verdanth"},
 	{chainLevelIndex: 13, movieName: "cam_fmv_06_infinity"},
-	{chainLevelIndex: 16, voiceName: "vo_ship_flow_reinfect_cryos"},
-	{chainLevelIndex: 18, voiceName: "vo_ship_flow_reinfect_nocturna"},
-	{chainLevelIndex: 20, voiceName: "vo_ship_flow_reinfect_infinity"},
+	{chainLevelIndex: 15, voiceName: "vo_ship_flow_reinfect_cryos"},
+	{chainLevelIndex: 17, voiceName: "vo_ship_flow_reinfect_nocturna"},
+	{chainLevelIndex: 19, voiceName: "vo_ship_flow_reinfect_infinity"},
 	{chainLevelIndex: 21, movieName: "cam_fmv_07_scaldron"},
 }
 
@@ -60,7 +63,7 @@ func CampaignPresentation(
 	return presentation
 }
 
-// CampaignEntryPresentation selects only a movie authored on the level being
+// CampaignEntryPresentation selects only a scene or voice authored on the level being
 // entered for the first time. The result transition owns any following scene;
 // entry must not pull that scene backward or invent a cue for a silent level.
 func CampaignEntryPresentation(

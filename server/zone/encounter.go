@@ -517,6 +517,19 @@ func (e *Zone) PlanBossNearPosition(
 	if !isAvailable || objectID == nil {
 		return NamedBossPlan{}, false, nil
 	}
+	for _, markerSet := range directorDefinition.MarkerSets {
+		for _, trigger := range markerSet.Triggers {
+			if trigger.SpawnTrigger == nil || trigger.SpawnTrigger.TriggerVolume == nil {
+				continue
+			}
+			for _, event := range trigger.Events {
+				if zoneboss.IsNamedCallback(event.CallbackName) && event.TriggerRadius > 0 {
+					// Proximity recovery must not bypass authored party/dwell gates.
+					return NamedBossPlan{}, false, nil
+				}
+			}
+		}
+	}
 	bossIdentity, err := zoneboss.DeveloperPublicationNearPosition(
 		directorDefinition, position, zoneboss.NamedBossArenaRadius,
 	)

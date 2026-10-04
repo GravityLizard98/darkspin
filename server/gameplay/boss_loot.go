@@ -3,7 +3,7 @@ package gameplay
 import (
 	"errors"
 	"fmt"
-	"math"
+	"log"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
@@ -16,8 +16,6 @@ import (
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
-const destructorEquipmentCount = 6
-
 func isCampaignDestructorLoot(plan zonenpc.SpawnPlan) bool {
 	return plan.OwnerObjectID == 0 && zoneboss.IsFinalBossNoun(plan.NounName)
 }
@@ -29,7 +27,7 @@ type destructorEquipmentDrop struct {
 }
 
 // Prepare the whole burst before publishing it; the caller owns the shared
-// NPC reservation, so every participant sees the same six world pickups.
+// NPC reservation, so every participant sees the same world pickups.
 func (e *gameplayPeerSession) spawnDestructorEquipment(
 	enemy zonenpc.Snapshot, gameplayJoin *game.GameplayJoin, sourceTime uint64,
 ) ([][]byte, uint32, error) {
@@ -40,13 +38,39 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 	if len(subjects) == 0 {
 		return nil, 0, errors.New("destructor loot roster unavailable")
 	}
-	source := sim.Position(enemy.Plan.Position)
-	radius := max(float32(3), enemy.Plan.NPCProfile.FootprintRadius+1)
+	source := e.destructorDropCenter(enemy)
+	placement, err := zoneloot.NewPlacement(source, enemy.Plan.NPCProfile.FootprintRadius, e.zone.DropRandom())
+	if err != nil {
+		return nil, 0, fmt.Errorf("bossPlacement: %w", err)
+	}
+	participantCount := e.campaignLootParticipantCount()
+	challenge, npcType := campaignNPCLootSource(enemy.Plan, 500)
+	if challenge <= 0 {
+		return nil, 0, nil
+	}
+	attemptCount, err := zoneloot.EquipmentAttempts(npcType, participantCount, e.zone.DropRandom())
+	if err != nil {
+		return nil, 0, fmt.Errorf("bossAttempts: %w", err)
+	}
+	threshold, err := sim.EquipmentDropThreshold(int(participantCount), challenge, 0.45,
+		1+e.campaignPartAttribute(campaignLootFindAttribute))
+	if err != nil {
+		return nil, 0, fmt.Errorf("bossThreshold: %w", err)
+	}
 	slotBag := game.CampaignPartSlotBag{}
+	// Retain the existing server reward-quality policy; native boss flags
+	// establish an item-level bonus, not these special rarity weights.
 	rarityBag := game.CampaignPartRarityBag{IsDestructorReward: true}
-	drops := make([]destructorEquipmentDrop, 0, destructorEquipmentCount)
+	drops := make([]destructorEquipmentDrop, 0, attemptCount)
 	packets := make([][]byte, 0)
-	for index := 0; index < destructorEquipmentCount; index++ {
+	for index := uint32(0); index < attemptCount; index++ {
+		if e.zone.DropRandom().Float64() >= float64(threshold) {
+			continue
+		}
+		destination, placementErr := placement.Next(destructorDropProjector{mesh: e.zone.Navigation()})
+		if placementErr != nil {
+			return nil, 0, fmt.Errorf("bossDestination[%d]: %w", index, placementErr)
+		}
 		choice := e.zone.DropRandom().Uint32()
 		subject := subjects[choice%uint32(len(subjects))]
 		part, err := gameplayJoin.GenerateCampaignPartFromBag(
@@ -63,11 +87,6 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 		if err != nil {
 			return nil, 0, fmt.Errorf("bossObject[%d]: %w", index, err)
 		}
-		angle := 2 * math.Pi * float64(index) / destructorEquipmentCount
-		destination := e.destructorDropDestination(source, sim.Position{
-			X: source.X + radius*float32(math.Cos(angle)),
-			Y: source.Y + radius*float32(math.Sin(angle)), Z: source.Z,
-		})
 		plan, err := zoneloot.PlanEquipment(zoneloot.EquipmentPlanInput{
 			ObjectID: objectID, Rarity: zoneloot.Rarity(part.Rarity),
 			PresentationPolicy: zoneloot.EquipmentUniqueRewardGroundDrop,
@@ -105,6 +124,12 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 			return nil, 0, fmt.Errorf("bossTrack[%d]: %w", index, err)
 		}
 	}
+	log.Printf("Campaign destructor equipment prepared actor=%d noun=%q participants=%d challenge=%d attempts=%d threshold=%g pickups=%d navigation=%t",
+		enemy.Plan.ObjectID, enemy.Plan.NounName, participantCount, challenge, attemptCount,
+		threshold, len(drops), e.zone.Navigation() != nil)
+	if len(drops) == 0 {
+		return packets, 0, nil
+	}
 	return packets, drops[0].pickup.ObjectID, nil
 }
 
@@ -115,26 +140,41 @@ func (e *gameplayPeerSession) removeDestructorDrops(drops []destructorEquipmentD
 	}
 }
 
-func (e *gameplayPeerSession) destructorDropDestination(source sim.Position, destination sim.Position) sim.Position {
+type destructorDropProjector struct {
+	mesh *navigation.Mesh
+}
+
+func (e *gameplayPeerSession) destructorDropCenter(enemy zonenpc.Snapshot) sim.Position {
+	source := sim.Position(enemy.Plan.Position)
 	nav := e.zone.Navigation()
 	if nav == nil {
-		return destination
-	}
-	layer, isLayerFound := nav.SelectLayerForMode(campaignSecurityBlitzFootprintFallback, uint8(e.binding.Mode))
-	if !isLayerFound {
 		return source
 	}
-	options := navigation.ProjectionOptions{PlanLayer: layer, MaxDistance: zonenavigation.ProjectionDistance}
-	playerProjection, err := nav.Project(navigation.Vec3(e.playerPosition), options)
-	if err != nil {
-		return source
+	layer := uint8(0)
+	if enemy.Navigation.IsPresent {
+		layer = enemy.Navigation.PlanLayer
 	}
-	options.ComponentID = playerProjection.ComponentID
-	options.IsComponentConstrained = true
-	options.MaxDistance = 6
-	projection, err := nav.Project(navigation.Vec3(destination), options)
+	projection, err := nav.Project(navigation.Vec3(source), navigation.ProjectionOptions{
+		PlanLayer: layer, MaxDistance: zonenavigation.ProjectionDistance,
+	})
 	if err != nil {
+		// Native ignores this projection's status; retain the known source
+		// rather than use an uninitialized center when projection is unavailable.
 		return source
 	}
 	return sim.Position(projection.Position)
+}
+
+func (e destructorDropProjector) ProjectDropPosition(destination sim.Position) (sim.Position, bool) {
+	layer, isLayerFound := e.mesh.SelectDropLayer()
+	if !isLayerFound {
+		return sim.Position{}, false
+	}
+	options := navigation.ProjectionOptions{PlanLayer: layer, MaxDistance: zonenavigation.ProjectionDistance}
+	projection, err := e.mesh.Project(navigation.Vec3(destination), options)
+	if err != nil {
+		// Failed projection consumes this candidate; the sampler tries another.
+		return sim.Position{}, false
+	}
+	return sim.Position(projection.Position), true
 }

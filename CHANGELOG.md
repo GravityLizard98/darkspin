@@ -2,6 +2,15 @@
 
 ### 2026-10-04
 
+- Restore Toxicactus's authored destruction event and 0.2-second removal timing instead of the generic scenery explosion.
+- Correct HELIX return-to-planet narration from one-mission-late assignments to the authored campaign stages, and select the next mission's narration on the post-mission screen.
+- Change Destructor equipment drops from six fixed points to client-derived party-scaled attempts and shuffled expanding rings with navigation checks, retaining authored catalyst eligibility.
+- Advance unanswered post-mission Continue/Rewards countdowns to rewards for the party when time expires, preserving the remaining time across repeated voting-screen requests.
+- Restore Plasmatic Seed's plasma explosion and Necrotic Plant's bursting effect from their authored death scripts, replacing the machinery explosion and missing burst with correctly positioned effects and deletion timing.
+- Correct Cryos geysers from disappearing ice debris to persistent opened vents that erupt after being broken, with owner-bound warning audio, authored burst orientation and restored vents on reconnect.
+- Restore loot and health obelisks across campaign maps from authored component placements, preserving seeded variants, use limits and noun-inherited reward budgets without requiring nonexistent event-script bindings.
+- Change campaign horde and boss activation from immediate radius checks to authored trigger shapes, party-entry requirements and wait times, preserving unfinished persistent waits across checkpoints and preventing early boss fallback activation.
+
 - Stop spurious "Objective 00:02" arrival notifications by removing the forced HELIX introduction that incorrectly announced the mission timer.
 - Restore Herbipod detection from the shortened 5/7/9-unit aggro ranges to their authored 19/20/21-unit perception ranges, consistently across visibility, acquisition, and retargeting.
 - Correct campaign enemy composition from shifted science fields and fixed map rosters to the client's authored auxiliary science fields and per-section enemy choices.

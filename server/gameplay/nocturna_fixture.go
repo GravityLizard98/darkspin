@@ -19,6 +19,22 @@ const nightmareRootDamageInterval = time.Second
 const nightmareRootDamageRadius = float32(4)
 const nightmareRootDamage = float32(4)
 
+// Both Nocturna egg death scripts emit their world-positioned burst, wait
+// chainingDelay=0.2 seconds, then delete the original plant object.
+const nocturnaPlantDeleteDelay = 200 * time.Millisecond
+
+func nocturnaPlantDeathEffect(nounName string) string {
+	switch {
+	case strings.EqualFold(nounName, nocturnaExplosivePlantNounName):
+		return "nocturna_alien_egg_plasma_explosion.ServerEventDef"
+	case strings.EqualFold(nounName, nocturnaSupernaturalPlantNounName),
+		strings.EqualFold(nounName, nocturnaPrefabSupernaturalPlantNounName):
+		return "nocturna_alien_egg_necro_explosion.ServerEventDef"
+	default:
+		return ""
+	}
+}
+
 func isNocturnaTerrorFixture(nounName string) bool {
 	switch {
 	case strings.EqualFold(nounName, nightmareVineNounName),

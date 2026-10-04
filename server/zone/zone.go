@@ -568,6 +568,16 @@ func (e *Zone) Disconnect(
 	}
 	member.IsConnected = false
 	e.members[userID] = member
+	isAnyConnected := false
+	for _, participant := range e.members {
+		if participant.IsConnected {
+			isAnyConnected = true
+			break
+		}
+	}
+	if !isAnyConnected && e.info.Director != nil {
+		e.info.Director.SuspendTriggers()
+	}
 	removedObjectIDs := make([]uint32, 0, squad.Size)
 	for creatureIndex := uint32(0); creatureIndex < squad.Size; creatureIndex++ {
 		removedObjectIDs = append(removedObjectIDs, zonehero.ObjectID(member.Slot, creatureIndex))
@@ -690,6 +700,16 @@ func (e *Zone) Leave(userID uint64, peerGeneration uint64) bool {
 		return false
 	}
 	delete(e.members, userID)
+	isAnyConnected := false
+	for _, participant := range e.members {
+		if participant.IsConnected {
+			isAnyConnected = true
+			break
+		}
+	}
+	if !isAnyConnected && e.info.Director != nil {
+		e.info.Director.SuspendTriggers()
+	}
 	e.forfeitMissionEquipment(userID)
 	delete(e.crystals, userID)
 	delete(e.missionEquipments, userID)
@@ -2075,6 +2095,10 @@ func (e *Zone) restoreCheckpoint(snapshot zonecheckpoint.Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("checkpointHorde: %w", err)
 	}
+	err = e.info.Director.RestoreTriggerProgress(snapshot.TriggerProgresses)
+	if err != nil {
+		return fmt.Errorf("checkpointTrigger: %w", err)
+	}
 	if snapshot.Elapsed > 0 {
 		e.startedAt = time.Now().Add(-snapshot.Elapsed)
 	}
@@ -2287,12 +2311,14 @@ func (e *Zone) SaveCheckpoint(reason zonecheckpoint.Reason) {
 	scriptUses := e.info.Script.SnapshotUses()
 	security := e.info.Security.Snapshot()
 	hordes := e.info.Horde.Snapshots()
+	triggerProgresses := e.info.Director.TriggerProgress()
 	snapshot := zonecheckpoint.Snapshot{
 		Version: zonecheckpoint.Version, ZoneID: zoneID, RunSeed: runSeed,
 		ZoneGeneration: generation, CompletionID: e.CompletionID(),
 		Level: level, Difficulty: difficulty, Reason: reason,
 		SavedAt: now, Elapsed: elapsed, Members: members, Heroes: heroes,
 		Squads: squads, NPCs: npcs, Hordes: hordes, Crystals: crystals,
+		TriggerProgresses: triggerProgresses,
 		ExperienceAwards:  experienceAwards,
 		MissionEquipments: missionEquipments,
 		Security:          security, Objectives: objectives, ScriptUses: scriptUses,

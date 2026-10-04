@@ -75,6 +75,10 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	if e.zone.Boss() == nil || !e.zone.Boss().IsDormant() {
 		return nil
 	}
+	err := e.zone.CanAcceptPublication(e.publication)
+	if err != nil {
+		return fmt.Errorf("bossTriggerPending: %w", err)
+	}
 	encounter, err := e.zone.PlanBossFromTrigger(
 		e.publication, peerSession.binding.GameID,
 		peerSession.binding.ChainLevelIndex,
@@ -172,6 +176,9 @@ func (e campaignNamedBossTriggerStep) isEligibleSession(
 		peerSession.deployedObjectID == 0 || peerSession.deployedHitPoint() <= 0 {
 		return false
 	}
+	if e.publication.IsDwellComplete {
+		return true
+	}
 	position := game.Vec3(peerSession.playerPosition)
 	deltaX := position.X - e.center.X
 	deltaY := position.Y - e.center.Y
@@ -207,6 +214,10 @@ func (r campaignEncounterRuntime) scheduleNamedBossTriggers(
 			BossTriggerActivation(publication)
 		if err != nil {
 			return fmt.Errorf("bossTriggerActivation: %w", err)
+		}
+		if publication.IsDwellComplete {
+			// The shared zone trigger already completed authored dwell.
+			delay = 0
 		}
 		key := fmt.Sprintf("named-boss:%d:%d", publication.TriggerMarkerID, publication.EventOrdinal)
 		if isNamedBossTriggerScheduled(commandSession.zone, key) {

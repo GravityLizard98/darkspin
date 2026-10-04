@@ -13,9 +13,14 @@ import (
 func Remnants(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 	packets := make([][]byte, 0)
 	for _, snapshot := range snapshots {
+		isGeyser := zonenpc.IsCryosGeyser(snapshot.Plan)
 		if !snapshot.IsPublished || !snapshot.IsDefeated ||
-			!zonenpc.IsGraviticRemnant(snapshot.Plan) {
+			(!zonenpc.IsGraviticRemnant(snapshot.Plan) && !isGeyser) {
 			continue
+		}
+		graphicsState := util.HashID("dead")
+		if isGeyser {
+			graphicsState = util.HashID("unblocked")
 		}
 		spawnPackets, err := spawn(snapshot.FacingSpawnPlan(), true)
 		if err != nil {
@@ -30,10 +35,10 @@ func Remnants(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 				ObjectID: snapshot.Plan.ObjectID, IsTargetable: false,
 			},
 			raknet.SetObjectGFXStateMessage{
-				ObjectID: snapshot.Plan.ObjectID, State: util.HashID("dead"),
+				ObjectID: snapshot.Plan.ObjectID, State: graphicsState,
 			},
 			raknet.ObjectCollisionUpdateMessage{
-				ObjectID: snapshot.Plan.ObjectID, IsCollisionEnabled: true,
+				ObjectID: snapshot.Plan.ObjectID, IsCollisionEnabled: !isGeyser,
 			},
 		}
 		for index, message := range messages {

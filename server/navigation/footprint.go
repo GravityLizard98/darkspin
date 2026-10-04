@@ -9,6 +9,18 @@ type ActorNavigation struct {
 	IsPresent bool
 }
 
+// SelectDropLayer follows sub_9EDCD0: the penultimate authored tuning row,
+// or the only row when there is just one. Pickup projection is not actor-sized.
+func (e *Mesh) SelectDropLayer() (uint8, bool) {
+	if e == nil || len(e.tunings) == 0 {
+		return 0, false
+	}
+	index := max(0, len(e.tunings)-2)
+	layer := e.tunings[index].Ordinal
+	layerInfo, isFound := e.LayerInfo(layer)
+	return layer, isFound && layerInfo.PlanLayer == layer
+}
+
 // SelectFootprintLayer keeps the radius-only contract explicit at callers.
 // SelectLayer owns layer ordering and the tuning-table selection policy.
 func (e *Mesh) SelectFootprintLayer(radius float32, modes ...uint8) (uint8, bool) {

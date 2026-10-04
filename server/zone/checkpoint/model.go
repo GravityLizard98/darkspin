@@ -86,6 +86,7 @@ type Snapshot struct {
 	Squads               []Squad
 	NPCs                 []NPC
 	Hordes               []zonehorde.Snapshot
+	TriggerProgresses    []game.CampaignTriggerProgress
 	Crystals             []Crystal
 	ExperienceAwards     []ExperienceAward
 	MissionEquipments    []zoneloot.EquipmentInventory

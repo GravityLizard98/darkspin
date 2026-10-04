@@ -92,6 +92,11 @@ func (s *gameplayPeerSession) spawnCampaignNPCEquipment(
 	if !zoneloot.IsEquipmentEmissionAllowed(
 		dropMask, s.zone.DirectorDefinition().IsEquipmentDropEnabled,
 	) {
+		if isCampaignDestructorLoot(enemy.Plan) {
+			log.Printf("Campaign destructor equipment blocked actor=%d noun=%q mask=%#x equipment_enabled=%t",
+				enemy.Plan.ObjectID, enemy.Plan.NounName, dropMask,
+				s.zone.DirectorDefinition().IsEquipmentDropEnabled)
+		}
 		return nil, 0, nil
 	}
 	challenge, npcType := campaignNPCLootSource(enemy.Plan, campaignNPCEquipmentSourceAmount)

@@ -11,6 +11,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/sporenet"
 	"github.com/darkspinnet/darkspin/server/util"
 	effectraknet "github.com/darkspinnet/darkspin/server/zone/effect/raknet103"
+	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
 const cryosLavaRadius = float32(2.75)
@@ -204,9 +205,9 @@ func (s *gameplayPeerSession) cryosGeyserSourceObjectID(markerID uint32) (uint32
 		return 0, false
 	}
 	for _, fixture := range s.zone.NPCs().Snapshots() {
-		if fixture.Plan.LocusID == markerID &&
-			strings.EqualFold(fixture.Plan.NounName, "DEST_prefab_cryos_ice_crack1.Noun") {
-			return fixture.Plan.ObjectID, !fixture.IsDefeated
+		if fixture.Plan.LocusID == markerID && zonenpc.IsCryosGeyser(fixture.Plan) {
+			// The passive starts in CryosGeyserDeath, after the ice is opened.
+			return fixture.Plan.ObjectID, fixture.IsPublished && fixture.IsDefeated
 		}
 	}
 	return 0, false
@@ -255,12 +256,16 @@ func (s *gameplayPeerSession) campaignLavaPresentation(
 		s.cryosGeyserSpouts[hazard.sourceObjectID] = hazard.cycle
 	}
 	position := raknet.Vector3(hazard.position)
-	facing := raknet.Vector3{Z: 1}
-	message := raknet.ServerEventContractMessage{Position: &position, Facing: &facing}
+	message := raknet.ServerEventContractMessage{}
 	if hazard.phase == campaignLavaPhaseSpout {
+		// The shipped passive emits a world-position swarm with no facing.
 		message.SimpleSwarmEffectID = &assetID
+		message.Position = &position
 	} else {
+		// Its warning event resolves presentation/audio through the vent owner.
+		// A position-only event loses that attachment and spatial sound context.
 		message.Asset = &assetID
+		message.ObjectID = &hazard.sourceObjectID
 	}
 	packet, err := raknet.MarshalApplication(message)
 	if err != nil {

@@ -51,6 +51,17 @@ func VotingTransition() ([]byte, error) {
 }
 
 func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
+	packet, err := VoteWithCountdown(snapshot, float32(zoneresult.VoteDuration.Seconds()))
+	if err != nil {
+		return nil, fmt.Errorf("voteCountdown: %w", err)
+	}
+	return packet, nil
+}
+
+func VoteWithCountdown(snapshot zoneresult.Snapshot, seconds float32) ([]byte, error) {
+	if seconds <= 0 || math.IsNaN(float64(seconds)) || math.IsInf(float64(seconds), 0) {
+		return nil, errors.New("vote countdown invalid")
+	}
 	if snapshot.ResultID == 0 || snapshot.Level == "" ||
 		snapshot.CompletedIndex == 0 || snapshot.NextLevel == "" ||
 		snapshot.Phase != zoneresult.ChainVoting ||
@@ -68,6 +79,10 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 	presentation := zonepreview.CampaignPresentation(
 		snapshot.CompletedIndex, true,
 	)
+	// Build 103 sub_448F70 plays record+0x45 when progression equals
+	// record+4 minus one. Narration therefore introduces the offered level;
+	// using the completed level repeats its introduction one mission late.
+	nextPresentation := zonepreview.CampaignPresentation(nextDifficulty, false)
 	currentVoice := presentation.CurrentVoice
 	if currentVoice == 0 {
 		currentVoice = presentation.CurrentMovie
@@ -78,7 +93,7 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 		// CurrentLevel.
 		CurrentLevel:       util.HashID(snapshot.NextLevel + ".Level"),
 		NextDifficulty:     nextDifficulty,
-		TimeRemaining:      float32(zoneresult.VoteDuration.Seconds()),
+		TimeRemaining:      seconds,
 		PlanetsRepresented: snapshot.PlanetsCompleted,
 		EnemyNouns:         snapshot.EnemyNouns,
 		FirstPresentation: [3]uint32{
@@ -86,7 +101,7 @@ func Vote(snapshot zoneresult.Snapshot) ([]byte, error) {
 			presentation.CurrentMovie,
 			currentVoice,
 		},
-		FirstVoice:        presentation.CurrentVoice,
+		FirstVoice:        nextPresentation.CurrentVoice,
 		ContinuationLimit: continuationLimit,
 		NextPresentation: [3]uint32{
 			0,

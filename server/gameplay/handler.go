@@ -2431,6 +2431,10 @@ func (r gameplayPendingRuntime) poll(
 	if err != nil {
 		return nil, fmt.Errorf("operativePoll: %w", err)
 	}
+	triggerPackets, err := r.pollCampaignTriggers(packet)
+	if err != nil {
+		return nil, fmt.Errorf("campaignTriggerPoll: %w", err)
+	}
 	graviticPackets, err := r.pollGraviticFields(packet)
 	if err != nil {
 		return nil, fmt.Errorf("graviticPoll: %w", err)
@@ -2500,6 +2504,7 @@ func (r gameplayPendingRuntime) poll(
 	rootHazardPackets = append(rootHazardPackets, graviticPackets...)
 	rootHazardPackets = append(rootHazardPackets, landingPackets...)
 	rootHazardPackets = append(rootHazardPackets, pickupPursuitPackets...)
+	rootHazardPackets = append(rootHazardPackets, triggerPackets...)
 	queuedPackets, pendingPacketBatchID := peerSession.pendingPackets()
 	isPendingPacketOverflow := peerSession.isPendingPacketOverflow
 	peerSession.isPendingPacketOverflow = false

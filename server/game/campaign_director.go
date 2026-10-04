@@ -35,6 +35,8 @@ type campaignDirectorNamedEventKey struct {
 // claiming that build 103 published the event locally; consumers still own
 // acceptance, spawn, gate, objective, or presentation policy.
 type CampaignDirectorPublication struct {
+	ActorObjectID    uint32
+	IsDwellComplete  bool
 	EventHash        uint32
 	MarkerSetOrdinal int
 	MarkerSetName    string
@@ -94,6 +96,7 @@ type CampaignDirectorSnapshot struct {
 
 // CampaignDirectorSession owns movement-trigger state for one campaign match.
 type CampaignDirectorSession struct {
+	triggerStates           map[campaignDirectorEventKey]campaignTriggerState
 	mu                      sync.RWMutex
 	events                  []campaignDirectorRuntimeEvent
 	listenersByEvent        map[uint32][]CampaignDirectorListenerPublication
@@ -114,6 +117,7 @@ func NewCampaignDirectorSession(director CampaignDirector) (*CampaignDirectorSes
 		return nil, errors.New("create campaign director: empty level")
 	}
 	session := &CampaignDirectorSession{
+		triggerStates:           make(map[campaignDirectorEventKey]campaignTriggerState),
 		insideStates:            make(map[campaignDirectorEventKey]bool),
 		onceOnlyEventPolicies:   make(map[campaignDirectorEventKey]bool),
 		pendingPublications:     make(map[campaignDirectorEventKey]CampaignDirectorPublication),
@@ -147,6 +151,22 @@ func NewCampaignDirectorSession(director CampaignDirector) (*CampaignDirectorSes
 			if !isFiniteCampaignPosition(trigger.Position) {
 				return nil, fmt.Errorf("createTriggerPosition[%d]: invalid", trigger.MarkerID)
 			}
+			if trigger.SpawnTrigger != nil && trigger.SpawnTrigger.TriggerVolume != nil {
+				volume := trigger.SpawnTrigger.TriggerVolume
+				if !isFiniteCampaignPosition(trigger.Rotation) ||
+					!isFiniteCampaignPosition(volume.Offset) ||
+					!isFiniteCampaignPosition(volume.BoxDimensions) ||
+					math.IsNaN(float64(volume.SphereRadius)) ||
+					math.IsInf(float64(volume.SphereRadius), 0) ||
+					(volume.Shape == uint32(TriggerSphere) && volume.SphereRadius <= 0) ||
+					(volume.Shape == uint32(TriggerBox) &&
+						(volume.BoxDimensions.X <= 0 || volume.BoxDimensions.Y <= 0 || volume.BoxDimensions.Z <= 0)) ||
+					math.IsNaN(float64(volume.TimeToActivate)) ||
+					math.IsInf(float64(volume.TimeToActivate), 0) || volume.TimeToActivate < 0 ||
+					float64(volume.TimeToActivate) >= float64(math.MaxInt64)/1e9 {
+					return nil, fmt.Errorf("createTriggerVolume[%d]: invalid", trigger.MarkerID)
+				}
+			}
 			for _, event := range trigger.Events {
 				if math.IsNaN(float64(event.TriggerRadius)) || math.IsInf(float64(event.TriggerRadius), 0) ||
 					event.TriggerRadius < 0 {
@@ -168,6 +188,9 @@ func NewCampaignDirectorSession(director CampaignDirector) (*CampaignDirectorSes
 					event:         event,
 				})
 				session.onceOnlyEventPolicies[key] = event.IsTriggerOnceOnly
+				if trigger.SpawnTrigger != nil && trigger.SpawnTrigger.TriggerVolume != nil {
+					session.onceOnlyEventPolicies[key] = trigger.SpawnTrigger.TriggerVolume.IsTriggerOnceOnly
+				}
 			}
 		}
 	}
@@ -177,6 +200,16 @@ func NewCampaignDirectorSession(director CampaignDirector) (*CampaignDirectorSes
 // Advance evaluates one accepted authoritative movement segment. A repeatable
 // event fires only on entry; a once-only event cannot fire again after exit.
 func (s *CampaignDirectorSession) Advance(previous Vec3, current Vec3) ([]CampaignDirectorPublication, error) {
+	publications, err := s.advanceMovement(previous, current, false)
+	if err != nil {
+		return nil, fmt.Errorf("directorMovement: %w", err)
+	}
+	return publications, nil
+}
+
+func (s *CampaignDirectorSession) advanceMovement(
+	previous Vec3, current Vec3, isPartySample bool,
+) ([]CampaignDirectorPublication, error) {
 	if s == nil {
 		return nil, errors.New("advance campaign director: nil session")
 	}
@@ -187,6 +220,11 @@ func (s *CampaignDirectorSession) Advance(previous Vec3, current Vec3) ([]Campai
 	defer s.mu.Unlock()
 	publications := make([]CampaignDirectorPublication, 0)
 	for _, runtimeEvent := range s.events {
+		if isPartySample && runtimeEvent.trigger.SpawnTrigger != nil &&
+			runtimeEvent.trigger.SpawnTrigger.TriggerVolume != nil {
+			// Production spawn triggers require party and elapsed-time input.
+			continue
+		}
 		radius := runtimeEvent.event.TriggerRadius
 		isCurrentInside := campaignDistanceSquared(current, runtimeEvent.trigger.Position) <= radius*radius
 		wasInside := s.insideStates[runtimeEvent.key]

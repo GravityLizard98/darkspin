@@ -1017,7 +1017,7 @@ func (r campaignResultRuntime) handleActiveResult(
 	)
 	if resultSnapshot.Phase == zoneresult.ChainVoting &&
 		len(packet.Payload) == 1 && packet.Payload[0] == 0 {
-		return r.votingData(packet, resultSnapshot)
+		return r.votingData(ctx, packet, peerSession, resultSnapshot)
 	}
 	chainCommand, commandErr := raknet.DecodeChainPlayerCommand(packet.Payload)
 	isContinueRequest := commandErr == nil &&
@@ -1194,15 +1194,24 @@ func (r campaignResultRuntime) consumeVote(
 }
 
 func (r campaignResultRuntime) votingData(
-	packet raknet.Packet, snapshot zoneresult.Snapshot,
+	ctx context.Context, packet raknet.Packet,
+	peerSession gameplayPeerSession, snapshot zoneresult.Snapshot,
 ) ([][]byte, error) {
-	votePacket, err := resultraknet.Vote(snapshot)
+	remaining, isFound := peerSession.zone.ResultVoteCountdown(
+		zoneResultMember(peerSession),
+	)
+	if !isFound {
+		return nil, errors.New("campaign result countdown unavailable")
+	}
+	if remaining <= 0 {
+		return r.consumeVote(ctx, packet, peerSession, snapshot)
+	}
+	seconds := float32(remaining.Seconds())
+	votePacket, err := resultraknet.VoteWithCountdown(snapshot, seconds)
 	if err != nil {
 		return nil, fmt.Errorf("campaignVote: %w", err)
 	}
-	countdownPacket, err := resultraknet.Countdown(
-		float32(zoneresult.VoteDuration.Seconds()),
-	)
+	countdownPacket, err := resultraknet.Countdown(seconds)
 	if err != nil {
 		return nil, fmt.Errorf("campaignCountdown: %w", err)
 	}
