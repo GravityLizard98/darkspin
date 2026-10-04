@@ -12,11 +12,13 @@ import (
 
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/navigation"
+	"github.com/darkspinnet/darkspin/server/sim"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
 )
 
 type Session struct {
 	scenarioFixtureLedger
+	startupRandom        *sim.SimulatorRandom
 	navigationMesh       *navigation.Mesh
 	navigationFootprints map[uint32]game.NavigationFootprint
 	mu                   sync.RWMutex
@@ -105,6 +107,7 @@ func (s *Session) add(plans []SpawnPlan, targetObjectID uint32) error {
 		return fmt.Errorf("addValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = WithPendingIntroduction(plan)
 		plan = s.attachActorFootprint(plan).Clone()
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
 		if navigationErr != nil {
@@ -171,6 +174,7 @@ func (s *Session) AddDormant(plans []SpawnPlan) error {
 		return fmt.Errorf("dormantValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = s.prepareIntroduction(plan)
 		plan = s.attachActorFootprint(plan).Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
@@ -188,7 +192,7 @@ func (s *Session) AddDormant(plans []SpawnPlan) error {
 			IsPublished:                     true,
 			IsSpawnStealthActive:            isSpawnStealthedPlan(plan),
 			IsNavigationCollisionEnabled:    true,
-			IsInvisibleToSecurityTeleporter: isPreAggroInvisibleNoun(plan.NounName),
+			IsInvisibleToSecurityTeleporter: plan.IsIntroductionHidden,
 			status:                          initialStatus(plan),
 		}
 		s.recordScenarioFixtureAdmission(plan)
@@ -212,6 +216,7 @@ func (s *Session) AddStaged(plans []SpawnPlan) error {
 		return fmt.Errorf("stagedValidate: %w", err)
 	}
 	for _, plan := range plans {
+		plan = s.prepareIntroduction(plan)
 		plan = s.attachActorFootprint(plan).Clone()
 		s.objectIDs = append(s.objectIDs, plan.ObjectID)
 		actorNavigation, navigationErr := s.navigationForPlan(plan)
@@ -228,7 +233,7 @@ func (s *Session) AddStaged(plans []SpawnPlan) error {
 			ManaPoint:                       plan.NPCProfile.PowerPoint,
 			IsSpawnStealthActive:            isSpawnStealthedPlan(plan),
 			IsNavigationCollisionEnabled:    true,
-			IsInvisibleToSecurityTeleporter: isPreAggroInvisibleNoun(plan.NounName),
+			IsInvisibleToSecurityTeleporter: plan.IsIntroductionHidden,
 			status:                          initialStatus(plan),
 		}
 	}
@@ -301,6 +306,7 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 			IsPerceptionOffsetCached:   snapshot.IsPerceptionOffsetCached,
 			threats:                    slices.Clone(snapshot.threats),
 			IsInitialAggroSet:          snapshot.IsInitialAggroSet,
+			IsFirstActionStarted:       snapshot.IsFirstActionStarted,
 			InitialAggroAnimationFlag:  snapshot.InitialAggroAnimationFlag,
 			Plan:                       plan, Origin: snapshot.Origin, Facing: snapshot.Facing,
 			Faction:  FactionNonPlayerAligned,
@@ -308,7 +314,7 @@ func (s *Session) Restore(snapshots []Snapshot) error {
 			IsDefeated: isDefeated, IsPublished: snapshot.IsPublished,
 			IsSpawnStealthActive:            isSpawnStealthedPlan(plan) && !isDefeated,
 			IsNavigationCollisionEnabled:    !isDefeated || IsGraviticRemnant(plan),
-			IsInvisibleToSecurityTeleporter: isPreAggroInvisibleNoun(plan.NounName) && !isDefeated,
+			IsInvisibleToSecurityTeleporter: plan.IsIntroductionHidden && !isDefeated,
 			status:                          initialStatus(plan),
 		}
 		if restored.Facing.Length() <= 0 || !zonegeometry.IsFinite(restored.Facing) {
@@ -677,7 +683,14 @@ func (s *Session) StartAction(
 		npc.ActionGeneration = 1
 	}
 	npc.IsActionStarted = true
-	isFirstAction := !npc.IsFirstActionStarted
+	// A canceled delayed entrance must retry its reveal on the next action.
+	isFirstAction := !npc.IsFirstActionStarted || npc.Plan.IsIntroductionHidden
+	if isFirstAction && npc.Plan.Introduction != SpawnIntroductionFloorWarp {
+		profile, isProfileKnown := ActionProfileForPlan(npc.Plan)
+		if isProfileKnown && profile.FirstAggroRevealDelay > 0 {
+			npc.Plan.IsIntroductionHidden = true
+		}
+	}
 	npc.IsFirstActionStarted = true
 	npc.ActionOwner = owner
 	s.npcs[objectID] = npc
@@ -1087,7 +1100,7 @@ func (s *Session) damage(
 	isAreaAttack = isAreaAttack || meta.DescriptorMask&8 != 0
 	isDamageOverTime = isDamageOverTime || meta.DescriptorMask&4 != 0
 	now := time.Now()
-	if !meta.isForcedDefeat && (now.Before(npc.status.intangibleExpiresAt) ||
+	if !meta.isForcedDefeat && (npc.Plan.IsIntroductionHidden || now.Before(npc.status.intangibleExpiresAt) ||
 		now.Before(npc.status.banishExpiresAt) || now.Before(npc.status.chargeProtectionEnd) ||
 		(npc.IsTurtleActive && (len(damageSource) == 0 || damageSource[0] == 0)) ||
 		(npc.IsShieldActive && isShieldDamageImmune(npc, sourcePosition))) {
@@ -1967,13 +1980,4 @@ func directionTo(source game.Vec3, target game.Vec3) game.Vec3 {
 		return game.Vec3{}
 	}
 	return direction.Scale(1 / length)
-}
-
-func isPreAggroInvisibleNoun(nounName string) bool {
-	switch strings.ToLower(nounName) {
-	case "zelembasicranged.noun", "nomadsnipe.noun":
-		return true
-	default:
-		return false
-	}
 }

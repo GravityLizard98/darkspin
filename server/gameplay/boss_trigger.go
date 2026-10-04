@@ -172,6 +172,7 @@ func (e campaignNamedBossTriggerStep) isEligibleSession(
 	peerSession gameplayPeerSession,
 ) bool {
 	if peerSession.zone != e.zone || peerSession.isRejoinPending ||
+		peerSession.binding.Mode == game.ModeTutorial ||
 		peerSession.isZoneTerminal() ||
 		peerSession.deployedObjectID == 0 || peerSession.deployedHitPoint() <= 0 {
 		return false
@@ -190,6 +191,12 @@ func (r campaignEncounterRuntime) scheduleNamedBossTriggers(
 	sessionKey string, commandSession gameplayPeerSession,
 	publications []game.CampaignDirectorPublication,
 ) error {
+	// The tutorial reuses this callback on its horde arena marker, but its
+	// wave session owns progression and completion. It has no campaign boss
+	// roster or chain stage for the named-boss planner to select from.
+	if commandSession.binding.Mode == game.ModeTutorial {
+		return nil
+	}
 	isNamedBossTrigger := false
 	for _, publication := range publications {
 		if publication.CallbackName == zoneboss.GenericCallback {

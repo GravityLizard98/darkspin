@@ -63,8 +63,13 @@ func campaignAIGraphs(ctx context.Context, store levelDirectorStore) (map[uint32
 	graphsByID := make(map[uint32]*game.CampaignAIGraph, len(definitionsByID))
 	for definitionID, definition := range definitionsByID {
 		graph := &game.CampaignAIGraph{
-			PassiveAbility: definition.PassiveAbility,
-			DefinitionID:   definitionID, IsResolved: true,
+			PassiveAbility:     definition.PassiveAbility,
+			PreAggroIdle:       definition.PreAggroIdle,
+			PreAggroIdle2:      definition.PreAggroIdle2,
+			UseSecondaryStart:  definition.UseSecondaryStart,
+			FirstAggroAbility:  definition.FirstAggroAbility,
+			FirstAggroAbility2: definition.FirstAggroAbility2,
+			DefinitionID:       definitionID, IsResolved: true,
 			Nodes: make([]game.CampaignAINode, 0, len(definition.Nodes)),
 		}
 		for _, node := range definition.Nodes {

@@ -30,8 +30,6 @@ import (
 const campaignHeldMeleeCursorRadius = float32(3)
 const campaignProjectileCursorRadius = float32(3)
 
-const campaignIdleTargetCursorRadius = float32(6)
-const campaignIdleTargetRecoveryRadius = float32(20)
 const campaignDirectAggroNeighborGap = float32(3)
 const campaignPursuitCheckInterval = 100 * time.Millisecond
 const campaignPlayerPursuitRedirectDistance = float32(0.75)
@@ -540,6 +538,8 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	}
 	if isBasicHeldInput && definition.Kind == sim.AbilityKindMelee &&
 		!isPursuitRetry {
+		// Cursor coordinates select among authoritative NPC positions; they must
+		// never relocate an idle enemy when a held attack retains a stale target.
 		targetObjectID = zoneability.CursorTarget(
 			peerSession.zone.NPCs(), command.Common.ObjectID,
 			game.Vec3{
@@ -554,31 +554,6 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 			},
 			campaignHeldMeleeCursorRadius,
 		)
-		if targetObjectID == 0 {
-			targetObjectID, err = reconcileCampaignIdleCursorTarget(
-				peerSession.zone.NPCs(),
-				game.Vec3{
-					X: peerSession.playerPosition.X,
-					Y: peerSession.playerPosition.Y,
-					Z: peerSession.playerPosition.Z,
-				},
-				command.Ability.CursorPosition,
-				command.Ability.TargetPosition,
-				definition.Range+campaignHeldMeleeCursorRadius,
-			)
-			if err != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("campaignBasicCursorTarget: %w", err)
-			}
-			if targetObjectID != 0 {
-				r.logger.Printf(
-					"RakNet campaign idle enemy recovered from targetless cursor object=%d cursor=(%.3f,%.3f,%.3f)",
-					targetObjectID, command.Ability.CursorPosition.X,
-					command.Ability.CursorPosition.Y,
-					command.Ability.CursorPosition.Z,
-				)
-			}
-		}
 	}
 	// Build 103 resubmits targetless basics while Shift remains held but does
 	// not reliably publish ActionCancel for the ground-fire path. Keep each
@@ -747,30 +722,6 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 			}
 			if targetFootprint > 0 || definition.Kind == sim.AbilityKindMelee {
 				maximumRange += actorFootprint + targetFootprint
-			}
-			targetEnemy, isReconciled, reconcileErr :=
-				reconcileCampaignIdleTargetPosition(
-					peerSession.zone.NPCs(), targetEnemy,
-					game.Vec3{
-						X: peerSession.playerPosition.X,
-						Y: peerSession.playerPosition.Y,
-						Z: peerSession.playerPosition.Z,
-					},
-					command.Ability.CursorPosition,
-					command.Ability.TargetPosition,
-					maximumRange,
-				)
-			if reconcileErr != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("campaignBasicTargetPosition: %w", reconcileErr)
-			}
-			if isReconciled {
-				r.logger.Printf(
-					"RakNet campaign idle enemy position reconciled object=%d noun=%q position=(%.3f,%.3f,%.3f)",
-					targetObjectID, targetEnemy.Plan.NounName,
-					targetEnemy.Plan.Position.X, targetEnemy.Plan.Position.Y,
-					targetEnemy.Plan.Position.Z,
-				)
 			}
 			if !targetEnemy.Plan.IsFixture {
 				aggroCandidates := []zonenpc.Snapshot{targetEnemy}
@@ -1024,94 +975,6 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 		activeAbilityID, isBasicHeldRepeat, isBasicHeldInput,
 		sessionKey, abilityStartTime, directAggro,
 	)
-}
-
-func reconcileCampaignIdleTargetPosition(
-	npcSession *zonenpc.Session, target zonenpc.Snapshot, actorPosition game.Vec3,
-	cursorPosition raknet.Vector3, reportedPosition raknet.Vector3,
-	maximumRange float32,
-) (zonenpc.Snapshot, bool, error) {
-	if npcSession == nil || target.Plan.ObjectID == 0 || target.IsDefeated ||
-		!target.IsPublished || target.HitPoint <= 0 || target.Plan.IsFixture ||
-		target.TargetObjectID != 0 || target.IsActionStarted || maximumRange <= 0 {
-		return target, false, nil
-	}
-	if !isReportedZonePosition(cursorPosition) ||
-		!isFiniteZonePosition(cursorPosition) {
-		return target, false, nil
-	}
-	cursor := game.Vec3{
-		X: cursorPosition.X, Y: cursorPosition.Y, Z: cursorPosition.Z,
-	}
-	reported := cursor
-	if isReportedZonePosition(reportedPosition) &&
-		isFiniteZonePosition(reportedPosition) {
-		reported = game.Vec3{
-			X: reportedPosition.X, Y: reportedPosition.Y, Z: reportedPosition.Z,
-		}
-	}
-	if zonegeometry.Distance(cursor, reported) > campaignIdleTargetCursorRadius ||
-		zonegeometry.Distance(actorPosition, reported) > maximumRange ||
-		zonegeometry.Distance(actorPosition, target.Plan.Position) <= maximumRange {
-		return target, false, nil
-	}
-	err := npcSession.SetPosition(target.Plan.ObjectID, reported)
-	if err != nil {
-		return target, false, fmt.Errorf("targetPosition: %w", err)
-	}
-	updated, isFound := npcSession.NPC(target.Plan.ObjectID)
-	if !isFound {
-		return target, false, errors.New("updated target unavailable")
-	}
-	return updated, true, nil
-}
-
-func reconcileCampaignIdleCursorTarget(
-	npcSession *zonenpc.Session, actorPosition game.Vec3,
-	cursorPosition raknet.Vector3, reportedPosition raknet.Vector3,
-	maximumRange float32,
-) (uint32, error) {
-	if npcSession == nil || maximumRange <= 0 ||
-		!isReportedZonePosition(cursorPosition) ||
-		!isFiniteZonePosition(cursorPosition) {
-		return 0, nil
-	}
-	cursor := game.Vec3{
-		X: cursorPosition.X, Y: cursorPosition.Y, Z: cursorPosition.Z,
-	}
-	reported := cursor
-	if isReportedZonePosition(reportedPosition) &&
-		isFiniteZonePosition(reportedPosition) {
-		reported = game.Vec3{
-			X: reportedPosition.X, Y: reportedPosition.Y, Z: reportedPosition.Z,
-		}
-	}
-	if zonegeometry.Distance(cursor, reported) > campaignIdleTargetCursorRadius ||
-		zonegeometry.Distance(actorPosition, reported) > maximumRange {
-		return 0, nil
-	}
-	candidateObjectID := uint32(0)
-	for _, candidate := range npcSession.LiveSnapshots() {
-		if !candidate.IsPublished || candidate.HitPoint <= 0 ||
-			candidate.Plan.IsFixture || candidate.TargetObjectID != 0 ||
-			candidate.IsActionStarted ||
-			zonegeometry.Distance(candidate.Plan.Position, reported) >
-				campaignIdleTargetRecoveryRadius {
-			continue
-		}
-		if candidateObjectID != 0 {
-			return 0, nil
-		}
-		candidateObjectID = candidate.Plan.ObjectID
-	}
-	if candidateObjectID == 0 {
-		return 0, nil
-	}
-	err := npcSession.SetPosition(candidateObjectID, reported)
-	if err != nil {
-		return 0, fmt.Errorf("cursorTargetPosition: %w", err)
-	}
-	return candidateObjectID, nil
 }
 
 func (r campaignAbilityCommandRuntime) handleCharacter(

@@ -2,6 +2,18 @@
 
 ### 2026-10-04
 
+- Fix Uranium Heights (4-1) failing before heroes spawn by resolving Robo-Bomber replacements from the full noun catalog instead of requiring them in the selected agent pool.
+- Keep tutorial arena progression in its wave controller instead of repeatedly attempting to spawn an unavailable campaign boss.
+- Align the tutorial horde's western spawn point with the position accepted by the client, preventing enemies from starting several units away from their server position.
+- Sample the local hero's retained movement at capture time in Sync Snapshots, avoiding false position discrepancies from stale command-time coordinates.
+- Fix tutorial obelisks and other equipment drops failing because temporary Blitz and Sage lacked their loot-selection identity.
+- Prevent stale attack cursor positions from relocating idle enemies and causing client/server desynchronization.
+- Prevent duplicate Health full and Power full notices when movement commands recheck capsule contacts already processed by movement polling.
+- Fix Infectors, Quadra, Shocker and other projectile enemies becoming idle after a stun or chase, and restore the related energy-buff chase continuation.
+- Stop and resume enemy pursuit on clients when stun, sleep, root or zero movement speed pauses it on the server, preventing enemies from walking away during crowd control in solo and co-op.
+- Honor authored invisible enemy starts and alternate visible idles across campaign variants, restore entrance animations, and retain reveal state across co-op rejoin and Continue.
+- Keep tutorial enemies hidden until their teleport entrance reveals them, preserving pending reveals across rejoin and interrupted entrances.
+- Correct Seraph-XS and other hero variant profiles showing Jinx's name and description by resolving localization keys within each hero's authored text table.
 - Restore Toxicactus's authored destruction event and 0.2-second removal timing instead of the generic scenery explosion.
 - Correct HELIX return-to-planet narration from one-mission-late assignments to the authored campaign stages, and select the next mission's narration on the post-mission screen.
 - Change Destructor equipment drops from six fixed points to client-derived party-scaled attempts and shuffled expanding rings with navigation checks, retaining authored catalyst eligibility.

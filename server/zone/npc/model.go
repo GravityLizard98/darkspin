@@ -33,21 +33,26 @@ const (
 )
 
 type SpawnPlan struct {
-	ObjectID               uint32
-	OwnerObjectID          uint32
-	NounName               string
-	AuthoredNounName       string
-	Position               game.Vec3
-	Rotation               game.Vec3
-	PlacementScale         float32 // Authored marker multiplier; zero means one.
-	Experience             uint32
-	LocusID                uint32
-	Kind                   sim.DirectorLocusKind
-	IsCaptain              bool
-	IsElite                bool
-	IsBoss                 bool
-	IsArena                bool
-	IsFixture              bool
+	ObjectID         uint32
+	OwnerObjectID    uint32
+	NounName         string
+	AuthoredNounName string
+	Position         game.Vec3
+	Rotation         game.Vec3
+	PlacementScale   float32 // Authored marker multiplier; zero means one.
+	Experience       uint32
+	LocusID          uint32
+	Kind             sim.DirectorLocusKind
+	IsCaptain        bool
+	IsElite          bool
+	IsBoss           bool
+	IsArena          bool
+	IsFixture        bool
+	// Current presentation state, retained across rejoin until the entrance reveals it.
+	IsIntroductionHidden   bool
+	IsIntroductionComplete bool
+	IsStartupInitialized   bool
+	IsSecondaryStart       bool
 	IsLootSuppressed       bool // Native object +153, independent of XP eligibility.
 	IsExperienceSuppressed bool // Native object +154.
 	// Server encounter policy: excluded from progress and retired with its owner.

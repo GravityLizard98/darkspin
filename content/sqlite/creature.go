@@ -366,6 +366,22 @@ func localeKey(authored string) string {
 	return strings.ToLower(parts[1])
 }
 
+// writeCreatureTemplates stores the authored localization table name followed
+// by a variant suffix, not translated display text. Recover that table for
+// existing content databases: beta/gamma/delta keys are shared by every hero.
+func creatureLocalizationTableID(name string) (uint32, error) {
+	separator := strings.LastIndexByte(name, ' ')
+	if separator <= 0 {
+		return 0, fmt.Errorf("creature localization name %q has no variant", name)
+	}
+	switch name[separator+1:] {
+	case "Alpha", "Beta", "Gamma", "Delta":
+		return hashID(name[:separator]), nil
+	default:
+		return 0, fmt.Errorf("creature localization name %q has an unknown variant", name)
+	}
+}
+
 func creatureVariant(baseName string) string {
 	switch {
 	case strings.HasSuffix(strings.ToLower(baseName), "_v1"):

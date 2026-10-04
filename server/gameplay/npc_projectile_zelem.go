@@ -209,10 +209,18 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 			return sinkholePackets, nil
 		}
 	}
+	// This continuation can run after a stun or a chase, before an attack
+	// plan exists. Bind it to the admitted action now; a zero generation is
+	// deliberately rejected by resumeZelem and would strand the enemy.
+	actionGeneration := buffSource.ActionGeneration
+	if volley.isActive {
+		actionGeneration = volley.plan.ActionGeneration
+	}
 	resume := campaignNPCProjectileSchedule{
 		runtime: r, packet: packet, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: objectID, timestamp: timestamp,
 		kind: campaignNPCProjectileZelem,
+		plan: zonenpc.AttackPlan{ActionGeneration: actionGeneration},
 	}
 	isDeferred, err := r.pursuit.deferAction(
 		packet, sessionKey, generation, objectID, timestamp,

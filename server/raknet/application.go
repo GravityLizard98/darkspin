@@ -332,6 +332,7 @@ func (m CinematicMessage) EncodePayload() []byte {
 }
 
 type ObjectCreateMessage struct {
+	IsInitiallyHidden  bool
 	Rotation           Vector3
 	ObjectID           uint32
 	Noun               uint32
@@ -348,13 +349,14 @@ type ObjectCreateMessage struct {
 }
 
 type EnemyObjectCreateMessage struct {
-	ObjectID     uint32
-	Noun         uint32
-	Position     Vector3
-	Rotation     Vector3
-	Scale        float32
-	IsCollidable bool
-	MovementType uint8
+	IsInitiallyHidden bool
+	ObjectID          uint32
+	Noun              uint32
+	Position          Vector3
+	Rotation          Vector3
+	Scale             float32
+	IsCollidable      bool
+	MovementType      uint8
 }
 
 // ProjectileObjectCreateMessage is the generic build-103 projectile creation
@@ -533,6 +535,10 @@ func (m EnemyObjectCreateMessage) EncodePayload() []byte {
 	payload = append(payload, 6)
 	payload = appendVector3(payload, m.Position.X, m.Position.Y, m.Position.Z)
 	// The create prefix owns rotation; an identity reflection would overwrite it.
+	if m.IsInitiallyHidden {
+		// Reflected visibility is applied with creation, before the first frame.
+		payload = append(payload, 16, 0)
+	}
 	if m.MovementType != 0 {
 		payload = append(payload, 19, m.MovementType)
 	}
@@ -553,6 +559,9 @@ func (m ObjectCreateMessage) EncodePayload() []byte {
 	payload = append(payload, 0, m.Team)
 	payload = append(payload, 1, boolByte(m.IsPlayerControlled))
 	payload = append(payload, 3, m.PlayerIndex)
+	if m.IsInitiallyHidden {
+		payload = append(payload, 16, 0)
+	}
 	payload = append(payload, 17, boolByte(m.IsCollisionEnabled))
 	if m.OwnerID != 0 {
 		payload = append(payload, 18)

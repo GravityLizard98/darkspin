@@ -94,6 +94,7 @@ type campaignNPCPursuitStep struct {
 	lastPublicationTimestamp uint64
 	profile                  zonenpc.ActionProfile
 	onArrival                campaignNPCArrival
+	isMovementPaused         bool
 }
 
 func (s campaignNPCPursuitStep) produce() ([][]byte, error) {
@@ -101,7 +102,7 @@ func (s campaignNPCPursuitStep) produce() ([][]byte, error) {
 		s.packet, s.sessionKey, s.generation, s.actionGeneration,
 		s.objectID, s.timestamp,
 		s.targetObjectID, s.publishedGoal, s.lastPublicationTimestamp,
-		s.profile, s.onArrival, s.movementAt,
+		s.profile, s.onArrival, s.movementAt, s.isMovementPaused,
 	)
 }
 
@@ -250,7 +251,7 @@ func (r campaignNPCPursuitRuntime) scheduleTargetCorrection(
 	return r.scheduleActionCorrection(
 		packet, sessionKey, generation, actionGeneration, objectID,
 		targetObjectID, timestamp, publishedGoal, lastPublicationTimestamp,
-		profile, onArrival, r.now(),
+		profile, onArrival, r.now(), false,
 	)
 }
 
@@ -259,6 +260,7 @@ func (r campaignNPCPursuitRuntime) scheduleActionCorrection(
 	actionGeneration uint64, objectID uint32, targetObjectID uint32,
 	timestamp uint64, publishedGoal game.Vec3, lastPublicationTimestamp uint64,
 	profile zonenpc.ActionProfile, onArrival campaignNPCArrival, movementAt time.Time,
+	isMovementPaused bool,
 ) error {
 	if onArrival == nil {
 		return errors.New("enemy pursuit arrival unavailable")
@@ -270,7 +272,9 @@ func (r campaignNPCPursuitRuntime) scheduleActionCorrection(
 		targetObjectID:           targetObjectID,
 		publishedGoal:            publishedGoal,
 		lastPublicationTimestamp: lastPublicationTimestamp,
-		profile:                  profile, onArrival: onArrival,
+		profile:                  profile,
+		onArrival:                onArrival,
+		isMovementPaused:         isMovementPaused,
 	}
 	producer := raknet.ScheduledPacketProducer{
 
@@ -297,6 +301,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	lastPublicationTimestamp uint64,
 	profile zonenpc.ActionProfile,
 	onArrival campaignNPCArrival, movementAt time.Time,
+	isMovementPaused bool,
 ) ([][]byte, error) {
 	r.registry.mutex.Lock()
 	advancedAt := r.now()
@@ -339,7 +344,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 			packet, sessionKey, generation, actionGeneration, objectID,
 			targetObjectID, nextTimestamp,
 			publishedGoal, lastPublicationTimestamp,
-			profile, onArrival, advancedAt,
+			profile, onArrival, advancedAt, isMovementPaused,
 		)
 		if err != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
@@ -389,54 +394,6 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}
-	if npcSession.StunRemaining(objectID, r.now()) > 0 {
-		r.registry.mutex.Unlock()
-		nextTimestamp := timestamp +
-			uint64(elapsed/time.Millisecond)
-		err := r.scheduleActionCorrection(
-			packet, sessionKey, generation, actionGeneration, objectID,
-			targetObjectID, nextTimestamp,
-			publishedGoal, lastPublicationTimestamp,
-			profile, onArrival, advancedAt,
-		)
-		if err != nil {
-			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyPursuitStunReschedule: %w", err)
-		}
-		return nil, nil
-	}
-	if npcSession.SleepRemaining(objectID, r.now()) > 0 {
-		r.registry.mutex.Unlock()
-		nextTimestamp := timestamp +
-			uint64(elapsed/time.Millisecond)
-		err := r.scheduleActionCorrection(
-			packet, sessionKey, generation, actionGeneration, objectID,
-			targetObjectID, nextTimestamp,
-			publishedGoal, lastPublicationTimestamp,
-			profile, onArrival, advancedAt,
-		)
-		if err != nil {
-			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyPursuitSleepReschedule: %w", err)
-		}
-		return nil, nil
-	}
-	if npcSession.RootRemaining(objectID, r.now()) > 0 {
-		r.registry.mutex.Unlock()
-		nextTimestamp := timestamp +
-			uint64(elapsed/time.Millisecond)
-		err := r.scheduleActionCorrection(
-			packet, sessionKey, generation, actionGeneration, objectID,
-			targetObjectID, nextTimestamp,
-			publishedGoal, lastPublicationTimestamp,
-			profile, onArrival, advancedAt,
-		)
-		if err != nil {
-			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyPursuitRootReschedule: %w", err)
-		}
-		return nil, nil
-	}
 	facingTargetPosition := targetPosition
 	if profile.AbilityName == "StealthAttack" || profile.AbilityName == "Flee" ||
 		profile.AbilityName == "NoctGhostCharge" ||
@@ -450,20 +407,39 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		objectID, r.now(),
 	)
 	movementSpeed *= slowMovementScale
-	if movementSpeed <= 0 {
+	isMovementDisabled := movementSpeed <= 0 ||
+		npcSession.StunRemaining(objectID, advancedAt) > 0 ||
+		npcSession.SleepRemaining(objectID, advancedAt) > 0 ||
+		npcSession.RootRemaining(objectID, advancedAt) > 0
+	if isMovementDisabled {
+		// Modifiers do not cancel the client's already-issued locomotion goal.
+		// Stop once at the retained server pose, then keep polling so early
+		// dispels and overlapping holds use the current authoritative status.
+		var pausePackets [][]byte
+		if !isMovementPaused {
+			var pauseErr error
+			pausePackets, pauseErr = npcraknet.MovementPause(
+				objectID, enemy.Plan.Position, enemy.Facing,
+			)
+			if pauseErr != nil {
+				npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("enemyPursuitPause: %w", pauseErr)
+			}
+		}
 		r.registry.mutex.Unlock()
 		nextTimestamp := timestamp +
 			uint64(elapsed/time.Millisecond)
 		err := r.scheduleActionCorrection(
 			packet, sessionKey, generation, actionGeneration, objectID,
 			targetObjectID, nextTimestamp, publishedGoal,
-			lastPublicationTimestamp, profile, onArrival, advancedAt,
+			lastPublicationTimestamp, profile, onArrival, advancedAt, true,
 		)
 		if err != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyPursuitSlowReschedule: %w", err)
+			return nil, fmt.Errorf("enemyPursuitPauseReschedule: %w", err)
 		}
-		return nil, nil
+		return pausePackets, nil
 	}
 	step, err := npcSession.AdvancePursuit(
 		peerSession.zone.Navigation(), objectID, targetPosition, profile.Range,
@@ -513,6 +489,22 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	// replaying the command resets transient locomotion state, while publishing
 	// authoritative current positions creates a second competing destination.
 	stepPackets := make([][]byte, 0, 4)
+	if isMovementPaused && !step.IsInRange {
+		// A goal-only update cannot restart the stopped native mover. Reissue
+		// the complete pursuit command even if the target has not moved.
+		resumePackets, resumeErr := npcraknet.Pursuit(zonenpc.FirstActionPlan{
+			ObjectID: objectID, TargetObjectID: resolvedTargetObjectID,
+			SourcePosition: step.Position, TargetPosition: targetPosition,
+			Profile: profile, IsPursuitNeeded: true,
+		})
+		if resumeErr != nil {
+			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+			return nil, fmt.Errorf("enemyPursuitResume: %w", resumeErr)
+		}
+		stepPackets = append(stepPackets, resumePackets...)
+		publishedGoal = targetPosition
+		lastPublicationTimestamp = timestamp
+	}
 	isStalkerLeap := profile.AbilityName == "NomadBioSpecialTwoJumpAttack" &&
 		profile.MovementSpeed == profile.ForcedMovementSpeed
 	if isStalkerLeap {
@@ -579,7 +571,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		packet, sessionKey, generation, actionGeneration, objectID,
 		targetObjectID, nextTimestamp,
 		publishedGoal, lastPublicationTimestamp,
-		profile, onArrival, advancedAt,
+		profile, onArrival, advancedAt, false,
 	)
 	if err != nil {
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)

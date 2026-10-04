@@ -292,11 +292,15 @@ func (s *Store) enrichCreatureTemplates(ctx context.Context, templates []Creatur
 	}
 	if isLocalizationStored {
 		for index := range templates {
+			tableID, tableErr := creatureLocalizationTableID(templates[index].Name)
+			if tableErr != nil {
+				return fmt.Errorf("localeIdentity[%d]: %w", templates[index].ID, tableErr)
+			}
 			err = s.database.QueryRowContext(ctx, `
 				SELECT table_id FROM localization_text
-				WHERE locale = 'en-us' AND locale_key = ?
-				LIMIT 1`, templates[index].NameLocaleKey).Scan(&templates[index].LocalizationTableID)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				WHERE locale = 'en-us' AND table_id = ? AND locale_key = ?`,
+				tableID, templates[index].NameLocaleKey).Scan(&templates[index].LocalizationTableID)
+			if err != nil {
 				return fmt.Errorf("localeRead[%d]: %w", templates[index].ID, err)
 			}
 		}

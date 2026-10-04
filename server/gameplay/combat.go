@@ -4210,7 +4210,7 @@ func campaignNPCFirstAction(
 		// Distance-based selection may replace the clone's stored ranged profile.
 		profile = zonenpc.NashiraCloneProfile(profile)
 	}
-	profile = zonenpc.WithBossIntroduction(plan, profile)
+	profile = zonenpc.IntroductionProfile(plan, profile)
 	action, err := zonenpc.PlanActionWithProfile(
 		campaignNPCActionCommand(
 			plan,
@@ -5218,6 +5218,9 @@ func (e campaignNPCFirstAggroRevealStep) produce() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enemyFirstAggroReveal: %w", err)
 	}
+	if !peerSession.zone.NPCs().RevealIntroduction(e.objectID, owner, e.actionGeneration) {
+		return nil, nil
+	}
 	e.runtime.logger.Printf(
 		"RakNet campaign enemy first-aggro reveal object=%d timestamp=%d",
 		e.objectID, e.timestamp,
@@ -6141,6 +6144,10 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 				return nil, fmt.Errorf("enemyFirstAggro[%d]: %w", index, err)
 			}
 			if !npcSession.CommitFacing(action.FirstAggroFacingPlan()) {
+				continue
+			}
+			if action.Profile.FirstAggroRevealDelay <= 0 &&
+				!npcSession.RevealIntroduction(plan.ObjectID, owner, npc.ActionGeneration) {
 				continue
 			}
 			immediatePackets = append(immediatePackets, aggroPackets...)

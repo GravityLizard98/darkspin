@@ -19,6 +19,9 @@ func Spawn(plan zonenpc.SpawnPlan) ([][]byte, error) {
 }
 
 func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
+	if !isRemnant {
+		plan = zonenpc.WithPendingIntroduction(plan)
+	}
 	err := zonenpc.ValidateSpawnPlan(plan, zoneobject.ProjectileIDStart)
 	if err != nil {
 		return nil, fmt.Errorf("spawnValidate: %w", err)
@@ -35,6 +38,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	actionProfile, isActionKnown := zonenpc.ActionProfileForPlan(basePlan)
 	isVisible := plan.Introduction == zonenpc.SpawnIntroductionFloorWarp ||
 		!isActionKnown || !actionProfile.IsSpawnStealthed
+	isVisible = isVisible && !plan.IsIntroductionHidden
 	if isActionKnown && (actionProfile.MovementSpeed > 0 || actionProfile.NonCombatMovementSpeed > 0) {
 		nonCombatMovementSpeed := actionProfile.NonCombatMovementSpeed
 		if profile.IdleMovementSpeed > 0 {
@@ -74,7 +78,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	}
 	clientPosition := plan.Position
 	var createMessage raknet.ApplicationMessage = raknet.EnemyObjectCreateMessage{
-		ObjectID: plan.ObjectID, Noun: util.HashID(plan.NounName),
+		IsInitiallyHidden: !isVisible,
+		ObjectID:          plan.ObjectID, Noun: util.HashID(plan.NounName),
 		Position: raknet.Vector3{
 			X: clientPosition.X, Y: clientPosition.Y, Z: clientPosition.Z,
 		},
@@ -85,7 +90,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	}
 	if plan.OwnerObjectID != 0 && plan.NounName != "NomadDrone.Noun" {
 		createMessage = raknet.ObjectCreateMessage{
-			ObjectID: plan.ObjectID, Noun: util.HashID(plan.NounName),
+			IsInitiallyHidden: !isVisible,
+			ObjectID:          plan.ObjectID, Noun: util.HashID(plan.NounName),
 			PositionX: clientPosition.X, PositionY: clientPosition.Y,
 			PositionZ: clientPosition.Z, Scale: runtimeScale,
 			Rotation: vector(plan.Rotation),
@@ -112,7 +118,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 		// Establish the agent component before attaching its permanent status so
 		// HUD_NPCBar observes the modifier against an initialized agent.
 		messages = append(messages, raknet.AgentBlackboardUpdateMessage{
-			ObjectID: plan.ObjectID, IsTargetable: profile.IsTargetable,
+			ObjectID: plan.ObjectID, IsTargetable: profile.IsTargetable && !plan.IsIntroductionHidden,
 			IsInCombat: plan.IsArena,
 			Stealth:    uint8(actionStealthType(plan)),
 		})
@@ -151,7 +157,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 		messages = append(messages, raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, Stealth: uint8(actionProfile.StealthType),
 			IsInCombat:   plan.IsArena,
-			IsTargetable: profile.IsTargetable,
+			IsTargetable: profile.IsTargetable && !plan.IsIntroductionHidden,
 		})
 	}
 	if isActionKnown && actionProfile.PassiveCreateEffectName != "" {
@@ -201,6 +207,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 func TargetedSpawn(
 	plan zonenpc.SpawnPlan, targetObjectID uint32,
 ) ([][]byte, error) {
+	plan = zonenpc.WithPendingIntroduction(plan)
 	if targetObjectID == 0 {
 		return nil, errors.New("target object missing")
 	}
@@ -212,7 +219,7 @@ func TargetedSpawn(
 		raknet.AgentBlackboardUpdateMessage{
 			ObjectID: plan.ObjectID, TargetID: targetObjectID,
 			IsInCombat:   zonenpc.IsCombatMovementState(plan, targetObjectID),
-			IsTargetable: plan.NPCProfile.IsTargetable,
+			IsTargetable: plan.NPCProfile.IsTargetable && !plan.IsIntroductionHidden,
 			Stealth:      uint8(actionStealthType(plan)),
 		},
 	)
@@ -262,6 +269,7 @@ func DormantSpawns(plans []zonenpc.SpawnPlan) ([][]byte, error) {
 	}
 	packets := make([][]byte, 0, len(plans)*5)
 	for index, plan := range plans {
+		plan = zonenpc.WithPendingIntroduction(plan)
 		spawnPackets, err := Spawn(plan)
 		if err != nil {
 			return nil, fmt.Errorf("dormantSpawn[%d]: %w", index, err)
@@ -270,7 +278,7 @@ func DormantSpawns(plans []zonenpc.SpawnPlan) ([][]byte, error) {
 			raknet.AgentBlackboardUpdateMessage{
 				ObjectID:     plan.ObjectID,
 				IsInCombat:   plan.IsArena,
-				IsTargetable: plan.NPCProfile.IsTargetable,
+				IsTargetable: plan.NPCProfile.IsTargetable && !plan.IsIntroductionHidden,
 				Stealth:      uint8(actionStealthType(plan)),
 			},
 		)
@@ -297,7 +305,7 @@ func TargetUpdates(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 				ObjectID:     snapshot.Plan.ObjectID,
 				TargetID:     snapshot.TargetObjectID,
 				IsInCombat:   zonenpc.IsCombatMovementState(snapshot.Plan, snapshot.TargetObjectID),
-				IsTargetable: snapshot.Plan.NPCProfile.IsTargetable,
+				IsTargetable: snapshot.Plan.NPCProfile.IsTargetable && !snapshot.Plan.IsIntroductionHidden,
 				Stealth:      uint8(actionStealthType(snapshot.Plan)),
 			},
 		)

@@ -56,7 +56,10 @@ func planTutorialHorde(
 		{X: -355.26929, Y: -207.71077, Z: 10.08800},
 		{X: -345.89496, Y: -239.54680, Z: 10.16637},
 		{X: -334.68289, Y: -217.83920, Z: 10.08800},
-		{X: -365.40617, Y: -228.88910, Z: 10.08800},
+		// The client projects the old western point (-365.40617, -228.88910)
+		// 4.15 units inward on creation. Start at that accepted position so
+		// server pursuit and the client entrance share the same origin.
+		{X: -361.32803, Y: -229.66585, Z: 10.08800},
 	}
 	waves := make([][]zonenpc.SpawnPlan, 0, len(nouns))
 	nextObjectID := firstObjectID

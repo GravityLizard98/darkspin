@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -222,6 +223,17 @@ func snapshotSession(
 			object.TargetObjectID = peerSession.attackPose.targetObjectID
 			if peerSession.playerMotion != nil {
 				object.ActionRevision = peerSession.playerMotion.Revision()
+				// The retained motion advances between commands, while the
+				// shared hero pose can still be the last command's position.
+				// Compare the client against the capture-time sample without
+				// consuming movement needed by gameplay observers. PlayerControl
+				// retains the raw cached pose and segment time for diagnosis.
+				position, sampleErr := peerSession.playerMotion.SamplePosition(capturedAt)
+				if sampleErr != nil {
+					log.Printf("Sync Snapshot hero position sample failed object=%d: %v", hero.ObjectID, sampleErr)
+				} else {
+					object.Position = simPosition(position)
+				}
 			}
 			if pursuit.IsActive && pursuit.SourceObjectID == hero.ObjectID {
 				object.TargetObjectID = pursuit.TargetObjectID

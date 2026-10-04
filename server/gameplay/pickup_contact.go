@@ -87,6 +87,12 @@ func (e *gameplayPeerSession) collectPickupContacts(ctx context.Context, progres
 	}
 	if !e.isPickupSampleCurrent() {
 		e.pickupContact = pickupContactState{}
+	} else {
+		// Polls may already have swept past the command's retained start.
+		// Continue from their shared cursor so a later command cannot replay
+		// a capsule contact after the exit has rearmed its full notice.
+		// Teleports reset this cursor to the destination before collecting.
+		start = e.pickupContact.position
 	}
 	contactContext, cancel := context.WithCancel(ctx)
 	defer cancel()

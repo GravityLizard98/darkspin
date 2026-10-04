@@ -237,16 +237,16 @@ func PlanFirstAction(command FirstActionCommand) (FirstActionPlan, bool, error) 
 
 func ActionProfileForPlan(plan SpawnPlan) (ActionProfile, bool) {
 	if plan.IsActionKnown {
-		return authoredCombatSpeed(plan, mapIntroductionProfile(plan, plan.ActionProfile)), true
+		return authoredCombatSpeed(plan, IntroductionProfile(plan, plan.ActionProfile)), true
 	}
 	profile, isFound := ActionProfileForNoun(plan.NounName)
 	if isFound {
-		return authoredCombatSpeed(plan, mapIntroductionProfile(plan, profile)), true
+		return authoredCombatSpeed(plan, IntroductionProfile(plan, profile)), true
 	}
 	if plan.IsFixture || plan.NounName == "" {
 		return ActionProfile{}, false
 	}
-	return authoredCombatSpeed(plan, fallbackActionProfile(plan.NounName)), true
+	return authoredCombatSpeed(plan, IntroductionProfile(plan, fallbackActionProfile(plan.NounName))), true
 }
 
 func authoredCombatSpeed(plan SpawnPlan, profile ActionProfile) ActionProfile {

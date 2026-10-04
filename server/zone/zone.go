@@ -243,6 +243,7 @@ func New(id uint64, generation uint64, info ZoneInfo) (*Zone, error) {
 	// Keep the checkpointed stream as the owner; binding itself consumes no draw.
 	info.NPCRandom = info.DropRandom
 	info.Objective.BindRandom(info.DropRandom)
+	info.NPCs.BindStartupRandom(info.DropRandom)
 	completionID := uint64(0)
 	if info.Restore != nil {
 		completionID = info.Restore.CompletionID

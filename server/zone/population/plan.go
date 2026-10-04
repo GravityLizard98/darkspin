@@ -17,7 +17,6 @@ const (
 	exploderScarabSelectionChance  = uint32(25)
 	exploderScarabNounSpecies      = "citadelbasicsuicide"
 	roboBomberNounName             = "CitadelSpecificThree.Noun"
-	roboBomberConfigKind           = "agent"
 )
 
 func (s *Session) PlanSpawns(
@@ -225,18 +224,31 @@ func replaceInitialInfinityExploderScarabs(
 		!strings.EqualFold(director.Level, "infinity_2") {
 		return plans, nil
 	}
-	replacementEntry, configKind, isFound := EntryByNoun(director, roboBomberNounName)
-	if !isFound || !strings.EqualFold(configKind, roboBomberConfigKind) ||
-		!replacementEntry.NPCProfile.IsKnown {
+	isReplacementNeeded := false
+	for _, plan := range plans {
+		if isExploderScarabNoun(plan.NounName) {
+			isReplacementNeeded = true
+			break
+		}
+	}
+	if !isReplacementNeeded {
+		return plans, nil
+	}
+	// This fixed campaign replacement is independent of the selected roster.
+	// Robo-Bomber is authored as a first-time minion, not an agent, and normal
+	// roster composition can discard that pool entirely. Resolve its profile
+	// from the complete noun catalog retained by the director instead.
+	replacementProfile, isFound := director.NPCProfilesByNoun[strings.ToLower(roboBomberNounName)]
+	if !isFound || !replacementProfile.IsKnown || replacementProfile.HitPoint <= 0 {
 		return nil, errors.New("4-1 Robo-Bomber unavailable")
 	}
 	for index := range plans {
 		if !isExploderScarabNoun(plans[index].NounName) {
 			continue
 		}
-		plans[index].NounName = replacementEntry.NounName
+		plans[index].NounName = roboBomberNounName
 		plans[index].AuthoredNounName = ""
-		plans[index].NPCProfile = replacementEntry.NPCProfile
+		plans[index].NPCProfile = replacementProfile
 		plans[index].ActionProfile = zonenpc.ActionProfile{}
 		plans[index].IsActionKnown = false
 	}

@@ -1519,6 +1519,19 @@ func tutorialGameplayBinding(binding game.GameplayBinding) game.GameplayBinding 
 			binding.Creatures[0].Noun = util.HashID("PC_EL_Rogue.Noun")
 			binding.Creatures[0].Version = 1
 		}
+		// Tutorial heroes can exist before the account owns any creatures.
+		// Keep their authored loot identity alongside the synthetic noun.
+		if binding.Creatures[0].Noun == util.HashID("PC_EL_Rogue.Noun") {
+			if binding.Creatures[0].Name == "" {
+				binding.Creatures[0].Name = "Blitz Alpha"
+			}
+			if binding.Creatures[0].ClassType == "" {
+				binding.Creatures[0].ClassType = "ravager"
+			}
+			if binding.Creatures[0].ElementType == "" {
+				binding.Creatures[0].ElementType = "plasma"
+			}
+		}
 		if binding.Creatures[0].MinimumWeaponDamage <= 0 ||
 			binding.Creatures[0].MaximumWeaponDamage < binding.Creatures[0].MinimumWeaponDamage {
 			binding.Creatures[0].MinimumWeaponDamage = 4
@@ -1537,6 +1550,17 @@ func tutorialSageBinding(binding game.GameplayBinding) game.GameplayBinding {
 			Noun: util.HashID("PC_LF_Mage.Noun"), Version: 1,
 			HitPoint:   campaignHeroResourceFallback,
 			PowerPoint: campaignHeroResourceFallback,
+		}
+	}
+	if binding.Creatures[1].Noun == util.HashID("PC_LF_Mage.Noun") {
+		if binding.Creatures[1].Name == "" {
+			binding.Creatures[1].Name = "Sage Alpha"
+		}
+		if binding.Creatures[1].ClassType == "" {
+			binding.Creatures[1].ClassType = "tempest"
+		}
+		if binding.Creatures[1].ElementType == "" {
+			binding.Creatures[1].ElementType = "bio"
 		}
 	}
 	if binding.Creatures[1].MinimumWeaponDamage <= 0 ||

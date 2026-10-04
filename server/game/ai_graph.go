@@ -13,10 +13,15 @@ const (
 // CampaignAIGraph retains authored graph order without assigning execution or
 // transition behavior to the phase enum. Unresolved definitions retain their ID.
 type CampaignAIGraph struct {
-	PassiveAbility *string
-	DefinitionID   uint32
-	IsResolved     bool
-	Nodes          []CampaignAINode
+	PassiveAbility     *string
+	PreAggroIdle       string
+	PreAggroIdle2      string
+	UseSecondaryStart  float32
+	FirstAggroAbility  *string
+	FirstAggroAbility2 *string
+	DefinitionID       uint32
+	IsResolved         bool
+	Nodes              []CampaignAINode
 }
 
 type CampaignAINode struct {
@@ -75,6 +80,8 @@ func (e *CampaignAIGraph) Clone() *CampaignAIGraph {
 	}
 	clone := *e
 	clone.PassiveAbility = cloneAIReference(e.PassiveAbility)
+	clone.FirstAggroAbility2 = cloneAIReference(e.FirstAggroAbility2)
+	clone.FirstAggroAbility = cloneAIReference(e.FirstAggroAbility)
 	clone.Nodes = slices.Clone(e.Nodes)
 	for index := range clone.Nodes {
 		node := &clone.Nodes[index]

@@ -136,6 +136,7 @@ func (e *Zone) introduceInitialNPCs() ([]zonenpc.SpawnPlan, error) {
 	if len(plans) == 0 {
 		return nil, nil
 	}
+	plans = e.info.NPCs.PrepareIntroductions(plans)
 	err := e.info.NPCs.AddDormant(plans)
 	if err != nil {
 		return nil, fmt.Errorf("initialNPCAdd: %w", err)
@@ -216,6 +217,7 @@ func (e *Zone) planPopulation(
 	if err != nil {
 		return nil, fmt.Errorf("enemyValidate: %w", err)
 	}
+	plans = e.info.NPCs.PrepareIntroductions(plans)
 	introducedPlans := make([]zonenpc.SpawnPlan, 0, len(plans))
 	stagedPlans := make([]zonenpc.SpawnPlan, 0, len(plans))
 	for _, plan := range plans {
