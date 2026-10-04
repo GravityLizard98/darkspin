@@ -24,7 +24,8 @@ type ScenarioMapRequest struct {
 }
 
 type scenarioMapState struct {
-	requests map[int64]ScenarioMapRequest
+	requests            map[int64]ScenarioMapRequest
+	continueGamesByUser map[int64]*Instance
 }
 
 type scenarioMapBinding struct {

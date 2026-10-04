@@ -10,7 +10,6 @@ import (
 	"github.com/darkspinnet/darkspin/server/navigation"
 	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
-	zonenavigation "github.com/darkspinnet/darkspin/server/zone/navigation"
 )
 
 const minimumNavigationFootprintRadius = 0.1
@@ -18,6 +17,7 @@ const minimumNavigationFootprintRadius = 0.1
 type PursuitStep struct {
 	Position                 game.Vec3
 	IsInRange                bool
+	IsBlocked                bool
 	IsNavigationFallback     bool
 	NavigationFallbackReason string
 }
@@ -127,36 +127,16 @@ func (s *Session) AdvancePursuit(
 				IsInRange: zonegeometry.Distance(destination, targetPosition) < stopDistance,
 			}, nil
 		}
-		planarDistance := float32(math.Hypot(float64(deltaX), float64(deltaY)))
-		if planarDistance < stopDistance &&
-			float32(math.Abs(float64(deltaZ))) <= zonenavigation.ProjectionDistance {
-			return PursuitStep{Position: source, IsInRange: true}, nil
-		}
 		navigationFallbackReason := "path did not advance"
 		if pathErr != nil {
 			navigationFallbackReason = pathErr.Error()
 		}
-		// The client continues the published locomotion directly toward its
-		// goal when the authored navigation mesh cannot project either end of
-		// the route. Advance the authoritative pose along that same fallback
-		// path so range checks do not keep using the NPC's stale spawn point.
-		remaining := distance - stopDistance
-		if travel >= remaining {
-			travel = min(distance, remaining+0.0001)
-		}
-		scale := travel / distance
-		npc.Plan.Position = game.Vec3{
-			X: source.X + deltaX*scale,
-			Y: source.Y + deltaY*scale,
-			Z: source.Z + deltaZ*scale,
-		}
-		npc.Facing = directionTo(source, npc.Plan.Position)
-		s.npcs[objectID] = npc
+		// Native A64700 installs idle through A62AD0 when the replacement
+		// corridor fails. Never invent movement through a wall or between floors,
+		// or accept a planar-only arrival after the full 3D range check failed.
 		return PursuitStep{
-			Position: npc.Plan.Position,
-			IsInRange: zonegeometry.Distance(
-				npc.Plan.Position, targetPosition,
-			) < stopDistance,
+			Position:                 source,
+			IsBlocked:                true,
 			IsNavigationFallback:     true,
 			NavigationFallbackReason: navigationFallbackReason,
 		}, nil

@@ -8,6 +8,10 @@ type scenarioMapState struct{}
 
 type scenarioMapBinding struct{}
 
+func (e *Manager) IsScenarioContinueHost(gameID uint32, userID int64) bool {
+	return false
+}
+
 func (e *Manager) attachScenarioMap(binding *GameplayBinding) error {
 	return nil
 }

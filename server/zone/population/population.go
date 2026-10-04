@@ -845,10 +845,9 @@ func campaignPopulationPoolTheme(
 		return campaignPopulationTheme{}, false, errors.New("nil pool theme random")
 	}
 	minionEntries := PoolEntries(director, "minion")
-	lieutenantEntries := PoolEntries(director, "captain")
-	if len(lieutenantEntries) == 0 {
-		lieutenantEntries = PoolEntries(director, "special")
-	}
+	// Native mixed groups collect role 1 (specials), independently of the
+	// captain encounter roster. A captain variant is not a lieutenant upgrade.
+	lieutenantEntries := PoolEntries(director, "special")
 	if len(minionEntries) == 0 || len(lieutenantEntries) == 0 {
 		return campaignPopulationTheme{}, false, nil
 	}

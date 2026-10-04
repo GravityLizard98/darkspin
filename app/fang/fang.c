@@ -1852,11 +1852,16 @@ static DWORD WINAPI jwt_login_watchdog_thread(LPVOID parameter) {
     if (InterlockedCompareExchange(&jwt_login_completed, 0, 0) != 0) {
         return 0;
     }
+#if FANG_SCENARIO
+    trace_client_state("scenario_login_completion_unobserved", 1);
+    return 0;
+#else
     trace_client_state("jwt_login_watchdog_expired", 1);
     if (write_login_failure_result()) {
         ExitProcess(0xD15C0001u);
     }
     return 0;
+#endif
 }
 
 static void start_jwt_login_watchdog(void) {

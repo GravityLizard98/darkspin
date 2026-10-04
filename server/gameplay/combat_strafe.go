@@ -343,25 +343,33 @@ func (e campaignNPCStrafeStep) produce() ([][]byte, error) {
 		e.runtime.registry.mutex.Unlock()
 		return produceCampaignNPCStrafeResume(e.resume, e.timestamp)
 	}
-	isFacingCommitted := peerSession.zone.NPCs().CommitFacing(zonenpc.AttackPlan{
-		SourceObjectID: e.objectID, TargetObjectID: target.ObjectID,
-		ActionGeneration: e.actionGeneration, SourcePosition: step.Position,
-		TargetPosition: target.Position,
-	})
+	isFacingCommitted := true
+	if !step.IsBlocked {
+		isFacingCommitted = peerSession.zone.NPCs().CommitFacing(zonenpc.AttackPlan{
+			SourceObjectID: e.objectID, TargetObjectID: target.ObjectID,
+			ActionGeneration: e.actionGeneration, SourcePosition: step.Position,
+			TargetPosition: target.Position,
+		})
+	}
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
 	e.runtime.registry.mutex.Unlock()
 	if !isFacingCommitted {
 		return nil, nil
 	}
 
-	packets, err := npcraknet.BoundedStrafe(
-		e.objectID, step.Position, e.destination,
-		target.ObjectID, target.Position, e.stopDistance,
-	)
+	var packets [][]byte
+	if step.IsBlocked {
+		packets, err = npcraknet.StopAtPose(e.objectID, step.Position, enemy.Facing)
+	} else {
+		packets, err = npcraknet.BoundedStrafe(
+			e.objectID, step.Position, e.destination,
+			target.ObjectID, target.Position, e.stopDistance,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("enemyStrafeProgress: %w", err)
 	}
-	if step.IsInRange || e.elapsed >= e.maximumPeriod {
+	if step.IsBlocked || step.IsInRange || e.elapsed >= e.maximumPeriod {
 		if e.mode == campaignNPCStrafeModeRetreat {
 			followupPackets, followupErr := e.runtime.produceBoundedStrafeOrIdle(
 				e.packet, e.sessionKey, e.generation, e.objectID,

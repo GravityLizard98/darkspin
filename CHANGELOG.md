@@ -1,5 +1,10 @@
 # Changelog
 
+### 2026-10-04
+
+- Change ordinary lieutenant population from captain variants to the authored special-enemy roster, preserving separate captain and boss encounters.
+- Stop NPC movement at the last accepted position when pathfinding fails instead of advancing through blocked terrain and accepting false attack arrivals.
+
 ### 2026-10-03
 
 - Restore Nashira's scripted entrance facing, correct Polaris's teleport center and orientation, and prevent interrupted boss callbacks from applying stale movement or activation.

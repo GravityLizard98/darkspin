@@ -85,6 +85,10 @@ func (e *Server) ScenarioRegister(
 	if err != nil {
 		return sporenet.ScenarioProfile{}, fmt.Errorf("profileMap: %w", err)
 	}
+	err = e.scenarioContinue(ctx, loginName, runID, profile)
+	if err != nil {
+		return sporenet.ScenarioProfile{}, fmt.Errorf("profileContinue: %w", err)
+	}
 	return profile, nil
 }
 

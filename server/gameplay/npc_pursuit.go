@@ -475,6 +475,20 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("enemyPursuitAdvance: %w", err)
 	}
+	if step.IsBlocked {
+		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+		r.registry.sessions[sessionKey] = peerSession
+		r.registry.mutex.Unlock()
+		if r.logger != nil {
+			r.logger.Printf("RakNet NPC pursuit blocked object=%d noun=%q target=%d reason=%q",
+				objectID, enemy.Plan.NounName, resolvedTargetObjectID, step.NavigationFallbackReason)
+		}
+		packets, stopErr := npcraknet.StopAtPose(objectID, step.Position, enemy.Facing)
+		if stopErr != nil {
+			return nil, fmt.Errorf("enemyBlockedStop: %w", stopErr)
+		}
+		return packets, nil
+	}
 	// Ordinary pursuit publishes 0x41 with a live target ID. Projectile
 	// pursuit, fleeing, and pass-through charges retain movement-derived heading.
 	if profile.Family != zonenpc.ActionProjectile && profile.AbilityName != "Flee" &&
