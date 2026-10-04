@@ -4,15 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/sim"
+	"github.com/darkspinnet/darkspin/server/util"
 	zonecallback "github.com/darkspinnet/darkspin/server/zone/callback"
 	zonehorde "github.com/darkspinnet/darkspin/server/zone/horde"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 	zoneobject "github.com/darkspinnet/darkspin/server/zone/object"
+	zonepopulation "github.com/darkspinnet/darkspin/server/zone/population"
 )
 
 const GenericCallback = "DirectorTrigger_SpawnBoss"
@@ -36,7 +37,7 @@ func PlanNamedEncounter(
 ) (game.CampaignDirectorPublication, []zonenpc.SpawnPlan, uint32, error) {
 	if publication.PublicationID == 0 || publication.MarkerSetOrdinal < 0 ||
 		publication.MarkerSetName == "" || publication.EventName == "" ||
-		firstObjectID == 0 {
+		firstObjectID == 0 || firstObjectID >= zoneobject.ProjectileIDStart {
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,
 			errors.New("named boss plan: invalid publication")
 	}
@@ -84,11 +85,10 @@ func PlanNamedEncounter(
 		// Shared named-event listeners also contain captain-wave anchors.
 		// Destructors own their summons; these anchors are not opening adds.
 		addListener = nil
-	}
-	isZunhObservedFallback := chainLevelIndex == 2 &&
-		strings.EqualFold(director.Level, "zelems_3") && len(addListener) == 0
-	if isZunhObservedFallback {
-		addListener = observedZunhAddListeners(director, bossListener)
+	} else if len(addListener) == 0 {
+		return game.CampaignDirectorPublication{}, nil, firstObjectID,
+			fmt.Errorf("bossAddAnchors: level %q event %q has no horde listeners",
+				director.Level, publication.EventName)
 	}
 	leaderEntry := CompleteEntries(
 		directorPoolEntries(director, "captain"), false,
@@ -100,8 +100,8 @@ func PlanNamedEncounter(
 			directorPoolEntries(director, "special"), false,
 		)
 	}
-	agentEntry := CompleteEntries(
-		directorPoolEntries(director, "agent"), true,
+	addEntries := CompleteEntries(
+		zonepopulation.HordeEntries(director), true,
 	)
 	if len(leaderEntry) == 0 {
 		if isNamedBoss {
@@ -114,10 +114,12 @@ func PlanNamedEncounter(
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,
 			errors.New("named boss plan: candidate pool unavailable")
 	}
-	if len(agentEntry) == 0 {
-		// HordeSpawner_Register listeners remain on the named event, but
-		// they cannot create opening adds without an eligible agent roster.
-		addListener = nil
+	if len(addListener) != 0 && len(addEntries) == 0 {
+		// Horde anchors consume the selected minion roster, not an obligatory
+		// agent pool. Never silently skip the wave when its roster is invalid.
+		return game.CampaignDirectorPublication{}, nil, firstObjectID,
+			fmt.Errorf("bossAddRoster: level %q has %d anchors but no eligible horde minions",
+				director.Level, len(addListener))
 	}
 	actorCount := 1 + len(addListener)
 	if actorCount > int(zoneobject.ProjectileIDStart-firstObjectID) {
@@ -154,11 +156,16 @@ func PlanNamedEncounter(
 		NPCProfile:    profile,
 		BossIdentity:  bossIdentity,
 	}}
+	// Retain the local one-add-per-anchor policy until native wave budgets are
+	// recovered; the authored listeners determine placement, not a fake ring.
+	random := initialAddRandom(director, gameID, bossListener.MarkerID, 1)
 	for index, listener := range addListener {
-		entryIndex := int(
-			(gameID + uint32(index)) % uint32(len(agentEntry)),
-		)
-		entry := agentEntry[entryIndex]
+		entryIndex, choiceErr := random.Index(uint32(len(addEntries)))
+		if choiceErr != nil {
+			return game.CampaignDirectorPublication{}, nil, firstObjectID,
+				fmt.Errorf("bossAddChoice[%d]: %w", index, choiceErr)
+		}
+		entry := addEntries[entryIndex]
 		plan = append(plan, zonenpc.SpawnPlan{
 			ObjectID:      firstObjectID + 1 + uint32(index),
 			NounName:      entry.NounName,
@@ -166,6 +173,7 @@ func PlanNamedEncounter(
 			Rotation:      listener.Rotation,
 			LocusID:       bossListener.MarkerID,
 			Kind:          sim.DirectorLocusBoss,
+			Introduction:  zonenpc.SpawnIntroductionFloorWarp,
 			MarkerSetName: publication.MarkerSetName,
 			NPCProfile:    entry.NPCProfile,
 		})
@@ -183,65 +191,6 @@ func PlanNamedEncounter(
 		),
 	}
 	return triggerPublication, plan, firstObjectID + uint32(len(plan)), nil
-}
-
-func observedZunhAddListeners(
-	director game.CampaignDirector,
-	bossListener game.CampaignDirectorListenerPublication,
-) []game.CampaignDirectorListenerPublication {
-	candidate := make([]game.CampaignDirectorListenerPublication, 0)
-	for _, markerSet := range director.MarkerSets {
-		if markerSet.Ordinal != bossListener.MarkerSetOrdinal ||
-			!strings.EqualFold(markerSet.Name, bossListener.MarkerSetName) {
-			continue
-		}
-		for _, marker := range markerSet.Markers {
-			if marker.MarkerID == 0 || !isFinitePosition(marker.Position) ||
-				!strings.HasPrefix(strings.ToLower(marker.NounName),
-					"spawnpoint_directorhorde.noun") {
-				continue
-			}
-			candidate = append(candidate, game.CampaignDirectorListenerPublication{
-				MarkerSetOrdinal: markerSet.Ordinal,
-				MarkerSetName:    markerSet.Name, MarkerOrdinal: marker.Ordinal,
-				MarkerID: marker.MarkerID, MarkerName: marker.Name,
-				NounName: marker.NounName, Position: marker.Position,
-				Rotation: marker.Rotation,
-			})
-		}
-	}
-	sort.Slice(candidate, func(left int, right int) bool {
-		leftDistance := squaredPositionDistance(candidate[left].Position, bossListener.Position)
-		rightDistance := squaredPositionDistance(candidate[right].Position, bossListener.Position)
-		if leftDistance == rightDistance {
-			return candidate[left].MarkerID < candidate[right].MarkerID
-		}
-		return leftDistance < rightDistance
-	})
-	if len(candidate) >= 2 {
-		return candidate[:2]
-	}
-	for len(candidate) < 2 {
-		index := len(candidate)
-		offset := float32(3)
-		if index != 0 {
-			offset = -offset
-		}
-		candidate = append(candidate, game.CampaignDirectorListenerPublication{
-			MarkerSetOrdinal: bossListener.MarkerSetOrdinal,
-			MarkerSetName:    bossListener.MarkerSetName,
-			MarkerOrdinal:    bossListener.MarkerOrdinal,
-			MarkerID:         bossListener.MarkerID,
-			MarkerName:       bossListener.MarkerName,
-			NounName:         "SpawnPoint_DirectorHorde.Noun",
-			Position: game.Vec3{
-				X: bossListener.Position.X + offset,
-				Y: bossListener.Position.Y,
-				Z: bossListener.Position.Z,
-			},
-		})
-	}
-	return candidate
 }
 
 func squaredPositionDistance(left game.Vec3, right game.Vec3) float32 {
@@ -447,14 +396,46 @@ func directorPoolEntries(
 func namedEventListeners(
 	markerSet game.CampaignDirectorMarkerSet, eventName string,
 ) []game.CampaignDirectorListenerPublication {
-	listener := make([]game.CampaignDirectorListenerPublication, 0)
+	listeners := make([]game.CampaignDirectorListenerPublication, 0)
+	eventHash := util.HashID(eventName)
 	for _, candidate := range markerSet.Markers {
+		if candidate.EventListener != nil {
+			// Use the same structural subscriptions as the live director. The
+			// legacy projection can split authored event names into callbacks.
+			for _, entry := range candidate.EventListener.Entries {
+				if entry.EventHash != eventHash {
+					continue
+				}
+				listener := game.CampaignDirectorListenerPublication{
+					MarkerSetOrdinal: markerSet.Ordinal, MarkerSetName: markerSet.Name,
+					MarkerOrdinal: candidate.Ordinal, MarkerID: candidate.MarkerID,
+					MarkerName: candidate.Name, NounName: candidate.NounName,
+					SpawnKind: candidate.SpawnKind, PoolKind: candidate.PoolKind,
+					IsSpawnKindKnown: candidate.IsSpawnKindKnown,
+					Position:         candidate.Position, Rotation: candidate.Rotation,
+					EventOrdinal: entry.Ordinal, EventHash: entry.EventHash,
+					NativeCallbackHash: entry.NativeCallbackHash,
+				}
+				if entry.NativeCallbackName != nil {
+					listener.NativeCallbackName = *entry.NativeCallbackName
+					listener.CallbackName = *entry.NativeCallbackName
+				}
+				if entry.LuaCallbackName != nil {
+					listener.LuaCallbackName = *entry.LuaCallbackName
+					if listener.CallbackName == "" {
+						listener.CallbackName = listener.LuaCallbackName
+					}
+				}
+				listeners = append(listeners, listener)
+			}
+			continue
+		}
 		for _, candidateEvent := range candidate.Events {
 			candidateEventName := namedMarkerEventName(candidate, candidateEvent)
 			if !strings.EqualFold(candidateEventName, eventName) {
 				continue
 			}
-			listener = append(listener,
+			listeners = append(listeners,
 				game.CampaignDirectorListenerPublication{
 					MarkerSetOrdinal: markerSet.Ordinal,
 					MarkerSetName:    markerSet.Name,
@@ -473,7 +454,7 @@ func namedEventListeners(
 			)
 		}
 	}
-	return listener
+	return listeners
 }
 
 // A boss spawn point can own the trigger itself. The director stores that

@@ -1,9 +1,41 @@
 package contentsqlite
 
 import (
+	"strings"
+
 	contentsqlite "github.com/darkspinnet/darkspin/content/sqlite"
 	"github.com/darkspinnet/darkspin/server/game"
 )
+
+// Lua callback projections can omit the event paired with their trigger slot.
+// Retain that authored binding so arena horde listeners are found after the
+// tutorial script's activation wait, instead of inventing a callback-only name.
+func campaignTriggerEventName(
+	definition *contentsqlite.SpawnTriggerDefinition, event contentsqlite.LevelDirectorEvent,
+) string {
+	if strings.TrimSpace(event.EventName) != "" || definition == nil || definition.TriggerVolume == nil {
+		return event.EventName
+	}
+	trigger := definition.TriggerVolume
+	if trigger.Events == nil {
+		return event.EventName
+	}
+	var eventName *string
+	switch event.EventSlot {
+	case "luaCallbackOnEnter":
+		if trigger.LuaCallbackOnEnter != nil && *trigger.LuaCallbackOnEnter == event.CallbackName {
+			eventName = trigger.Events.OnEnter
+		}
+	case "luaCallbackOnExit":
+		if trigger.LuaCallbackOnExit != nil && *trigger.LuaCallbackOnExit == event.CallbackName {
+			eventName = trigger.Events.OnExit
+		}
+	}
+	if eventName == nil {
+		return event.EventName
+	}
+	return *eventName
+}
 
 func campaignSpawnTrigger(definition *contentsqlite.SpawnTriggerDefinition) *game.CampaignSpawnTriggerDefinition {
 	if definition == nil {

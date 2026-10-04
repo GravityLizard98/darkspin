@@ -518,7 +518,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 					EventHash: event.EventHash, NativeCallbackHash: event.NativeCallbackHash, LuaCallbackName: event.LuaCallbackName,
 					Ordinal: event.Ordinal, ComponentName: event.ComponentName,
 					EventKind: event.EventKind, EventSlot: event.EventSlot,
-					EventName: event.EventName, CallbackName: event.CallbackName,
+					EventName: campaignTriggerEventName(trigger.SpawnTrigger, event), CallbackName: event.CallbackName,
 					TriggerRadius:     event.TriggerRadius,
 					IsTriggerOnceOnly: event.IsTriggerOnceOnly, IsServerOnly: event.IsServerOnly,
 				})

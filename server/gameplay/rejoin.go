@@ -421,8 +421,9 @@ func marshalGameplayRejoinBaselineState(
 		packets = append(packets, resourcePacket)
 	}
 	bossState := peerSession.zone.Boss().Snapshot()
-	if bossState.Phase == zoneboss.PhaseActive {
-		if bossState.IsLeaderDeferred {
+	if bossState.Phase == zoneboss.PhaseActive ||
+		(bossState.Phase == zoneboss.PhaseArming && bossState.IsSecondWaveRequested) {
+		if bossState.IsLeaderDeferred && !bossState.IsSecondWaveAdmitted {
 			phasePacket, phaseErr := bossraknet.AddPhase()
 			if phaseErr != nil {
 				return nil, fmt.Errorf("rejoinBossPhase: %w", phaseErr)
