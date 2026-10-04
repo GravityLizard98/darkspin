@@ -632,6 +632,7 @@ func New(options Options) (*Server, error) {
 		localAuthHandler = broker.Handler()
 	}
 	roomManager := sporenet.NewRoomManager()
+	userManager.SetRoomManager(roomManager)
 	gameManager := game.NewManager()
 	partyService := party.NewService(partylocal.NewMembership(userManager))
 	relayAddress, err := netip.ParseAddrPort(

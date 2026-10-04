@@ -275,6 +275,7 @@ func (u *User) CurrentPlaygroupID() uint32 {
 type UserManager struct {
 	repository       UserRepository
 	partScorer       PartScorer
+	roomManager      *RoomManager
 	mu               sync.RWMutex
 	activeUsers      map[string]*User
 	activeUsersByID  map[int64]*User
@@ -299,6 +300,14 @@ func (m *UserManager) SetPartScorer(partScorer PartScorer) {
 	m.mu.Lock()
 	m.partScorer = partScorer
 	m.mu.Unlock()
+}
+
+// SetRoomManager binds transient lobby membership to the profile lifecycle.
+// Install it during server composition, before accepting logins.
+func (e *UserManager) SetRoomManager(roomManager *RoomManager) {
+	e.mu.Lock()
+	e.roomManager = roomManager
+	e.mu.Unlock()
 }
 
 // LoginResult mirrors recap_server's success/already-logged-in result.
@@ -604,6 +613,12 @@ func (m *UserManager) Logout(ctx context.Context, user *User) error {
 	m.mu.Lock()
 	key := loginKey(user.LoginName)
 	if m.activeUsers[key] == user {
+		// A room retaining this profile would advertise its old identity after
+		// deletion/recreation. Build 103 merges users by name and can then lose
+		// the new player's Blaze ID during native game creation.
+		if m.roomManager != nil {
+			m.roomManager.RemoveUser(user)
+		}
 		delete(m.activeUsers, key)
 		delete(m.activeUsersByID, user.Account.ID)
 		delete(m.usersByToken, user.AuthToken)
