@@ -165,12 +165,12 @@ func (e campaignLaserPulse) produce() ([][]byte, error) {
 			packets = append(packets, hits...)
 			if isApplied {
 				member.queueStatDelta(delta)
-				impactPackets, impactErr := npcraknet.AttackImpact(plan)
+				impactPacket, impactErr := npcraknet.AttackImpact(plan)
 				if impactErr != nil {
 					registry.mutex.Unlock()
 					return nil, fmt.Errorf("laserImpact: %w", impactErr)
 				}
-				packets = append(packets, impactPackets...)
+				packets = append(packets, impactPacket)
 			}
 		}
 		e.readyAt = now.Add(time.Second)

@@ -124,7 +124,7 @@ func (e campaignFixtureBlastStep) damage(targetID uint32, profile zonenpc.Action
 		SourceObjectID: e.source.Plan.ObjectID, TargetObjectID: targetID,
 		Damage: result.Damage, SourcePosition: &sourcePosition, IsArea: !isDOT, IsPeriodic: isDOT,
 		Metadata: zonenpc.DamageMetadata{
-			DamageSource: profile.DamageSource, DamageType: profile.DamageType,
+			DamageSource: uint32(profile.DamageSource), DamageType: uint32(profile.DamageType),
 			DescriptorMask: profile.DescriptorMask, IsDamageTypeKnown: true,
 		},
 	})
