@@ -4780,10 +4780,17 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		req.kind == campaignNPCAttackCryosChargeHeadbutt ||
 		req.kind == campaignNPCAttackPickyCharging ||
 		req.kind == campaignNPCAttackPickyMelee {
-		currentPlan, err = zonenpc.PlanAttackWithProfile(
-			currentNPC, currentTarget.ObjectID, currentTarget.Position,
-			e.plan.Profile, currentTarget.ActorFootprintRadius,
-		)
+		if e.plan.Profile.AbilityName == "FastSwipe" {
+			currentPlan, err = zonenpc.PlanFastSwipeHit(
+				currentNPC, currentTarget.ObjectID, currentTarget.Position,
+				e.plan.Profile, currentTarget.ActorFootprintRadius,
+			)
+		} else {
+			currentPlan, err = zonenpc.PlanAttackWithProfile(
+				currentNPC, currentTarget.ObjectID, currentTarget.Position,
+				e.plan.Profile, currentTarget.ActorFootprintRadius,
+			)
+		}
 		if err == nil && currentPlan.Profile.ImpactEffectName != "" {
 			impactPacket, err = npcraknet.AttackImpact(currentPlan)
 		}

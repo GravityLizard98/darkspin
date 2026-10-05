@@ -1,7 +1,13 @@
 # Changelog
 
+### 2026-10-05
+
+- Correct Grappling Pulsar's Puller follow-up from projectile travel plus pull duration to its authored 1.25-second release, and require footprint contact for each Fast Swipe hit.
+- Correct Protoplasm's attack pauses from the full OozeGrow cooldown to its animation release, keeping growth on an independent cooldown, and restore the authored OozePassive green drip effect.
+
 ### 2026-10-04
 
+- Remove logged-out profiles from lobby rosters, preventing a crash when a deleted Crogenitor is recreated with the same name.
 - Fix Uranium Heights (4-1) failing before heroes spawn by resolving Robo-Bomber replacements from the full noun catalog instead of requiring them in the selected agent pool.
 - Keep tutorial arena progression in its wave controller instead of repeatedly attempting to spawn an unavailable campaign boss.
 - Align the tutorial horde's western spawn point with the position accepted by the client, preventing enemies from starting several units away from their server position.
@@ -22,7 +28,6 @@
 - Correct Cryos geysers from disappearing ice debris to persistent opened vents that erupt after being broken, with owner-bound warning audio, authored burst orientation and restored vents on reconnect.
 - Restore loot and health obelisks across campaign maps from authored component placements, preserving seeded variants, use limits and noun-inherited reward budgets without requiring nonexistent event-script bindings.
 - Change campaign horde and boss activation from immediate radius checks to authored trigger shapes, party-entry requirements and wait times, preserving unfinished persistent waits across checkpoints and preventing early boss fallback activation.
-
 - Stop spurious "Objective 00:02" arrival notifications by removing the forced HELIX introduction that incorrectly announced the mission timer.
 - Restore Herbipod detection from the shortened 5/7/9-unit aggro ranges to their authored 19/20/21-unit perception ranges, consistently across visibility, acquisition, and retargeting.
 - Correct campaign enemy composition from shifted science fields and fixed map rosters to the client's authored auxiliary science fields and per-section enemy choices.

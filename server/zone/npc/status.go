@@ -49,6 +49,7 @@ type status struct {
 	oozeBaseMaximumHitPoint  float32
 	oozeGrowthDamageIncrease float32
 	oozeGrowthStack          uint32
+	oozeGrowthReadyTimestamp uint64
 	corpseConsumerCount      uint32
 	isCorpseFading           bool
 	isCorpseFadePublished    bool

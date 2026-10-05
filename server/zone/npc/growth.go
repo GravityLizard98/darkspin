@@ -2,9 +2,37 @@ package npc
 
 import (
 	"errors"
+	"time"
 )
 
 const oozeGrowthMaximumStack = 4
+
+func (e Snapshot) IsOozeGrowthReady(timestamp uint64) bool {
+	return timestamp >= e.status.oozeGrowthReadyTimestamp
+}
+
+// CommitOozeGrowthAction keeps growth's cooldown independent of melee while
+// retaining it across retargeting and changes of the action's party owner.
+func (e *Session) CommitOozeGrowthAction(source Snapshot, timestamp uint64) bool {
+	if e == nil {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	npc, isFound := e.npcs[source.Plan.ObjectID]
+	if !isFound || npc.IsDefeated || !npc.IsActionStarted ||
+		npc.ActionGeneration != source.ActionGeneration ||
+		!npc.IsOozeGrowthReady(timestamp) {
+		return false
+	}
+	profile, isProfileFound := VerdanthBasicOozeGrowProfile(npc.Plan.NounName)
+	if !isProfileFound {
+		return false
+	}
+	npc.status.oozeGrowthReadyTimestamp = timestamp + uint64(profile.Cooldown/time.Millisecond)
+	e.npcs[source.Plan.ObjectID] = npc
+	return true
+}
 
 type OozeGrowthResult struct {
 	Target       Snapshot

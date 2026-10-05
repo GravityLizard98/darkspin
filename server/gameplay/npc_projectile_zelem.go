@@ -720,10 +720,9 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	} else if profile.ProjectileNoun != "" {
 		nextDelay := max(ability.Cooldown, ability.ReleaseDelay)
 		if isControlProjectile {
-			nextDelay = max(
-				ability.ReleaseDelay,
-				impactDeadline+profile.ForcedMovementDuration,
-			)
+			// Puller uses the projectile template's release wait. Its tracking
+			// thread and the target's pull modifier continue independently.
+			nextDelay = ability.ReleaseDelay
 		}
 		projectileSchedule.nextDelay = nextDelay
 		producers = append(producers, raknet.ScheduledPacketProducer{

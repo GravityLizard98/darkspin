@@ -1203,6 +1203,7 @@ func (s *Session) damage(
 		npc.IsSpawnStealthActive = false
 	}
 	if npc.IsDefeated {
+		npc.status.oozeGrowthReadyTimestamp = 0
 		if npc.status.oozeBaseMaximumHitPoint > 0 {
 			npc.Plan.NPCProfile.HitPoint = npc.status.oozeBaseMaximumHitPoint
 			npc.Plan.NPCProfile.GraphicsScale = npc.status.oozeBaseGraphicsScale

@@ -2695,6 +2695,7 @@ func verdanthBasicOozeMeleeProfile(cooldown time.Duration) ActionProfile {
 		DamageSource:              0,
 		Radius:                    1.5,
 		ImpactEffectName:          "ver_minn_lf_x4_oozeKiss_hit.ServerEventDef",
+		PassiveEffectName:         "ver_minn_lf_x4_centerDrips.ServerEventDef",
 		IsDamageProfileKnown:      true,
 		IsFirstAggroDurationKnown: true,
 	}

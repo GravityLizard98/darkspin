@@ -1,5 +1,10 @@
 # Changelog
 
+### 2026-10-05
+
+- Correct Grappling Pulsar's Puller follow-up from projectile travel plus pull duration to its authored 1.25-second release, and require footprint contact for each Fast Swipe hit.
+- Correct Protoplasm's attack pauses from the full OozeGrow cooldown to its animation release, keeping growth on an independent cooldown, and restore the authored OozePassive green drip effect.
+
 ### 2026-10-04
 
 - Remove logged-out profiles from lobby rosters, preventing a crash when a deleted Crogenitor is recreated with the same name.
