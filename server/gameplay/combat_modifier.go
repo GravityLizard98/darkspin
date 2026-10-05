@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/darkspinnet/darkspin/server/raknet"
+	"github.com/darkspinnet/darkspin/server/util"
 	zoneeffect "github.com/darkspinnet/darkspin/server/zone/effect"
 	effectraknet "github.com/darkspinnet/darkspin/server/zone/effect/raknet103"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
@@ -49,7 +50,15 @@ func (e campaignNPCTimedModifierExpiryStep) produce() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enemyTimedModifierDelete: %w", err)
 	}
-	return [][]byte{packet}, nil
+	packets := [][]byte{packet}
+	if e.run.record.GUID == util.HashID("CitadelMinionSuicide_Daze") {
+		speedPackets, speedErr := e.runtime.refreshScarabDazeMovement(e.sessionKey, e.generation)
+		if speedErr != nil {
+			return nil, fmt.Errorf("dazeExpirySpeed: %w", speedErr)
+		}
+		packets = append(packets, speedPackets...)
+	}
+	return packets, nil
 }
 
 func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
@@ -60,6 +69,20 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 	timestamp uint64,
 ) ([][]byte, error) {
 	profile := plan.Profile
+	if profile.ModifierName == "CitadelMinionSuicide_Daze" {
+		r.registry.mutex.RLock()
+		sourceMember, isSourceFound := r.registry.sessions[sessionKey]
+		if isSourceFound {
+			for targetKey, targetMember := range r.registry.sessions {
+				if targetMember.zone == sourceMember.zone && targetMember.deployedObjectID == plan.TargetObjectID {
+					sessionKey = targetKey
+					generation = targetMember.generation
+					break
+				}
+			}
+		}
+		r.registry.mutex.RUnlock()
+	}
 	if zonenpc.IsOperativeCage(profile.ModifierName) &&
 		!r.canApplyOperativeCage(sessionKey, generation, plan) {
 		return nil, nil
@@ -74,7 +97,7 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 	if (profile.ModifierName == "SleepModifier" ||
 		profile.ModifierName == "StalkerShock" ||
 		profile.ModifierName == "CryosBossShock" ||
-		profile.ModifierName == "SilenceModifier" || isRoot) && r.now == nil {
+		profile.ModifierName == "SilenceModifier" || profile.ModifierName == "CitadelMinionSuicide_Daze" || isRoot) && r.now == nil {
 		return nil, errors.New("enemy modifier clock unavailable")
 	}
 	run, err := newCampaignNPCModifierRun(r.modifierPool)
@@ -98,6 +121,9 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 		)
 	}
 	if isCurrent && r.isTargetDebuffImmuneLocked(&peerSession, plan.TargetObjectID) {
+		isCurrent = false
+	}
+	if isCurrent && profile.ModifierName == "CitadelMinionSuicide_Daze" && peerSession.isScarabDazed() {
 		isCurrent = false
 	}
 	if isCurrent {
@@ -288,6 +314,13 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 		if err != nil {
 			return nil, fmt.Errorf("enemyEntangleFocus: %w", err)
 		}
+	}
+	if profile.ModifierName == "CitadelMinionSuicide_Daze" {
+		speedPackets, speedErr := r.refreshScarabDazeMovement(sessionKey, generation)
+		if speedErr != nil {
+			return nil, fmt.Errorf("scarabDazeSpeed: %w", speedErr)
+		}
+		packets = append(packets, speedPackets...)
 	}
 	return packets, nil
 }

@@ -3,6 +3,7 @@ package gameplay
 import (
 	"fmt"
 
+	"github.com/darkspinnet/darkspin/server/game"
 	npcraknet "github.com/darkspinnet/darkspin/server/zone/npc/raknet103"
 )
 
@@ -10,6 +11,8 @@ import (
 type campaignLaserZone struct {
 	objectIDs []uint32
 	isActive  bool
+	origin    game.Vec3
+	endpoint  game.Vec3
 }
 
 func (e *campaignLaserZone) finish() ([][]byte, error) {
@@ -21,24 +24,6 @@ func (e *campaignLaserZone) finish() ([][]byte, error) {
 		return nil, fmt.Errorf("laserCleanup: %w", err)
 	}
 	e.isActive = false
-	return packets, nil
-}
-
-func (e campaignConeSchedule) finishLaserZone() ([][]byte, error) {
-	e.runtime.registry.mutex.Lock()
-	defer e.runtime.registry.mutex.Unlock()
-	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
-	if !isFound || peerSession.generation != e.generation {
-		return nil, nil
-	}
-	if peerSession.campaignNPCLaserZones[e.objectID] == e.laserZone {
-		delete(peerSession.campaignNPCLaserZones, e.objectID)
-		e.runtime.registry.sessions[e.sessionKey] = peerSession
-	}
-	packets, err := e.laserZone.finish()
-	if err != nil {
-		return nil, fmt.Errorf("laserFinish: %w", err)
-	}
 	return packets, nil
 }
 
@@ -58,7 +43,7 @@ func (r *gameplaySessionRegistry) interruptCampaignNPCForForcedMovementLocked(
 
 type campaignNPCForcedMovementInterruption struct {
 	objectID   uint32
-	laserZones map[*campaignLaserZone]struct{}
+	laserZones map[*campaignLaserController]struct{}
 	packets    [][]byte
 }
 
@@ -70,7 +55,7 @@ func (r *gameplaySessionRegistry) prepareCampaignNPCForcedMovementLocked(
 		peerSession.zone.NPCs() == nil || objectID == 0 {
 		return interruption, nil
 	}
-	interruption.laserZones = make(map[*campaignLaserZone]struct{})
+	interruption.laserZones = make(map[*campaignLaserController]struct{})
 	laserZone := peerSession.campaignNPCLaserZones[objectID]
 	if laserZone != nil {
 		interruption.laserZones[laserZone] = struct{}{}
@@ -86,14 +71,16 @@ func (r *gameplaySessionRegistry) prepareCampaignNPCForcedMovementLocked(
 		interruption.laserZones[laserZone] = struct{}{}
 	}
 	for laserZone := range interruption.laserZones {
-		if !laserZone.isActive {
-			continue
+		for _, beam := range laserZone.zones {
+			if !beam.isActive {
+				continue
+			}
+			cleanupPackets, err := npcraknet.LaserZoneEnd(beam.objectIDs)
+			if err != nil {
+				return campaignNPCForcedMovementInterruption{}, fmt.Errorf("forcedMovementLaserCleanup: %w", err)
+			}
+			interruption.packets = append(interruption.packets, cleanupPackets...)
 		}
-		cleanupPackets, err := npcraknet.LaserZoneEnd(laserZone.objectIDs)
-		if err != nil {
-			return campaignNPCForcedMovementInterruption{}, fmt.Errorf("forcedMovementLaserCleanup: %w", err)
-		}
-		interruption.packets = append(interruption.packets, cleanupPackets...)
 	}
 	return interruption, nil
 }
@@ -118,6 +105,8 @@ func (r *gameplaySessionRegistry) commitCampaignNPCForcedMovementLocked(
 		r.sessions[candidateSessionKey] = candidateSession
 	}
 	for laserZone := range interruption.laserZones {
-		laserZone.isActive = false
+		for _, beam := range laserZone.zones {
+			beam.isActive = false
+		}
 	}
 }

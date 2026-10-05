@@ -36,6 +36,9 @@ const (
 )
 
 type ActionProfile struct {
+	// IsRetainedVolumeDamage admits an already selected world-volume hit without
+	// requiring a current attack owner or treating it as damage over time.
+	IsRetainedVolumeDamage           bool
 	FirstAggroAbilityName            string
 	IsFirstAggroFacingSuppressed     bool
 	IsFacingSuppressed               bool
@@ -3654,13 +3657,9 @@ func ActionProfileForNoun(nounName string) (ActionProfile, bool) {
 		return citadelSpecificTwoMeleeTauntProfile(
 			1500*time.Millisecond, 6, 12,
 		), true
-	case "citadelbasicsuicide.noun":
+	case "citadelbasicsuicide.noun", "citadelbasicsuicide_2.noun", "citadelbasicsuicide_3.noun":
 		return citadelBasicSuicideProfile(
-			"NomadSnipe_SlowDebuff", 4*time.Second,
-		), true
-	case "citadelbasicsuicide_2.noun", "citadelbasicsuicide_3.noun":
-		return citadelBasicSuicideProfile(
-			"StalkerShock", 3*time.Second,
+			"CitadelMinionSuicide_Daze", 3*time.Second,
 		), true
 	case "scaldronbasicmonk.noun":
 		return scaldronBasicMonkFirebombProfile(2), true
@@ -3762,7 +3761,7 @@ func ActionProfileForNoun(nounName string) (ActionProfile, bool) {
 	case "citadelspecialthree_2.noun", "citadelspecialthree_captain_2.noun":
 		return citadelSpecialThreeLaserZoneProfile(4*time.Second, 500, 4), true
 	case "citadelspecialthree_3.noun", "citadelspecialthree_captain_3.noun":
-		return citadelSpecialThreeLaserZoneProfile(2*time.Second, 750, 4), true
+		return citadelSpecialThreeLaserZoneProfile(2*time.Second, 750, 5), true
 	case "citadelspecialtwo.noun", "citadelspecialtwo_captain.noun":
 		return citadelSpecialTwoHomingStunProfile(12*time.Second, 5, 3.5), true
 	case "citadelspecialtwo_2.noun", "citadelspecialtwo_captain_2.noun":
@@ -4467,28 +4466,29 @@ func citadelBasicSuicideProfile(
 	modifierName string, modifierDuration time.Duration,
 ) ActionProfile {
 	return ActionProfile{
-		Family: ActionDetonate, AbilityName: "CitadelMinionSuicide",
-		AnimationName:             "zlm_minn_tc_2_shutdown",
+		Family: ActionDetonate, AbilityName: "CitadelMinionSuicide_Suicide",
+		AnimationName:             "ctd_minn_tc_2_explode",
 		PreAggroAnimationName:     "zlm_minn_tc_2_shutdown",
 		FirstAggroAbilityName:     "FirstAggro_ActivateRobot",
 		FirstAggroAnimationName:   "zlm_minn_tc_2_aggro",
 		FirstAggroDelay:           1300 * time.Millisecond,
-		HitDelay:                  400 * time.Millisecond,
-		ReleaseDelay:              time.Second,
-		Cooldown:                  time.Second,
-		Range:                     0.75,
-		Radius:                    4,
+		HitDelay:                  1540 * time.Millisecond,
+		ReleaseDelay:              1540 * time.Millisecond,
+		Cooldown:                  3 * time.Second,
+		Range:                     5,
+		Radius:                    3,
 		MovementSpeed:             4,
 		NonCombatMovementSpeed:    2.5,
-		MinimumDamage:             5,
-		MaximumDamage:             8,
-		DamageCoefficient:         0.05,
+		MinimumDamage:             12,
+		MaximumDamage:             24,
 		DescriptorMask:            1<<3 | 1<<7,
 		DamageType:                0,
 		DamageSource:              1,
 		ModifierName:              modifierName,
 		ModifierDuration:          modifierDuration,
-		ImpactEffectName:          "cyber_trapper_tauntBombExplosion.ServerEventDef",
+		MovementSpeedBuff:         -0.5,
+		TargetEffectName:          "ctd_minn_tc_2_countdownFlash.ServerEventDef",
+		ImpactEffectName:          "ctd_minn_tc_2_explosion.ServerEventDef",
 		IsDamageProfileKnown:      true,
 		IsFirstAggroDurationKnown: true,
 	}
@@ -4857,7 +4857,7 @@ func citadelSpecialThreeLaserZoneProfile(
 }
 
 func mgpLaserZoneProfile() ActionProfile {
-	profile := citadelSpecialThreeLaserZoneProfile(6*time.Second, 250, 4)
+	profile := citadelSpecialThreeLaserZoneProfile(6*time.Second, 250, 3)
 	profile.PassiveCreateEffectName = "cyber_shield_generate_shield.ServerEventDef"
 	profile.PassiveEffectName = "citadelBasicShield_Shield.ServerEventDef"
 	return profile

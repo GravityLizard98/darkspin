@@ -14,8 +14,9 @@ func Remnants(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 	packets := make([][]byte, 0)
 	for _, snapshot := range snapshots {
 		isGeyser := zonenpc.IsCryosGeyser(snapshot.Plan)
+		isPipe := zonenpc.IsFactoryPipe(snapshot.Plan.NounName)
 		if !snapshot.IsPublished || !snapshot.IsDefeated ||
-			(!zonenpc.IsGraviticRemnant(snapshot.Plan) && !isGeyser) {
+			(!zonenpc.IsGraviticRemnant(snapshot.Plan) && !isGeyser && !isPipe) {
 			continue
 		}
 		graphicsState := util.HashID("dead")
@@ -38,7 +39,7 @@ func Remnants(snapshots []zonenpc.Snapshot) ([][]byte, error) {
 				ObjectID: snapshot.Plan.ObjectID, State: graphicsState,
 			},
 			raknet.ObjectCollisionUpdateMessage{
-				ObjectID: snapshot.Plan.ObjectID, IsCollisionEnabled: !isGeyser,
+				ObjectID: snapshot.Plan.ObjectID, IsCollisionEnabled: !isGeyser && !isPipe,
 			},
 		}
 		for index, message := range messages {

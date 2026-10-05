@@ -18,22 +18,21 @@ import (
 )
 
 type campaignConeSchedule struct {
-	runtime              campaignNPCActionRuntime
-	packet               raknet.Packet
-	sessionKey           string
-	generation           uint64
-	actionGeneration     uint64
-	objectID             uint32
-	timestamp            uint64
-	nextDelay            time.Duration
-	hitDelay             time.Duration
-	plan                 zonenpc.AttackPlan
-	laserTargetObjectIDs []uint32
-	laserEndpoints       []game.Vec3
-	laserZone            *campaignLaserZone
-	twinLaserEndpointID  uint32
-	twinLaserSecondID    uint32
-	isCorruptor          bool
+	runtime             campaignNPCActionRuntime
+	packet              raknet.Packet
+	sessionKey          string
+	generation          uint64
+	actionGeneration    uint64
+	objectID            uint32
+	timestamp           uint64
+	nextDelay           time.Duration
+	hitDelay            time.Duration
+	plan                zonenpc.AttackPlan
+	laserEndpoints      []game.Vec3
+	laserZone           *campaignLaserZone
+	twinLaserEndpointID uint32
+	twinLaserSecondID   uint32
+	isCorruptor         bool
 }
 
 func campaignCryosBossChainTargets(
@@ -143,6 +142,9 @@ func campaignConeDamagePercent(
 }
 
 func (e campaignConeSchedule) hit() ([][]byte, error) {
+	if e.laserZone != nil {
+		return e.startPersistentLaserZone()
+	}
 	e.runtime.registry.mutex.Lock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
 	isCurrent := isFound && peerSession.isCampaignNPCAttackGenerationActiveAt(
@@ -151,9 +153,6 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 	)
 	if !isCurrent {
 		e.runtime.registry.mutex.Unlock()
-		if e.laserZone != nil {
-			return e.finishLaserZone()
-		}
 		return nil, nil
 	}
 	source, isSourceFound := peerSession.zone.NPCs().NPC(e.objectID)
@@ -162,14 +161,10 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 	)
 	if !isSourceFound || !isPrimaryFound {
 		e.runtime.registry.mutex.Unlock()
-		if e.laserZone != nil {
-			return e.finishLaserZone()
-		}
 		return nil, nil
 	}
-	isLaserZone := e.plan.Profile.AbilityName == "CitadelSpecialThree_LaserZone"
 	isTwinLaser := e.plan.Profile.AbilityName == "TwinLaser"
-	if isLaserZone || (isTwinLaser && e.hitDelay == e.plan.Profile.HitDelay) {
+	if isTwinLaser && e.hitDelay == e.plan.Profile.HitDelay {
 		maximumDistance := e.plan.Profile.Range + source.Plan.NPCProfile.FootprintRadius +
 			primary.FootprintRadius
 		isInRange := primary.Position.Sub(source.Plan.Position).Length() <= maximumDistance
@@ -303,19 +298,6 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 			peerSession.campaignTwinLaserEndpointIDs[e.objectID] = e.twinLaserEndpointID
 		}
 	}
-	if isLaserZone && e.hitDelay == e.plan.Profile.HitDelay {
-		beamPackets, err := npcraknet.LaserZoneStart(e.plan, e.laserZone.objectIDs, e.laserEndpoints)
-		if err != nil {
-			e.runtime.registry.mutex.Unlock()
-			return nil, fmt.Errorf("enemyConeLaserBeam: %w", err)
-		}
-		e.laserZone.isActive = true
-		if peerSession.campaignNPCLaserZones == nil {
-			peerSession.campaignNPCLaserZones = make(map[uint32]*campaignLaserZone)
-		}
-		peerSession.campaignNPCLaserZones[e.objectID] = e.laserZone
-		packets = append(packets, beamPackets...)
-	}
 	maserEndpoint := primary.Position
 	if isMaserBeam {
 		length := float32(math.Hypot(float64(facing.X), float64(facing.Y)))
@@ -363,15 +345,7 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 			source.Plan.Position, facing, target,
 			e.plan.Profile.Radius, e.plan.Profile.Angle,
 		)
-		if isLaserZone {
-			isTargeted = false
-			for _, endpoint := range e.laserEndpoints {
-				if isCampaignLineTarget(e.plan.SourcePosition, endpoint, target) {
-					isTargeted = true
-					break
-				}
-			}
-		} else if isTwinLaser {
+		if isTwinLaser {
 			isTargeted = false
 			for index, endpoint := range e.laserEndpoints {
 				if isCampaignLineTarget(e.twinLaserOrigin(source, index), endpoint, target) {
@@ -437,9 +411,6 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 			source.Plan.Position, target.Position, e.plan.Profile.Radius,
 			e.plan.Profile.MinimumDamagePercent,
 		)
-		if isLaserZone {
-			damagePercent = 1
-		}
 		if isCryosBossChain {
 			damagePercent = float32(math.Pow(0.7, float64(selectedTargetCount-1)))
 		}
@@ -595,15 +566,11 @@ func (e campaignConeSchedule) releaseCryosBossChain() ([][]byte, error) {
 func (e campaignConeSchedule) next() ([][]byte, error) {
 	timestamp := e.timestamp + uint64(e.nextDelay/time.Millisecond)
 	if e.laserZone != nil {
-		packets, err := e.finishLaserZone()
+		packets, err := e.resume(timestamp)
 		if err != nil {
-			return nil, fmt.Errorf("laserNextCleanup: %w", err)
+			return nil, fmt.Errorf("laserNext: %w", err)
 		}
-		nextPackets, err := e.resume(timestamp)
-		if err != nil {
-			return packets, fmt.Errorf("laserNext: %w", err)
-		}
-		return append(packets, nextPackets...), nil
+		return packets, nil
 	}
 	if e.isCorruptor {
 		step := campaignNPCFirstActionStep{
@@ -829,54 +796,17 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 		resume.twinLaserSecondID = endpointObjectID + 1
 	}
 	if isLaserZone {
-		facing := target.Position.Sub(enemy.Plan.Position)
-		laserTargets := peerSession.zone.LiveNPCTargets()
-		for index, candidate := range laserTargets {
-			if candidate.ObjectID != target.ObjectID {
-				continue
-			}
-			laserTargets[0], laserTargets[index] = laserTargets[index], laserTargets[0]
-			break
-		}
-		for _, candidate := range laserTargets {
-			if uint32(len(resume.laserTargetObjectIDs)) >= profile.MaximumTargetCount {
-				break
-			}
-			if !isCampaignConeTarget(
-				enemy.Plan.Position, facing, candidate, profile.Range, profile.Angle,
-			) {
-				continue
-			}
-			isPathClear, pathErr := isCampaignLaserPathClear(
-				peerSession.zone, enemy.Plan.Position, candidate.Position,
-				enemy.NavigationRadius(), enemy.Navigation,
-			)
-			if pathErr != nil {
-				return nil, fmt.Errorf("enemyConeLaserPlacement: %w", pathErr)
-			}
-			if !isPathClear {
-				continue
-			}
-			resume.laserTargetObjectIDs = append(
-				resume.laserTargetObjectIDs, candidate.ObjectID,
-			)
-			resume.laserEndpoints = append(resume.laserEndpoints, candidate.Position)
-		}
-		if len(resume.laserEndpoints) == 0 {
-			r.releaseActionGeneration(
-				sessionKey, generation, objectID, enemy.ActionGeneration,
-			)
+		// Each cast adds one persistent forty-metre zone, not one beam per hero.
+		direction := target.Position.Sub(enemy.Plan.Position)
+		if direction.Length() <= 0 {
 			return nil, nil
 		}
-		markerCount := uint32(len(resume.laserEndpoints) + 1)
-		firstObjectID, reserveErr := peerSession.zone.ReserveObjectIDs(markerCount)
+		resume.laserEndpoints = []game.Vec3{enemy.Plan.Position.Add(direction.Scale(40 / direction.Length()))}
+		firstObjectID, reserveErr := peerSession.zone.ReserveObjectIDs(2)
 		if reserveErr != nil {
 			return nil, fmt.Errorf("laserMarkers: %w", reserveErr)
 		}
-		resume.laserZone = &campaignLaserZone{objectIDs: make([]uint32, markerCount)}
-		for index := range resume.laserZone.objectIDs {
-			resume.laserZone.objectIDs[index] = firstObjectID + uint32(index)
-		}
+		resume.laserZone = &campaignLaserZone{objectIDs: []uint32{firstObjectID, firstObjectID + 1}}
 	}
 	producers := []raknet.ScheduledPacketProducer{
 		{Delay: profile.HitDelay, Produce: resume.hit},
@@ -917,19 +847,6 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 			raknet.ScheduledPacketProducer{Delay: finishDelay, Produce: finish.finish},
 			raknet.ScheduledPacketProducer{Delay: nextDelay, Produce: resume.next},
 		)
-	}
-	if profile.AbilityName == "CitadelSpecialThree_LaserZone" {
-		producers = producers[:0]
-		for delay := profile.HitDelay; delay < nextDelay; delay += time.Second {
-			pulse := resume
-			pulse.hitDelay = delay
-			producers = append(producers, raknet.ScheduledPacketProducer{
-				Delay: delay, Produce: pulse.hit,
-			})
-		}
-		producers = append(producers, raknet.ScheduledPacketProducer{
-			Delay: nextDelay, Produce: resume.next,
-		})
 	}
 	var intangibleRun *campaignNPCIntangibleRun
 	if profile.AbilityName == "StagnantNovaAbove" {

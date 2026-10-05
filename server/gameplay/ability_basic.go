@@ -1001,6 +1001,9 @@ func (r campaignAbilityCommandRuntime) handleCharacter(
 	if commandSession.isEnemySleepActive(abilityStartTime) {
 		return request.reject("asleep")
 	}
+	if commandSession.isScarabDazed() {
+		return request.reject("dazed")
+	}
 	if commandSession.isEnemyStunActive(abilityStartTime) {
 		return request.reject("stunned")
 	}

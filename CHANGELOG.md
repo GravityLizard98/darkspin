@@ -2,6 +2,10 @@
 
 ### 2026-10-05
 
+- Restore factory fire vents with repeated warning, eruption and hero damage cycles, synchronized across co-op players.
+- Change Laser Tank from cast-limited beams to persistent simultaneous laser zones with client-authored rank limits and cleanup.
+- Restore factory pipes' enemy-damaging explosions and persistent wrecks, and fuel canisters' authored blast and burning chain reactions.
+- Restore Exploder Scarab's timed accelerated chase and explosion, and apply a three-second daze that blocks actions while allowing slowed walking in solo and co-op.
 - Restore selected Citadel plasma ponds' authored burning status, effect and damage while heroes stand in them, including stationary contact and co-op presentation.
 - Change Phantom Charge from walking around enemies to the client-authored flat slide through them, restoring collision when the charge ends or is interrupted.
 - Restore Gravity Well's pull to scaled footprint contact and Kinetic Wave's animated knockback, preventing enemy pursuit from interrupting their displacement.

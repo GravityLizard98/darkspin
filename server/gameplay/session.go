@@ -208,7 +208,7 @@ type zoneEffectPresentation struct {
 	campaignNPCPolarisStates            map[uint32]campaignNPCPolarisState
 	campaignNPCCitadelSpecialFourStates map[uint32]campaignCitadelSpecialFourState
 	campaignNPCOrcusStates              map[uint32]campaignOrcusState
-	campaignNPCLaserZones               map[uint32]*campaignLaserZone
+	campaignNPCLaserZones               map[uint32]*campaignLaserController
 	campaignTwinLaserEndpointIDs        map[uint32]uint32
 	campaignArcturusStates              map[uint32]*campaignArcturusState
 	pickupPursuit                       *campaignPickupTimeout
@@ -232,6 +232,9 @@ type zonePresentationRuntime struct {
 	cryosFungusExpirations map[uint32]time.Time
 	cryosGeyserWarnings    map[uint32]uint64
 	cryosGeyserSpouts      map[uint32]uint64
+	fireVents              map[uint32]*campaignFireVent
+	fireVentWarnings       map[uint32]uint64
+	fireVentEruptions      map[uint32]uint64
 	cryosPoisonReadyAt     time.Time
 	cryosPoisonExpiresAt   time.Time
 	cryosPoisonSourceID    uint32
@@ -1137,6 +1140,9 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNPCCitadelSpecialFourStates)
 	clear(s.campaignNPCOrcusStates)
 	clear(s.campaignNPCLaserZones)
+	clear(s.fireVents)
+	clear(s.fireVentWarnings)
+	clear(s.fireVentEruptions)
 	clear(s.campaignTwinLaserEndpointIDs)
 	clear(s.campaignArcturusStates)
 	s.pickupPursuit = nil

@@ -306,6 +306,10 @@ func (r gameplayActionRuntime) handleCommand(
 			)
 		}
 		peerSession = currentSession
+		if peerSession.isScarabDazed() && command.Common.Type != raknet.ActionMovement &&
+			command.Common.Type != raknet.ActionStopMovement {
+			return r.reject(packet, command, r.now().Sub(startedAt), errors.New("hero dazed"))
+		}
 		if peerSession.isOperativeCaged(r.now()) {
 			return nil, nil
 		}
@@ -2495,6 +2499,13 @@ func (r gameplayPendingRuntime) poll(
 		}
 		if peerSession.zone != nil && peerSession.stage.IsDungeon() &&
 			!peerSession.isZoneTerminal() && peerSession.dungeonSetup.IsCommitted() {
+			ventPackets, ventDelta, ventErr := peerSession.pollFireVents(r.damage.npc, packet.SourceTime, r.now())
+			if ventErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("ventPoll: %w", ventErr)
+			}
+			peerSession.queueStatDelta(ventDelta)
+			rootHazardPackets = append(rootHazardPackets, ventPackets...)
 			geyserPackets, geyserErr := peerSession.pollCryosGeyserEffects(r.now())
 			if geyserErr != nil {
 				r.registry.mutex.Unlock()

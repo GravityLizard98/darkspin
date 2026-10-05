@@ -2309,6 +2309,10 @@ func (r campaignAbilityCommandRuntime) handleSquad(
 		r.registry.mutex.Unlock()
 		return r.rejectSquadAbility(command, "stunned")
 	}
+	if peerSession.isScarabDazed() {
+		r.registry.mutex.Unlock()
+		return r.rejectSquadAbility(command, "dazed")
+	}
 	if peerSession.isEnemyFearActive(abilityStartTime) {
 		r.registry.mutex.Unlock()
 		return r.rejectSquadAbility(command, "terrified")

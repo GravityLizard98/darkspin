@@ -206,6 +206,12 @@ type zoneNPCDeathDefinition struct {
 func destructibleDeathPresentation(
 	snapshot zonenpc.Snapshot, physics zoneNounPhysics,
 ) (string, time.Duration) {
+	if isFactoryPipe(snapshot.Plan.NounName) {
+		return factoryBlastEffect, time.Millisecond
+	}
+	if strings.EqualFold(snapshot.Plan.NounName, "DEST_citadel_fuelcanister.Noun") {
+		return factoryBlastEffect, time.Millisecond
+	}
 	if zonenpc.IsCryosGeyser(snapshot.Plan) {
 		// CryosGeyserDeath retains the unblocked vent; no debris explosion.
 		return "", time.Millisecond
@@ -328,6 +334,7 @@ func campaignNPCDeathDefinition(
 	isGraviticRemnant := zonenpc.IsGraviticRemnant(snapshot.Plan)
 	isVerdanthTotem := zonenpc.IsVerdanthTotem(snapshot.Plan)
 	isCryosGeyser := zonenpc.IsCryosGeyser(snapshot.Plan)
+	isPipe := isFactoryPipe(snapshot.Plan.NounName)
 	if isCryosGeyser {
 		graphicsState = util.HashID("unblocked")
 	}
@@ -379,10 +386,10 @@ func campaignNPCDeathDefinition(
 		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
 		isFixture:           isFixture,
 		isBoss:              snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser,
+		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser || isPipe,
 		isCollisionRetained: isGraviticRemnant,
 		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRemnant ||
-			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant,
+			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant || isPipe,
 		ordinaryDeathAnimation: ordinaryDeathAnimation,
 		corpseFadeDelay:        deathPresentation.PresentationDuration,
 		graphicsState:          graphicsState,
@@ -2029,6 +2036,10 @@ func (r campaignDamageRuntime) publishTransition(
 				"RakNet Lightning Juggernaut death detonation scheduled object=%d",
 				transition.defeatedObjectID,
 			)
+		}
+		fixtureErr := r.scheduleFixtureBlast(packet, sessionKey, generation, transition.defeatedObjectID, timestamp)
+		if fixtureErr != nil {
+			return nil, fmt.Errorf("transitionFixtureBlast: %w", fixtureErr)
 		}
 	}
 	if transition.shieldObjectID != 0 {
@@ -7685,7 +7696,7 @@ func (r campaignNPCActionRuntime) applyEnemyDamage(
 		return nil, sporenet.PlayerStatDelta{}, false,
 			errors.New("enemy damage runtime unavailable")
 	}
-	if !isRetainedStatus && !isDefeatedSourceAllowed &&
+	if !isRetainedStatus && !plan.Profile.IsRetainedVolumeDamage && !isDefeatedSourceAllowed &&
 		!peerSession.isCampaignNPCActionActiveAt(
 			generation, plan.SourceObjectID, r.now(),
 		) {
@@ -7850,7 +7861,7 @@ func (r campaignNPCActionRuntime) applyEnemyDamage(
 		damage, isApplied, err = peerSession.zone.ApplyNPCReflectedTargetDamage(
 			owner, plan.SourceObjectID, plan.TargetObjectID, result.Damage,
 		)
-	} else if isRetainedStatus {
+	} else if isRetainedStatus || plan.Profile.IsRetainedVolumeDamage {
 		damage, isApplied, err = peerSession.zone.ApplyNPCTargetStatusDamage(
 			owner, plan.SourceObjectID, plan.TargetObjectID, result.Damage,
 		)
