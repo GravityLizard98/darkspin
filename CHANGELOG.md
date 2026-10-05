@@ -2,6 +2,10 @@
 
 ### 2026-10-05
 
+- Restore selected Citadel plasma ponds' authored burning status, effect and damage while heroes stand in them, including stationary contact and co-op presentation.
+- Change Phantom Charge from walking around enemies to the client-authored flat slide through them, restoring collision when the charge ends or is interrupted.
+- Restore Gravity Well's pull to scaled footprint contact and Kinetic Wave's animated knockback, preventing enemy pursuit from interrupting their displacement.
+- Restore Essence Volley's firing and ending animations across heroes, and extend untargeted projectiles from cursor distance to the authored 25-unit travel budget.
 - Correct Grappling Pulsar's Puller follow-up from projectile travel plus pull duration to its authored 1.25-second release, and require footprint contact for each Fast Swipe hit.
 - Correct Protoplasm's attack pauses from the full OozeGrow cooldown to its animation release, keeping growth on an independent cooldown, and restore the authored OozePassive green drip effect.
 

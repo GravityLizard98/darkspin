@@ -150,8 +150,11 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 			Name: "BinarySentinelActive", Kind: sim.AbilityKindCone,
 			Cooldown: 6 * time.Second, Radius: 20, Angle: 90,
 			AnimationName: "cast_binarysentinelactive",
+			HitDelay:      200 * time.Millisecond, ReleaseDelay: time.Second,
 			MinimumDamage: 20, MaximumDamage: 20, DamageCoefficient: 0.05,
 			ManaCost: 14, ManaCoefficient: 0.07, MinimumDamagePercent: 0.25,
+			DescriptorMask: 136, DamageType: 1, DamageSource: 1,
+			IsDescriptorFound: true, IsDamageTypeFound: true, IsDamageSourceFound: true,
 			RootModifierID: util.HashID("BinarySentinelPullModifier"),
 		},
 		"BinarySentinelSupport": {
@@ -645,7 +648,9 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 		"SoulRavagerSupport": {
 			Name: "SoulRavagerSupport", Kind: sim.AbilityKindProjectileBurst,
 			Cooldown: 4 * time.Second, Range: 20,
-			AnimationName: "soulravager_active",
+			AnimationName:          "soulravager_active",
+			SecondaryAnimationName: "soulravager_active_loop",
+			OutAnimationName:       "soulravager_active_loop_end",
 			HitDelays: []time.Duration{
 				300 * time.Millisecond, 700 * time.Millisecond,
 				1100 * time.Millisecond,
@@ -1026,7 +1031,7 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 
 func applyRecoveredAreaRadiusPolicy(definition sim.AbilityDefinition) sim.AbilityDefinition {
 	switch definition.Name {
-	case "BinarySentinelSupport", "GravityStorm", "LFPoisonRavager_PoisonNova",
+	case "BinarySentinelActive", "BinarySentinelSupport", "GravityStorm", "LFPoisonRavager_PoisonNova",
 		"MissileTempestSupport", "PlasmaRandom", "PlasmaRandom_LightningBall",
 		"Sprout", "TCShieldedSentinelActive", "TCShieldedSentinelBasic",
 		"TCShieldedSentinelSupport":
@@ -2036,7 +2041,8 @@ func loadHeroKits(
 			// hitEffect otherwise classifies it as melee, losing its self animation,
 			// muzzle effect, and Enrage modifier identity.
 			switch active.assetName {
-			case "CastEnrage", "RootingPlague", "Sporogenesis", "FieldMedicSupport",
+			case "BinarySentinelActive", "BinarySentinelSupport",
+				"CastEnrage", "RootingPlague", "Sporogenesis", "FieldMedicSupport",
 				"Psistorm", "SleepingCloud", "SoulRavagerActive", "SpacetimeRandom2",
 				"Terrify", "TimeRavagerSupport", "TurretTrap", "RepulsionWave",
 				"GravityStorm", "QuantumBlink", "QuantumState",

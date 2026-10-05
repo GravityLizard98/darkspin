@@ -2502,7 +2502,7 @@ func (r gameplayPendingRuntime) poll(
 			}
 			rootHazardPackets = append(rootHazardPackets, geyserPackets...)
 			lavaPackets, lavaDelta, lavaErr := peerSession.applyCampaignLavaContact(
-				game.Vec3(peerSession.playerPosition), packet.SourceTime, r.now(),
+				game.Vec3(peerSession.playerPosition), packet.SourceTime, r.now(), r.damage.npc,
 			)
 			if lavaErr != nil {
 				r.registry.mutex.Unlock()

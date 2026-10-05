@@ -136,6 +136,21 @@ func (e heroBurstStep) produceLaunch() ([][]byte, error) {
 		return nil, nil
 	}
 	var presentationPackets [][]byte
+	if schedule.definition.Name == "SoulRavagerSupport" {
+		animationName := schedule.definition.SecondaryAnimationName
+		if e.index == len(schedule.definition.HitDelays)-1 {
+			animationName = schedule.definition.OutAnimationName
+		}
+		animationPacket, animationErr := abilityraknet.Animation(
+			schedule.sourceObjectID, animationName,
+			schedule.packet.SourceTime+uint64(e.deadline/time.Millisecond),
+		)
+		if animationErr != nil {
+			schedule.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("heroBurstLoopAnimation: %w", animationErr)
+		}
+		presentationPackets = append(presentationPackets, animationPacket)
+	}
 	if schedule.definition.Name == "PlasmaRandom_WebbedLightning" && e.index == 0 {
 		animationPacket, animationErr := abilityraknet.Animation(
 			schedule.sourceObjectID, schedule.definition.SecondaryAnimationName,
@@ -198,6 +213,13 @@ func (e heroBurstStep) produceLaunch() ([][]byte, error) {
 		game.Vec3(actorPosition), game.Vec3(targetPosition),
 		peerSession.deployedCampaignFootprintRadius(),
 	)
+	if schedule.definition.Name == "SoulRavagerSupport" && targetObjectID == 0 {
+		// The cursor supplies direction, not the projectile's lifetime. The
+		// authored projectile template tracks untargeted shots for distance25.
+		targetPosition = raknet.Vector3(game.Vec3(launchPosition).Add(
+			game.Vec3(facing).Scale(schedule.definition.Distance),
+		))
+	}
 	schedule.shotSourcePositions[e.index] = game.Vec3(actorPosition)
 	schedule.shotTargetPositions[e.index] = targetPosition
 	schedule.shotTravelDistances[e.index] = zoneability.Distance(
@@ -281,6 +303,9 @@ func (e heroBurstStep) produceImpact() ([][]byte, error) {
 			float64(schedule.definition.ShotHitChance)
 	if planErr != nil || !isTargetFound || !isHitChanceAccepted {
 		impactPosition := schedule.planTargetPosition(peerSession, e.index)
+		if schedule.definition.Name == "SoulRavagerSupport" {
+			impactPosition = schedule.shotTargetPositions[e.index]
+		}
 		packets, err := schedule.run.ResolveCollision(
 			context.Background(), e.index, e.deadline, false, false,
 			0, schedule.plan.Damage.Maximum, false,
@@ -865,7 +890,8 @@ func (e heroBurstSchedule) produceRelease() ([][]byte, error) {
 	}
 	if e.definition.Name == "LightningTempest_Active" ||
 		e.definition.Name == "PlasmaRandom_WebbedLightning" ||
-		e.definition.Name == "MissileTempestActive" {
+		e.definition.Name == "MissileTempestActive" ||
+		e.definition.Name == "SoulRavagerSupport" {
 		resetPackets, resetErr := e.run.ResetActorAnimation(context.Background())
 		if resetErr != nil {
 			return nil, fmt.Errorf("heroBurstReleaseReset: %w", resetErr)
@@ -1141,6 +1167,9 @@ func (r campaignAbilityCommandRuntime) handleHeroProjectileBurst(
 	}
 	if definition.BurstTargeting == sim.ProjectileBurstTargetingRadial ||
 		definition.BurstTargeting == sim.ProjectileBurstTargetingArc {
+		travelDistance = definition.Distance
+	}
+	if definition.Name == "SoulRavagerSupport" && targetObjectID == 0 {
 		travelDistance = definition.Distance
 	}
 	travelDelay := max(

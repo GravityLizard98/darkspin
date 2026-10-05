@@ -10,7 +10,6 @@ import (
 	"github.com/darkspinnet/darkspin/server/util"
 	"github.com/darkspinnet/darkspin/server/zone"
 	zoneability "github.com/darkspinnet/darkspin/server/zone/ability"
-	zoneaction "github.com/darkspinnet/darkspin/server/zone/action"
 	zoneeffect "github.com/darkspinnet/darkspin/server/zone/effect"
 	effectraknet "github.com/darkspinnet/darkspin/server/zone/effect/raknet103"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
@@ -125,10 +124,10 @@ func (e campaignDamageRuntime) applyHeroPull(
 		delta := hero.Position.Sub(target.Plan.Position)
 		distance := delta.Length()
 		edgeDistance := distance - max(float32(0), hero.FootprintRadius) -
-			max(float32(0), target.Plan.NPCProfile.FootprintRadius)
+			max(float32(0), target.Plan.ActorFootprintRadius())
 		if distance > 0 && edgeDistance > 0 {
 			desired := target.Plan.Position.Add(delta.Scale(edgeDistance / distance))
-			clippedDestination, isDestinationFound, destinationErr := zoneaction.NPCDirectMovementDestination(
+			clippedDestination, isDestinationFound, destinationErr := navigationClippedMovementDestination(
 				originalZone.Navigation(), target.Plan.Position, desired,
 				max(target.NavigationRadius(), float32(0.25)), target.Navigation,
 			)
@@ -151,7 +150,9 @@ func (e campaignDamageRuntime) applyHeroPull(
 						},
 					}
 					var movementErr error
-					movementPackets, movementErr = npcraknet.ForcedMovement(attackPlan, destination, timestamp)
+					movementPackets, movementErr = npcraknet.ForcedJump(
+						attackPlan, destination, timestamp, [3]float32{},
+					)
 					if movementErr != nil {
 						e.registry.mutex.Unlock()
 						return nil, fmt.Errorf("heroPullMarshal: %w", movementErr)
@@ -249,6 +250,15 @@ func (e campaignDamageRuntime) applyHeroPull(
 			e.registry.mutex.Unlock()
 			e.rejectHeroPull(run, cancel)
 			return nil, fmt.Errorf("heroPullMove: %w", err)
+		}
+		err = originalZone.NPCs().ApplyStun(target.Plan.ObjectID, e.npc.now().Add(duration))
+		if err != nil {
+			originalZone.Effect().Remove(run.instanceID)
+			latest.untrackCampaignNPCModifier(run)
+			e.registry.sessions[sessionKey] = latest
+			e.registry.mutex.Unlock()
+			e.rejectHeroPull(run, cancel)
+			return nil, fmt.Errorf("heroPullMotionHold: %w", err)
 		}
 	}
 	if isMoving {

@@ -949,7 +949,7 @@ func (r campaignMovementCommandRuntime) handle(
 			return nil, fmt.Errorf("moveCampaignHero: %w", syncErr)
 		}
 		lavaContactPackets, lavaStatDelta, lavaErr := peerSession.applyCampaignLavaContact(
-			current, packet.SourceTime, movementNow,
+			current, packet.SourceTime, movementNow, r.damage.npc,
 		)
 		if lavaErr != nil {
 			r.registry.mutex.Unlock()

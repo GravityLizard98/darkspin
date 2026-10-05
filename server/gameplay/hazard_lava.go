@@ -69,7 +69,15 @@ func (e *gameplayPeerSession) pollCryosGeyserEffects(now time.Time) ([][]byte, e
 
 func (s *gameplayPeerSession) applyCampaignLavaContact(
 	position game.Vec3, timestamp uint64, now time.Time,
+	runtime campaignNPCActionRuntime,
 ) ([][]byte, sporenet.PlayerStatDelta, error) {
+	plasmaPackets, plasmaDelta, isPlasmaActive, plasmaErr := runtime.applyPlasmaPoolContact(s, position, timestamp, now)
+	if plasmaErr != nil {
+		return nil, sporenet.PlayerStatDelta{}, fmt.Errorf("plasmaContact: %w", plasmaErr)
+	}
+	if isPlasmaActive {
+		return plasmaPackets, plasmaDelta, nil
+	}
 	if s == nil || s.zone == nil || s.deployedObjectID == 0 ||
 		s.deployedHitPoint() <= 0 {
 		return nil, sporenet.PlayerStatDelta{}, nil
@@ -80,12 +88,13 @@ func (s *gameplayPeerSession) applyCampaignLavaContact(
 		hazard.phase = campaignLavaPhaseContinuous
 	}
 	if !isContact {
-		return nil, sporenet.PlayerStatDelta{}, nil
+		return plasmaPackets, sporenet.PlayerStatDelta{}, nil
 	}
 	packets, err := s.campaignLavaPresentation(hazard)
 	if err != nil {
 		return nil, sporenet.PlayerStatDelta{}, fmt.Errorf("lavaPresentation: %w", err)
 	}
+	packets = append(plasmaPackets, packets...)
 	if hazard.phase == campaignLavaPhaseRest ||
 		hazard.phase == campaignLavaPhaseWarning || now.Before(s.campaignLavaReadyAt) {
 		return packets, sporenet.PlayerStatDelta{}, nil

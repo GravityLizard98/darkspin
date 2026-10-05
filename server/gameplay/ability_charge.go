@@ -32,34 +32,36 @@ type heroChargeModifier struct {
 }
 
 type heroChargeRun struct {
-	mutex             sync.Mutex
-	npc               *zonenpc.Session
-	companion         *zonecompanion.Session
-	modifierPool      *modifierPool
-	effectPool        *attachedEffectPool
-	assetName         string
-	modifiers         []heroChargeModifier
-	petPursuit        zonecompanion.Pursuit
-	effectPackets     [][]byte
-	effectObjectID    uint32
-	effectSlot        uint8
-	isEffectAttached  bool
-	cancel            raknet.CancelSchedule
-	isCleaned         bool
-	zone              *zone.Zone
-	userID            uint64
-	generation        uint64
-	ownerObjectID     uint32
-	petFollowRevision uint64
-	petStartedAt      time.Time
-	petDeadline       time.Time
-	petDestination    game.Vec3
-	now               func() time.Time
-	isHeroImpacted    bool
-	isPetPending      bool
-	registry          *gameplaySessionRegistry
-	timer             zone.Timer
-	retiredPet        zonecompanion.Actor
+	mutex                  sync.Mutex
+	npc                    *zonenpc.Session
+	companion              *zonecompanion.Session
+	modifierPool           *modifierPool
+	effectPool             *attachedEffectPool
+	assetName              string
+	modifiers              []heroChargeModifier
+	petPursuit             zonecompanion.Pursuit
+	effectPackets          [][]byte
+	effectObjectID         uint32
+	effectSlot             uint8
+	isEffectAttached       bool
+	isCollisionSuppressed  bool
+	collisionRestorePacket []byte
+	cancel                 raknet.CancelSchedule
+	isCleaned              bool
+	zone                   *zone.Zone
+	userID                 uint64
+	generation             uint64
+	ownerObjectID          uint32
+	petFollowRevision      uint64
+	petStartedAt           time.Time
+	petDeadline            time.Time
+	petDestination         game.Vec3
+	now                    func() time.Time
+	isHeroImpacted         bool
+	isPetPending           bool
+	registry               *gameplaySessionRegistry
+	timer                  zone.Timer
+	retiredPet             zonecompanion.Actor
 }
 
 func (e *heroChargeRun) Stop() [][]byte {
@@ -159,6 +161,7 @@ func (e *heroChargeRun) cleanupLocked() [][]byte {
 		e.registry.retireChargeModifiersLocked(e, 0)
 	}
 	effectPackets := e.releaseEffectLocked()
+	effectPackets = append(effectPackets, e.restorePhantomCollisionLocked()...)
 	if e.registry != nil {
 		e.registry.pruneChargeRunLocked(e)
 	}
@@ -778,6 +781,7 @@ func (e heroChargeSchedule) release() ([][]byte, error) {
 	packets := make([][]byte, 0, 2)
 	if e.definition.Name == "PhantomCharge" {
 		packets = append(packets, e.run.releaseEffectLocked()...)
+		packets = append(packets, e.run.restorePhantomCollisionLocked()...)
 		animationPacket, err := abilityraknet.AnimationReset(
 			e.sourceObjectID, e.packet.SourceTime+uint64(e.finishDelay/time.Millisecond),
 		)
@@ -824,6 +828,7 @@ func (e heroChargeSchedule) finish() ([][]byte, error) {
 	delete(peerSession.beastChargeRuns, e.run)
 	e.runtime.registry.sessions[e.sessionKey] = peerSession
 	e.run.releaseEffectLocked()
+	e.run.restorePhantomCollisionLocked()
 	e.runtime.registry.pruneChargeRunLocked(e.run)
 	e.runtime.registry.mutex.Unlock()
 	return nil, nil
@@ -1105,7 +1110,8 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	}
 	destination := chargeDestination(startPosition, targetPosition, stopDistance)
 	if projected.Name == "PhantomCharge" {
-		destination = chargeThroughDestination(startPosition, targetPosition, projected.Radius)
+		// The sliding branch of the client template uses the exact cursor point.
+		destination = targetPosition
 	}
 	travelDelay := time.Duration(
 		float64(chargeDistance(startPosition, destination)) /
@@ -1177,13 +1183,16 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	if projected.Name == "PhantomCharge" {
 		movementTargetPosition = game.Vec3(targetPosition)
 	}
-	movePackets, err := actionraknet.ChargeMove(
-		req.command.Common.ObjectID, game.Vec3(startPosition),
-		game.Vec3(destination), targetObjectID, movementTargetPosition,
-	)
-	if err != nil {
-		r.registry.mutex.Unlock()
-		return nil, fmt.Errorf("heroChargeMove: %w", err)
+	var movePackets [][]byte
+	if projected.Name != "PhantomCharge" {
+		movePackets, err = actionraknet.ChargeMove(
+			req.command.Common.ObjectID, game.Vec3(startPosition),
+			game.Vec3(destination), targetObjectID, movementTargetPosition,
+		)
+		if err != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("heroChargeMove: %w", err)
+		}
 	}
 	speedPacket, err := heroChargeSpeedPacket(
 		req.command.Common.ObjectID,
@@ -1320,6 +1329,11 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 	producer := []raknet.ScheduledPacketProducer{
 		{Delay: impactDelay, Produce: schedule.impact},
 		{Delay: finishDelay, Produce: schedule.release},
+	}
+	if projected.Name == "PhantomCharge" {
+		producer = append(producer, raknet.ScheduledPacketProducer{
+			Delay: projected.HitDelay, Produce: schedule.beginPhantomSlide,
+		})
 	}
 	if petPursuit.ObjectID != 0 {
 		producer = append(producer, raknet.ScheduledPacketProducer{

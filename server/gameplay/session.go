@@ -237,6 +237,9 @@ type zonePresentationRuntime struct {
 	cryosPoisonSourceID    uint32
 	cryosBurnExpiresAt     time.Time
 	cryosBurnHazard        campaignLavaHazard
+	plasmaBurn             *campaignNPCModifierRun
+	plasmaBurnEffect       *plasmaBurnPresentation
+	plasmaBurnReadyAt      time.Time
 	zoneCombatPresentation
 	campaignSchedule                        *zoneaction.ScheduleSession
 	campaignUnlockPresentation              *unlockraknet.ActiveSession
