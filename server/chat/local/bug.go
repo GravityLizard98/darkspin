@@ -27,8 +27,9 @@ const (
 
 // BugReporter writes local bug archives beneath the server runtime directory.
 type BugReporter struct {
-	runtimePath string
-	now         func() time.Time
+	runtimePath      string
+	now              func() time.Time
+	snapshotProvider BugSnapshotProvider
 }
 
 type bugMetadata struct {
@@ -97,6 +98,7 @@ func (e *BugReporter) Report(ctx context.Context, req chat.BugCommand) (string, 
 		writeErr := writeBugArchive(
 			reportContext, output, temporaryPath, archivePath,
 			filepath.Join(runtimePath, "logs"), req, metadata, createdAt,
+			e.snapshotProvider,
 		)
 		if writeErr != nil {
 			writtenByteCount, stderrErr := fmt.Fprintf(
@@ -113,6 +115,7 @@ func (e *BugReporter) Report(ctx context.Context, req chat.BugCommand) (string, 
 func writeBugArchive(
 	ctx context.Context, output *os.File, temporaryPath string, archivePath string,
 	logPath string, req chat.BugCommand, metadata bugMetadata, createdAt time.Time,
+	snapshotProvider BugSnapshotProvider,
 ) error {
 	isComplete := false
 	defer func() {
@@ -125,6 +128,9 @@ func writeBugArchive(
 	err := addBugText(archive, req)
 	if err == nil {
 		err = addBugMetadata(archive, metadata)
+	}
+	if err == nil && snapshotProvider != nil {
+		err = addBugSnapshot(ctx, archive, snapshotProvider, req)
 	}
 	if err == nil {
 		err = addRecentBugLogs(ctx, archive, logPath, createdAt)

@@ -140,9 +140,10 @@ func (e campaignNamedBossTriggerStep) admit() error {
 	}
 	err = e.zone.PublishNPCSpawn(zoneprojection.NPCSpawn{
 		Plans: livePlans, TargetObjectID: peerSession.deployedObjectID,
-		IsBossActive: !(encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1),
-		BossObjectID: encounter.Actors[0].ObjectID,
-		IsFinalBoss:  zoneboss.IsFinalBossNoun(encounter.Actors[0].NounName),
+		IsBossAddPhase: encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1,
+		IsBossActive:   !(encounter.Actors[0].IsCaptain && len(encounter.Actors) > 1),
+		BossObjectID:   encounter.Actors[0].ObjectID,
+		IsFinalBoss:    zoneboss.IsFinalBossNoun(encounter.Actors[0].NounName),
 	}, 0, 0)
 	if err != nil {
 		return fmt.Errorf("bossTriggerPublish: %w", err)

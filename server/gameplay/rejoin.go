@@ -356,7 +356,7 @@ func marshalGameplayRejoinBaselineState(
 	}
 	packets = append(packets, controlledPacket, deployPacket)
 	for index, use := range peerSession.zone.Script().SnapshotUses() {
-		usePackets, marshalErr := objectraknet.ScriptUse(use)
+		usePackets, marshalErr := objectraknet.ScriptUseSnapshot(use)
 		if marshalErr != nil {
 			return nil, fmt.Errorf("rejoinScriptUse[%d]: %w", index, marshalErr)
 		}

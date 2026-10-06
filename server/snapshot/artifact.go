@@ -17,6 +17,7 @@ import (
 )
 
 type dumpRequest struct {
+	IsArchiveDisabled           bool
 	Actor                       Actor
 	Trigger                     string
 	Context                     string
@@ -296,7 +297,7 @@ func (e *Service) dump(ctx context.Context, req dumpRequest) (dumpResult, error)
 		return dumpResult{}, fmt.Errorf("fileHash: %w", err)
 	}
 	archiveName := ""
-	if strings.TrimSpace(e.archiveDirectory) != "" {
+	if !req.IsArchiveDisabled && strings.TrimSpace(e.archiveDirectory) != "" {
 		archiveName = snapshotArchiveName(id, e.buildVersion, now)
 	}
 	metadata := manifest{

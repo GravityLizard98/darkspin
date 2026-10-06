@@ -705,24 +705,14 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	directAggroPlans := make([]zonenpc.SpawnPlan, 0, 4)
 	directAggroPackets := make([][]byte, 0, 1)
 	if targetObjectID != 0 {
-		if definition.Kind == sim.AbilityKindMelee {
-			actorFootprint = peerSession.deployedCampaignActorFootprintRadius()
-		} else {
-			actorFootprint, err = r.program.FootprintRadiusByNoun(creature.Noun)
-			if err != nil {
-				r.registry.mutex.Unlock()
-				return request.reject("actor footprint unavailable")
-			}
-		}
+		// Native 103 sub_9DE710 uses both scaled actor footprints for
+		// object-target admission, including ranged attacks. Physics collision
+		// radii are separate from this range calculation.
+		actorFootprint = peerSession.deployedCampaignActorFootprintRadius()
 		targetEnemy, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
 		if isTargetFound {
-			targetFootprint = targetEnemy.Plan.NPCProfile.FootprintRadius
-			if definition.Kind == sim.AbilityKindMelee {
-				targetFootprint = targetEnemy.Plan.ActorFootprintRadius()
-			}
-			if targetFootprint > 0 || definition.Kind == sim.AbilityKindMelee {
-				maximumRange += actorFootprint + targetFootprint
-			}
+			targetFootprint = targetEnemy.Plan.ActorFootprintRadius()
+			maximumRange += actorFootprint + targetFootprint
 			if !targetEnemy.Plan.IsFixture {
 				aggroCandidates := []zonenpc.Snapshot{targetEnemy}
 				if definition.Kind == sim.AbilityKindProjectile {
@@ -3512,7 +3502,6 @@ func (r campaignAbilityCommandRuntime) handleMeleeBasic(
 	}
 	movementPackets, marshalErr := marshalZonePlayerAttackPose(
 		command.Common.ObjectID, peerSession.playerPosition, facing, targetPosition,
-		targetObjectID,
 	)
 	if marshalErr != nil {
 		basicRun.Stop()
@@ -3774,7 +3763,7 @@ func (r campaignAbilityCommandRuntime) handleTossBasic(
 	facing := geometryraknet.Direction(peerSession.playerPosition, targetPosition)
 	movementPackets, marshalErr := marshalZonePlayerAttackPose(
 		command.Common.ObjectID, peerSession.playerPosition, facing,
-		targetPosition, tossPlan.TargetObjectID,
+		targetPosition,
 	)
 	if marshalErr != nil {
 		peerSession.basicSequenceSession().Restore(previousBasicSequence, basicSequenceRevision)

@@ -2,6 +2,17 @@
 
 ### 2026-10-06
 
+- Include a fresh Sync Snapshot with automatic capture history in `/bug` reports when `/ss` auto mode is enabled, recording capture failures without blocking the report.
+- Fix Dendrones and other combat pets repeatedly chasing instead of attacking by keeping pursuit destinations inside the hit-range acceptance margin.
+- Improve sync reports by sampling companions at capture time and including their active owner-follow goal, speed, and remaining travel time instead of comparing stale committed positions.
+- Fix enemy strafing desync by refreshing movement speed from current authored attributes and Swift, haste, and slow effects instead of retaining an older attack speed.
+- #52 Fix heroes moving toward enemies while attacking by matching the client's captured-point facing command instead of sending a pursuit target.
+- #52 Fix Exploder Scarabs repeatedly restarting instead of exploding when arming and movement processing occur in the same clock tick, preserving their authored 1.54-second fuse.
+- #52 Keep Electron Sphere's lightning target budget for living hostile enemies instead of consuming it on allied or unpublished objects.
+- #52 Fix ranged attacks briefly refusing to fire near enemies by using the client-authored actor footprints for attack range checks, matching the existing melee path.
+- #52 Restore the client-authored blue loot-obelisk and green health-obelisk hovering effects, with shutdown on use and consumed-state cleanup on co-op rejoin.
+- #52 Fix captain and elite HUD presentation from unrecognized object IDs to authored NPC affix references, restoring elite name colors and affix descriptions on spawn and rejoin.
+- #52 Restore the Horde incoming warning for live miniboss arena waves, including Illust's opening waves, and broadcast it to co-op players without replaying it on rejoin.
 - Honor authored captain affix difficulty bands instead of applying every band together, preserving explicit paired affixes such as Illust's Swift and Swift Aura.
 - Restore Swift's movement-speed bonus and Swift Aura propagation to nearby friendly enemies, with non-stacking overlap, departure/death cleanup, and synchronized co-op/rejoin state.
 - Fix the 1-1 boss failing to appear by resolving its trigger-owned spawn anchor and selecting its named captain from the boss roster instead of the lieutenant pool.

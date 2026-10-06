@@ -132,8 +132,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			DurationMilliseconds: uint32(
 				zonenpc.EliteModifierDuration.Milliseconds(),
 			),
-			StackCount: 1,
-			SourceID:   plan.ObjectID,
+			StackCount:      1,
+			NPCAffixAssetID: util.HashID("Elite.NPCAffix"),
 		})
 	}
 	// HUD_NPCBar reads live modifier instances, not ClassAttributes alone.
@@ -152,7 +152,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			InstanceID:           instanceID,
 			StartMilliseconds:    permanentModifierStartMilliseconds,
 			DurationMilliseconds: uint32(zonenpc.EliteModifierDuration.Milliseconds()),
-			StackCount:           1, SourceID: plan.ObjectID,
+			StackCount:           1,
+			NPCAffixAssetID:      util.HashID(affixName),
 		})
 	}
 	if plan.SwiftAuraSourceObjectID != 0 {

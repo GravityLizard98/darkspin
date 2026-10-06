@@ -1296,8 +1296,14 @@ type ModifierCreatedMessage struct {
 	Overdrive            uint32
 	StackCount           uint32
 	StartMilliseconds    uint64
-	SourceID             uint32
-	IsBound              bool
+	// NPCAffixAssetID is the asset reference at wire offset 32. Build 103's
+	// sub_537780 resolves it through sub_9C5FF0; HUD_NPCBar compares the resolved
+	// asset against Elite.NPCAffix, independently of ModifierGUID.
+	NPCAffixAssetID uint32
+	// SourceID retains the legacy wire-field alias for existing callers. This
+	// field is not the modifier's originating object ID on the retail client.
+	SourceID uint32
+	IsBound  bool
 }
 
 func (ModifierCreatedMessage) PacketID() PacketID { return ModifierCreated }
@@ -1310,7 +1316,11 @@ func (m ModifierCreatedMessage) EncodePayload() []byte {
 	payload = binary.LittleEndian.AppendUint32(payload, m.Overdrive)
 	payload = binary.LittleEndian.AppendUint32(payload, m.StackCount)
 	payload = binary.LittleEndian.AppendUint64(payload, m.StartMilliseconds)
-	payload = binary.LittleEndian.AppendUint32(payload, m.SourceID)
+	affixAssetID := m.NPCAffixAssetID
+	if affixAssetID == 0 {
+		affixAssetID = m.SourceID
+	}
+	payload = binary.LittleEndian.AppendUint32(payload, affixAssetID)
 	return append(payload, boolByte(m.IsBound))
 }
 

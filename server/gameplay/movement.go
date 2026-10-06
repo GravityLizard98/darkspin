@@ -1469,7 +1469,6 @@ func (r campaignMovementCommandRuntime) rejectActiveAttackMovement(
 		response, err = marshalZonePlayerAttackPose(
 			command.Common.ObjectID, playerPosition,
 			attackPose.facing, attackPose.targetPosition,
-			attackPose.targetObjectID,
 		)
 	}
 	if err != nil {

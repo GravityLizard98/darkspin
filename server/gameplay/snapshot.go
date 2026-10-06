@@ -250,9 +250,10 @@ func snapshotSession(
 		}
 		state.Objects = append(state.Objects, object)
 	}
-	companions := peerSession.zone.Companion().Snapshots()
-	for _, companion := range companions {
-		state.Objects = append(state.Objects, snapshot.ObjectState{
+	companions := peerSession.zone.Companion().MotionSnapshots(capturedAt)
+	for _, motion := range companions {
+		companion := motion.Actor
+		object := snapshot.ObjectState{
 			Kind: "companion", ObjectID: companion.ObjectID,
 			OwnerObjectID: companion.OwnerObjectID, UserID: companion.UserID,
 			PeerGeneration: companion.PeerGeneration,
@@ -260,7 +261,16 @@ func snapshotSession(
 			TargetObjectID: companion.TargetObjectID,
 			IsDefeated:     companion.HitPoint <= 0, IsPublished: true,
 			IsTargetable: companion.IsTargetable,
-		})
+		}
+		if motion.IsFollowing {
+			object.GoalPosition = vec3(motion.Follow.Goal)
+			object.TargetPosition = vec3(motion.Follow.Destination)
+			object.Speed = motion.MovementSpeed
+			object.StopDistance = motion.Follow.DesiredStopDistance
+			object.RemainingDurationMS = snapshotDurationMS(motion.Follow.TravelDuration)
+			object.IsPursuing = true
+		}
+		state.Objects = append(state.Objects, object)
 	}
 	npcs := peerSession.zone.NPCs().Snapshots()
 	for _, npc := range npcs {

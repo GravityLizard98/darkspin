@@ -448,7 +448,7 @@ func (r campaignAbilityCommandRuntime) handleArenaCharacter(
 	} else {
 		posePackets, poseErr := marshalZonePlayerAttackPose(
 			peerSession.deployedObjectID, peerSession.playerPosition,
-			raknet.Vector3(direction), targetSession.playerPosition, targetObjectID,
+			raknet.Vector3(direction), targetSession.playerPosition,
 		)
 		if poseErr != nil {
 			r.registry.mutex.Unlock()

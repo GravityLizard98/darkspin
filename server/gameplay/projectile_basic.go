@@ -304,7 +304,6 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 	}
 	movementPackets, marshalErr := marshalZonePlayerAttackPose(
 		command.Common.ObjectID, peerSession.playerPosition, facing, targetPosition,
-		targetObjectID,
 	)
 	if marshalErr != nil {
 		stopProjectileRuns(projectileRuns)

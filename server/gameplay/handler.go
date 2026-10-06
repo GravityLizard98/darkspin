@@ -3965,6 +3965,17 @@ func marshalCampaignProjection(event zoneprojection.Event) ([][]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("enemySpawnMarshal: %w", err)
 		}
+		// Live arena wave publication reaches all zone subscribers. Rejoin uses
+		// the retained state projection and must not replay this transient alert.
+		if spawn.IsBossAddPhase || (spawn.IsBossActive && !spawn.IsFinalBoss) {
+			alertPacket, alertErr := raknet.MarshalApplication(raknet.ClientEventMessage{
+				ClientEventID: tutorialHordeIncomingClientEventID,
+			})
+			if alertErr != nil {
+				return nil, fmt.Errorf("enemySpawnHordeAlert: %w", alertErr)
+			}
+			packet = append([][]byte{alertPacket}, packet...)
+		}
 		if spawn.IsBossAddPhase {
 			phasePacket, err := bossraknet.AddPhase()
 			if err != nil {
@@ -4692,20 +4703,18 @@ func marshalZonePlayerStop(objectID uint32, position raknet.Vector3) ([][]byte, 
 
 func marshalZonePlayerAttackPose(
 	objectID uint32, position raknet.Vector3,
-	facing raknet.Vector3, targetPosition raknet.Vector3, targetObjectID uint32,
+	facing raknet.Vector3, targetPosition raknet.Vector3,
 ) ([][]byte, error) {
 	if objectID == 0 || !isFiniteZonePosition(position) ||
 		!isFiniteZonePosition(facing) || !isFiniteZonePosition(targetPosition) {
 		return nil, errors.New("invalid player attack pose")
 	}
-	goalFlags := uint32(0x02)
-	if targetObjectID != 0 {
-		goalFlags |= 0x40
-	}
+	// Native TurnToFace (103 A15610) uses a captured point and clears the
+	// locomotion target object. Keeping an object ID here makes the mover
+	// pursue that object instead of remaining in place during the attack.
 	packet, err := raknet.MarshalApplication(raknet.ObjectPlayerMoveMessage{
-		ObjectID: objectID, GoalFlags: goalFlags, GoalPosition: position,
+		ObjectID: objectID, GoalFlags: 0x42, GoalPosition: position,
 		Facing: facing, TargetPosition: targetPosition,
-		TargetObjectID: targetObjectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("playerAttackPose: %w", err)
@@ -5020,7 +5029,7 @@ func (r gameplaySetupRuntime) publishCampaign(
 		return nil, false, fmt.Errorf("pingCampaignSetup: %w", err)
 	}
 	for index, use := range peerSession.zone.Script().SnapshotUses() {
-		usePackets, marshalErr := objectraknet.ScriptUse(use)
+		usePackets, marshalErr := objectraknet.ScriptUseSnapshot(use)
 		if marshalErr != nil {
 			return nil, false, fmt.Errorf("pingCampaignScriptUse[%d]: %w", index, marshalErr)
 		}

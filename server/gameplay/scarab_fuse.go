@@ -117,14 +117,19 @@ func (e campaignScarabChaseStep) produce() ([][]byte, error) {
 			advancedAt = e.endsAt
 		}
 		elapsed := max(time.Duration(0), advancedAt.Sub(e.movedAt))
-		step, advanceErr := member.zone.NPCs().AdvancePursuit(member.zone.Navigation(), req.objectID,
-			target.Position, profile.Range, profile.MovementSpeed,
-			enemy.Plan.ActorFootprintRadius(), elapsed)
-		if advanceErr != nil {
-			r.registry.mutex.Unlock()
-			return e.schedule.fail("scarabAdvance", advanceErr)
+		// Arming can publish the chase in the same clock tick that sets
+		// movedAt. There is no displacement to integrate yet; still publish
+		// its movement goal and continue the authored timed fuse below.
+		if elapsed > 0 {
+			step, advanceErr := member.zone.NPCs().AdvancePursuit(member.zone.Navigation(), req.objectID,
+				target.Position, profile.Range, profile.MovementSpeed,
+				enemy.Plan.ActorFootprintRadius(), elapsed)
+			if advanceErr != nil {
+				r.registry.mutex.Unlock()
+				return e.schedule.fail("scarabAdvance", advanceErr)
+			}
+			isPaused = step.IsBlocked || step.IsInRange
 		}
-		isPaused = step.IsBlocked || step.IsInRange
 	}
 	enemy, isEnemyFound = member.zone.NPCs().NPC(req.objectID)
 	r.registry.sessions[req.sessionKey] = member

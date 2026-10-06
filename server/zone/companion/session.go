@@ -624,9 +624,11 @@ func (e *Session) ReservePursuits(
 				target.Faction == zonenpc.FactionPlayerAligned {
 				continue
 			}
+			// The hit tolerance is an acceptance margin, not a destination.
+			// Stopping on its outer edge can round beyond the attack boundary
+			// and repeatedly reserve another minimum-duration pursuit.
 			stopDistance := attackRange + actor.ActorFootprintRadius() +
-				max(float32(0), target.Plan.ActorFootprintRadius()) +
-				attackRangeTolerance
+				max(float32(0), target.Plan.ActorFootprintRadius())
 			distance := actor.Position.Sub(target.Plan.Position).Length()
 			if distance <= stopDistance || distance > aggroRadius ||
 				distance > selectedDistance {
@@ -713,9 +715,10 @@ func (e *Session) ReserveActorPursuit(
 			target.Faction == zonenpc.FactionPlayerAligned {
 			continue
 		}
+		// Keep the destination inside the hit acceptance margin; float32
+		// projection must not turn arrival into another pursuit reservation.
 		stopDistance := attackRange + actor.ActorFootprintRadius() +
-			max(float32(0), target.Plan.ActorFootprintRadius()) +
-			attackRangeTolerance
+			max(float32(0), target.Plan.ActorFootprintRadius())
 		distance := actor.Position.Sub(target.Plan.Position).Length()
 		if distance <= stopDistance || distance > aggroRadius ||
 			distance > selectedDistance {
