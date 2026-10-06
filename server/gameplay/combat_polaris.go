@@ -23,6 +23,7 @@ const (
 type campaignNPCPolarisState struct {
 	lastBlinkBand      uint8
 	nextBlinkTimestamp uint64
+	nextMarkTimestamp  uint64
 }
 
 type campaignNPCPolarisBlinkSchedule struct {
@@ -260,6 +261,20 @@ func (r campaignNPCActionRuntime) producePolarisPhase(
 }
 
 func (r campaignNPCActionRuntime) producePolarisMarkSeeker(
+	packet raknet.Packet, sessionKey string, generation uint64,
+	objectID uint32, timestamp uint64,
+) ([][]byte, error) {
+	packets, isHandled, err := r.producePolarisMark(packet, sessionKey, generation, objectID, timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("polarisMark: %w", err)
+	}
+	if isHandled {
+		return packets, nil
+	}
+	return r.producePolarisSeeker(packet, sessionKey, generation, objectID, timestamp)
+}
+
+func (r campaignNPCActionRuntime) producePolarisSeeker(
 	packet raknet.Packet, sessionKey string, generation uint64,
 	objectID uint32, timestamp uint64,
 ) ([][]byte, error) {

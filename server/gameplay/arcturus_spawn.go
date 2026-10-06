@@ -95,10 +95,17 @@ func (e campaignArcturusSpawnStep) produce() ([][]byte, error) {
 	plans := make([]zonenpc.SpawnPlan, 0, 1)
 	packets := make([][]byte, 0)
 	var spawnErr error
-	if zonenpc.ArcturusRank(boss.Plan.NounName) > 1 && e.state.turret == nil && boss.TargetObjectID != 0 {
+	rank := zonenpc.ArcturusRank(boss.Plan.NounName)
+	if rank < 1 || rank > 3 {
+		e.runtime.registry.mutex.Unlock()
+		return nil, nil
+	}
+	if rank > 1 && e.state.turret == nil && boss.TargetObjectID != 0 {
 		packets, spawnErr = e.startTurret(&current, boss)
 	}
-	if boss.TargetObjectID != 0 && len(current.zone.LiveNPCTargets()) > 0 && current.zone.NPCRandom().Float64() < 0.2 {
+	// CitadelBossPassive (chunk 527) ranks its one-second spawn roll.
+	spawnChances := [...]float32{0.2, 0.25, 0.3}
+	if boss.TargetObjectID != 0 && len(current.zone.LiveNPCTargets()) > 0 && current.zone.NPCRandom().Float64() < float64(spawnChances[rank-1]) {
 		var scarabPackets [][]byte
 		var scarabErr error
 		plans, scarabPackets, scarabErr = current.spawnArcturusScarab(boss, e.state.center)

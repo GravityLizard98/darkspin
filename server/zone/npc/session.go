@@ -17,6 +17,8 @@ import (
 )
 
 type Session struct {
+	merakGeysers     map[uint32]MerakGeyser
+	merakControllers map[uint32]bool
 	scenarioFixtureLedger
 	startupRandom        *sim.SimulatorRandom
 	navigationMesh       *navigation.Mesh
@@ -671,7 +673,7 @@ func (s *Session) StartAction(
 	if npc.TargetObjectID != 0 && npc.TargetObjectID != targetObjectID {
 		return npc, false, false, nil
 	}
-	if npc.IsActionStarted {
+	if npc.IsActionStarted || npc.IsOrcusFollowing {
 		return npc, false, false, nil
 	}
 	if npc.TargetObjectID == 0 {
@@ -764,6 +766,10 @@ func (s *Session) ReleaseActions(owner ActionOwner) []Snapshot {
 		}
 		npc.IsActionStarted = false
 		npc.ActionOwner = ActionOwner{}
+		if npc.IsOrcusFollowing {
+			npc.IsOrcusFollowing = false
+			npc.IsNavigationCollisionEnabled = true
+		}
 		s.npcs[objectID] = npc
 		released = append(released, npc)
 	}

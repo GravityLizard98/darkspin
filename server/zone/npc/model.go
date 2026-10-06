@@ -133,6 +133,8 @@ type Target struct {
 }
 
 type Snapshot struct {
+	orcusConsumeBands               uint8
+	IsOrcusFollowing                bool
 	repairStackCount                uint32
 	IsNashiraPassiveActive          bool
 	NashiraFiendOwnerObjectID       uint32

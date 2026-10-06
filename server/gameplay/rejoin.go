@@ -451,6 +451,13 @@ func marshalGameplayRejoinBaselineState(
 		return nil, fmt.Errorf("rejoinRemnants: %w", err)
 	}
 	packets = append(packets, remnantPackets...)
+	for _, geyser := range peerSession.zone.NPCs().MerakGeysers() {
+		geyserPacket, geyserErr := merakGeyserCreate(geyser)
+		if geyserErr != nil {
+			return nil, fmt.Errorf("rejoinGeyser: %w", geyserErr)
+		}
+		packets = append(packets, geyserPacket)
+	}
 	targetPackets, err := npcraknet.TargetUpdates(
 		peerSession.zone.NPCs().Snapshots(),
 	)

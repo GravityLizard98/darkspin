@@ -206,6 +206,8 @@ type zoneEffectPresentation struct {
 	campaignNPCPolarisStates            map[uint32]campaignNPCPolarisState
 	campaignNPCCitadelSpecialFourStates map[uint32]campaignCitadelSpecialFourState
 	campaignNPCOrcusStates              map[uint32]campaignOrcusState
+	campaignOrcusConsumeRuns            map[uint32]*orcusConsumeRun
+	campaignMerakControllers            map[uint32]*merakGeyserStep
 	campaignNPCLaserZones               map[uint32]*campaignLaserController
 	campaignTwinLaserEndpointIDs        map[uint32]uint32
 	campaignArcturusStates              map[uint32]*campaignArcturusState
@@ -981,7 +983,7 @@ func (s *gameplayPeerSession) isCampaignNPCSourceActive(
 	owner := zonenpc.ActionOwner{
 		UserID: s.binding.UserID, PeerGeneration: generation,
 	}
-	return isFound && !enemy.IsDefeated && enemy.HitPoint > 0 &&
+	return isFound && !enemy.IsDefeated && !enemy.IsOrcusFollowing && enemy.HitPoint > 0 &&
 		enemy.IsActionStarted && enemy.ActionOwner == owner
 }
 

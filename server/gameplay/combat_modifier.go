@@ -32,6 +32,9 @@ func (e campaignNPCTimedModifierExpiryStep) produce() ([][]byte, error) {
 			peerSession.zone.Effect().Remove(e.run.instanceID)
 		}
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
+		if e.run.cancel != nil {
+			e.run.cancel()
+		}
 	}
 	e.runtime.registry.mutex.Unlock()
 	if !isCurrent {
@@ -198,6 +201,15 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 		}
 	}
 	packets := [][]byte{createPacket}
+	if profile.ModifierName == "MarkOfZelem" {
+		visualPackets, visualErr := r.attachPolarisMark(sessionKey, generation, run, profile.TargetEffectName)
+		if visualErr != nil {
+			cancel()
+			r.rollbackCampaignNPCTimedModifier(sessionKey, generation, run)
+			return nil, fmt.Errorf("markReticle: %w", visualErr)
+		}
+		packets = append(packets, visualPackets...)
+	}
 	if zonenpc.IsOperativeCage(profile.ModifierName) {
 		stopPackets, isBound, bindErr := r.bindOperativeCage(peerSession, run)
 		if bindErr != nil || !isBound {

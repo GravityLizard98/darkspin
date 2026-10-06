@@ -5658,7 +5658,7 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 	packet raknet.Packet, sessionKey string, generation uint64,
 	objectID uint32, timestamp uint64,
 ) ([][]byte, error) {
-	orcusPackets, isOrcusHandled, orcusErr := r.produceOrcusSpawn(
+	orcusPackets, isOrcusHandled, orcusErr := r.produceOrcusConsume(
 		packet, sessionKey, generation, objectID, timestamp,
 	)
 	if orcusErr != nil {
@@ -5667,7 +5667,7 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 	if isOrcusHandled {
 		return orcusPackets, nil
 	}
-	orcusPackets, isOrcusHandled, orcusErr = r.produceOrcusConsume(
+	orcusPackets, isOrcusHandled, orcusErr = r.produceOrcusSpawn(
 		packet, sessionKey, generation, objectID, timestamp,
 	)
 	if orcusErr != nil {
@@ -6037,6 +6037,10 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 	err = r.startArcturusControllers(packet, sessionKey, generation, plans, timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("firstActionArcturus: %w", err)
+	}
+	err = r.startMerakControllers(packet, sessionKey, generation, plans, timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("firstActionMerak: %w", err)
 	}
 	immediatePackets := make([][]byte, 0, len(plans)*4)
 	producers := make([]raknet.ScheduledPacketProducer, 0, len(plans)*2)
@@ -6567,6 +6571,8 @@ func marshalCampaignNPCSlowAttributes(
 }
 
 func (s *gameplayPeerSession) stopCampaignNPCModifiers(pool *modifierPool) {
+	s.stopOrcusConsumeRuns()
+	s.stopMerakControllers()
 	if s == nil {
 		return
 	}

@@ -115,6 +115,7 @@ type campaignOrcusConsumeSchedule struct {
 	request          campaignOrcusRequest
 	actionGeneration uint64
 	profile          zonenpc.ActionProfile
+	candidates       []zonenpc.Snapshot
 }
 
 func (e campaignOrcusConsumeSchedule) hit() ([][]byte, error) {
@@ -127,36 +128,49 @@ func (e campaignOrcusConsumeSchedule) hit() ([][]byte, error) {
 		e.request.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
-	candidates := peerSession.zone.NPCs().OwnedActiveCandidates(
-		e.request.objectID, e.profile.Radius,
-	)
+	candidates := e.candidates
 	if len(candidates) == 0 {
 		e.request.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
 	objectIDs := make([]uint32, 0, len(candidates))
-	healing := float32(0)
+	healedAmount := float32(0)
+	healPackets := make([][]byte, 0, len(candidates)*2)
 	random := peerSession.zone.NPCRandom()
 	for _, candidate := range candidates {
+		liveServant, isFound := peerSession.zone.NPCs().NPC(candidate.Plan.ObjectID)
+		if !isFound || liveServant.IsDefeated || liveServant.HitPoint <= 0 {
+			continue
+		}
 		objectIDs = append(objectIDs, candidate.Plan.ObjectID)
 		selectedHealing := e.profile.MinimumHealing
 		if random != nil && e.profile.MaximumHealing > e.profile.MinimumHealing {
 			selectedHealing += float32(random.Float64()) *
 				(e.profile.MaximumHealing - e.profile.MinimumHealing)
 		}
-		healing += selectedHealing
+		orcus, amount, healErr := peerSession.zone.NPCs().Heal(e.request.objectID, selectedHealing)
+		if healErr != nil {
+			e.request.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("orcusConsumeHeal: %w", healErr)
+		}
+		healedAmount += amount
+		if amount > 0 {
+			packets, marshalErr := npcraknet.HealDelta(e.request.objectID, orcus, amount)
+			if marshalErr != nil {
+				e.request.runtime.registry.mutex.Unlock()
+				return nil, fmt.Errorf("orcusConsumeHealMarshal: %w", marshalErr)
+			}
+			healPackets = append(healPackets, packets...)
+		}
+	}
+	if len(objectIDs) == 0 {
+		e.request.runtime.registry.mutex.Unlock()
+		return nil, nil
 	}
 	err := peerSession.zone.NPCs().Despawn(objectIDs)
 	if err != nil {
 		e.request.runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("orcusConsumeDespawn: %w", err)
-	}
-	orcus, healedAmount, err := peerSession.zone.NPCs().Heal(
-		e.request.objectID, healing,
-	)
-	if err != nil {
-		e.request.runtime.registry.mutex.Unlock()
-		return nil, fmt.Errorf("orcusConsumeHeal: %w", err)
 	}
 	deaths := make([]zonenpc.DeathEvent, 0, len(objectIDs))
 	for _, objectID := range objectIDs {
@@ -188,93 +202,7 @@ func (e campaignOrcusConsumeSchedule) hit() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("orcusConsumeDelete: %w", err)
 	}
-	packets := [][]byte{deletePacket}
-	if healedAmount <= 0 {
-		return packets, nil
-	}
-	healPackets, err := npcraknet.HealDelta(
-		e.request.objectID, orcus, healedAmount,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("orcusConsumeHealMarshal: %w", err)
-	}
-	return append(healPackets, packets...), nil
-}
-
-func (e campaignOrcusConsumeSchedule) next() ([][]byte, error) {
-	e.request.timestamp += uint64(e.profile.ReleaseDelay / time.Millisecond)
-	return e.request.resume(e.request.timestamp)
-}
-
-func (r campaignNPCActionRuntime) produceOrcusConsume(
-	packet raknet.Packet, sessionKey string, generation uint64,
-	objectID uint32, timestamp uint64,
-) ([][]byte, bool, error) {
-	r.registry.mutex.Lock()
-	peerSession, isFound := r.registry.sessions[sessionKey]
-	isCurrent := isFound && peerSession.isCampaignNPCSourceActive(generation, objectID)
-	if !isCurrent {
-		r.registry.mutex.Unlock()
-		return nil, false, nil
-	}
-	orcus, isOrcusFound := peerSession.zone.NPCs().NPC(objectID)
-	profile, isProfileFound := zonenpc.OrcusConsumeProfile(orcus.Plan.NounName)
-	isAvailable := isOrcusFound && isProfileFound && !orcus.IsDefeated &&
-		peerSession.zone.NPCs().SilenceRemaining(objectID, r.now()) == 0
-	if !isAvailable || len(peerSession.zone.NPCs().OwnedActiveCandidates(
-		objectID, profile.Radius,
-	)) == 0 {
-		r.registry.mutex.Unlock()
-		return nil, false, nil
-	}
-	reductionExpiresAt := r.now().Add(profile.ReleaseDelay)
-	err := peerSession.zone.NPCs().ApplyDamageReduction(
-		objectID, 0.75, reductionExpiresAt,
-	)
-	if err != nil {
-		r.registry.mutex.Unlock()
-		return nil, true, fmt.Errorf("orcusConsumeReduction: %w", err)
-	}
-	r.registry.sessions[sessionKey] = peerSession
-	r.registry.mutex.Unlock()
-
-	request := campaignOrcusRequest{
-		runtime: r, packet: packet, sessionKey: sessionKey,
-		generation: generation, objectID: objectID, timestamp: timestamp,
-	}
-	animationPacket, err := npcraknet.AnimationState(
-		objectID, profile.AnimationName, timestamp,
-	)
-	if err != nil {
-		r.clearOrcusDamageReduction(request, reductionExpiresAt)
-		return nil, true, fmt.Errorf("orcusConsumeAnimation: %w", err)
-	}
-	shieldPacket, err := npcraknet.ShieldEffectAsset(
-		objectID, 0, "verdanth_boss_shield.ServerEventDef", false,
-	)
-	if err != nil {
-		r.clearOrcusDamageReduction(request, reductionExpiresAt)
-		return nil, true, fmt.Errorf("orcusConsumeShield: %w", err)
-	}
-	schedule := campaignOrcusConsumeSchedule{
-		request: request, actionGeneration: orcus.ActionGeneration, profile: profile,
-	}
-	end := campaignOrcusReductionEnd{request: request, expiresAt: reductionExpiresAt}
-	producers := []raknet.ScheduledPacketProducer{
-		{Delay: profile.HitDelay, Produce: schedule.hit},
-		{Delay: profile.ReleaseDelay, Produce: end.produce},
-		{Delay: profile.ReleaseDelay, Produce: schedule.next},
-	}
-	cancel, err := scheduleNPCProducers(r.registry, packet, producers)
-	if err == nil && cancel == nil {
-		err = errors.New("nil cancellation")
-	}
-	if err != nil {
-		r.clearOrcusDamageReduction(request, reductionExpiresAt)
-		r.releaseAction(sessionKey, generation, objectID)
-		return nil, true, fmt.Errorf("orcusConsumeSchedule: %w", err)
-	}
-	return [][]byte{animationPacket, shieldPacket}, true, nil
+	return append(healPackets, deletePacket), nil
 }
 
 func (e campaignOrcusServantStep) spawn() ([][]byte, error) {
@@ -399,7 +327,8 @@ func (r campaignNPCActionRuntime) produceOrcusSpawn(
 	}
 	steps := make([]raknet.ScheduledPacketProducer, 0, spawnCount+1)
 	for index := 0; index < spawnCount; index++ {
-		delay := definition.FirstSpawnDelay + time.Duration(index)*definition.SpawnInterval
+		// Spawn creates the batch at its contact frame, then waits once (chunk 725).
+		delay := definition.FirstSpawnDelay
 		step := campaignOrcusServantStep{
 			runtime: r, packet: packet, sessionKey: sessionKey, generation: generation,
 			actionGeneration: orcus.ActionGeneration,
@@ -408,8 +337,7 @@ func (r campaignNPCActionRuntime) produceOrcusSpawn(
 		}
 		steps = append(steps, raknet.ScheduledPacketProducer{Delay: delay, Produce: step.spawn})
 	}
-	castDuration := definition.FirstSpawnDelay +
-		time.Duration(spawnCount)*definition.SpawnInterval
+	castDuration := definition.FirstSpawnDelay + definition.SpawnInterval
 	end := campaignOrcusSpawnEnd{
 		request: campaignOrcusRequest{
 			runtime: r, packet: packet, sessionKey: sessionKey, generation: generation,
