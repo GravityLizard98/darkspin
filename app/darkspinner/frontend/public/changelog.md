@@ -2,6 +2,8 @@
 
 ### 2026-10-05
 
+- Remove reflected request text from HTTP URI errors and prevent untyped traced responses from being interpreted as HTML.
+
 - Restore factory fire vents with repeated warning, eruption and hero damage cycles, synchronized across co-op players.
 - Change Laser Tank from cast-limited beams to persistent simultaneous laser zones with client-authored rank limits and cleanup.
 - Restore factory pipes' enemy-damaging explosions and persistent wrecks, and fuel canisters' authored blast and burning chain reactions.
