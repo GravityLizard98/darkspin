@@ -335,7 +335,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 			FootprintRadius: profile.FootprintRadius, IsKnown: true,
 		}
 		if strings.TrimSpace(profile.DisplayName) != "" {
-			identity, identityErr := campaignNPCIdentity(profile, affixesByName)
+			identity, identityErr := campaignNPCIdentityAtStage(profile, affixesByName, stage)
 			if identityErr != nil {
 				return game.CampaignDirector{}, fmt.Errorf("directorIdentity[%s]: %w", nounName, identityErr)
 			}

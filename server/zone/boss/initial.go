@@ -70,12 +70,14 @@ func PlanInitialEncounter(
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("bossMarkers: %w", err)
 	}
-	specialEntry := zonepopulation.PoolEntries(director, "special")
+	// Named captains belong to the boss roster, not the lieutenant pool used
+	// for ordinary population. Use the same prepared roster as admission audit.
+	leaderEntries := NamedBossEntries(director, chainLevelIndex)
 	agentEntry := eligibleInitialAgents(director)
-	if len(specialEntry) == 0 || len(agentEntry) == 0 {
+	if len(agentEntry) == 0 {
 		return nil, firstObjectID, errors.New("boss plan: empty pool")
 	}
-	leaderEntry, err := SelectInitialLeader(specialEntry, chainLevelIndex)
+	leaderEntry, err := SelectInitialLeader(leaderEntries, chainLevelIndex)
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("boss plan leader: %w", err)
 	}
@@ -166,13 +168,7 @@ func InitialDeveloperPublication(
 			continue
 		}
 		bossMarkerSet = markerSet
-		for _, marker := range markerSet.Markers {
-			if strings.EqualFold(
-				marker.NounName, "SpawnPoint_DirectorBoss.Noun",
-			) {
-				bossMarker = marker
-			}
-		}
+		bossMarker = initialBossAnchor(markerSet)
 		for _, trigger := range markerSet.Triggers {
 			for _, event := range trigger.Events {
 				if event.CallbackName != InitialTriggerCallback {
@@ -240,14 +236,7 @@ func initialMarkers(
 			!strings.EqualFold(markerSet.Name, publication.MarkerSetName) {
 			continue
 		}
-		for _, marker := range markerSet.Markers {
-			switch {
-			case strings.EqualFold(
-				marker.NounName, "SpawnPoint_DirectorBoss.Noun",
-			):
-				bossMarker = marker
-			}
-		}
+		bossMarker = initialBossAnchor(markerSet)
 	}
 	addMarker, err := initialAddMarkers(director, publication)
 	if err != nil {
@@ -260,6 +249,29 @@ func initialMarkers(
 			errors.New("incomplete")
 	}
 	return bossMarker, addMarker, nil
+}
+
+// The authored boss anchor also owns a trigger volume. The content loader
+// retains that placement in Triggers rather than Markers; both roles still
+// refer to the same spawn position and rotation.
+func initialBossAnchor(markerSet game.CampaignDirectorMarkerSet) game.CampaignDirectorMarker {
+	for _, marker := range markerSet.Markers {
+		if strings.EqualFold(marker.NounName, "SpawnPoint_DirectorBoss.Noun") {
+			return marker
+		}
+	}
+	for _, trigger := range markerSet.Triggers {
+		if !strings.EqualFold(trigger.NounName, "SpawnPoint_DirectorBoss.Noun") {
+			continue
+		}
+		return game.CampaignDirectorMarker{
+			Ordinal: trigger.Ordinal, MarkerID: trigger.MarkerID,
+			MarkerSetName: markerSet.Name, Name: trigger.Name,
+			NounName: trigger.NounName, Position: trigger.Position,
+			Rotation: trigger.Rotation,
+		}
+	}
+	return game.CampaignDirectorMarker{}
 }
 
 func initialAddMarkers(

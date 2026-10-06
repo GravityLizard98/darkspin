@@ -2533,6 +2533,12 @@ func (r gameplayPendingRuntime) poll(
 				return nil, fmt.Errorf("mutationPoll: %w", mutationErr)
 			}
 			rootHazardPackets = append(rootHazardPackets, mutationPackets...)
+			swiftPackets, swiftErr := r.pollSwiftAurasLocked(&peerSession)
+			if swiftErr != nil {
+				r.registry.mutex.Unlock()
+				return nil, fmt.Errorf("swiftPoll: %w", swiftErr)
+			}
+			rootHazardPackets = append(rootHazardPackets, swiftPackets...)
 		}
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}

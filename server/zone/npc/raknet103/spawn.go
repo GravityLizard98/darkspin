@@ -35,6 +35,8 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	}
 	basePlan := plan
 	basePlan.MovementSpeedBuff = 0
+	basePlan.SwiftAuraSourceObjectID = 0
+	basePlan.BossIdentity = zonenpc.BossIdentity{}
 	actionProfile, isActionKnown := zonenpc.ActionProfileForPlan(basePlan)
 	isVisible := plan.Introduction == zonenpc.SpawnIntroductionFloorWarp ||
 		!isActionKnown || !actionProfile.IsSpawnStealthed
@@ -54,7 +56,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			attribute[11] = 0
 		}
 		attribute[12] = actionProfile.MovementSpeed
-		attribute[48] = plan.MovementSpeedBuff
+		attribute[48] = zonenpc.EffectiveMovementSpeedBuff(plan)
 	}
 	if isActionKnown && actionProfile.PassiveEnergyDefense > 0 {
 		attribute[uint8(game.AttributeEnergyDefense)] +=
@@ -152,6 +154,9 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			DurationMilliseconds: uint32(zonenpc.EliteModifierDuration.Milliseconds()),
 			StackCount:           1, SourceID: plan.ObjectID,
 		})
+	}
+	if plan.SwiftAuraSourceObjectID != 0 {
+		messages = append(messages, swiftAuraMessage(plan))
 	}
 	if isActionKnown && actionProfile.StealthType != 0 {
 		messages = append(messages, raknet.AgentBlackboardUpdateMessage{

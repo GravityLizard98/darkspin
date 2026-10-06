@@ -56,14 +56,15 @@ type SpawnPlan struct {
 	IsLootSuppressed       bool // Native object +153, independent of XP eligibility.
 	IsExperienceSuppressed bool // Native object +154.
 	// Server encounter policy: excluded from progress and retired with its owner.
-	IsEncounterAuxiliary bool
-	MovementSpeedBuff    float32
-	MarkerSetName        string
-	Introduction         SpawnIntroduction
-	NPCProfile           game.CampaignNPCProfile
-	BossIdentity         BossIdentity
-	ActionProfile        ActionProfile
-	IsActionKnown        bool
+	IsEncounterAuxiliary    bool
+	MovementSpeedBuff       float32
+	SwiftAuraSourceObjectID uint32
+	MarkerSetName           string
+	Introduction            SpawnIntroduction
+	NPCProfile              game.CampaignNPCProfile
+	BossIdentity            BossIdentity
+	ActionProfile           ActionProfile
+	IsActionKnown           bool
 }
 
 func (e SpawnPlan) Clone() SpawnPlan {
@@ -97,6 +98,7 @@ func (e SpawnPlan) IsEqual(other SpawnPlan) bool {
 		e.IsExperienceSuppressed == other.IsExperienceSuppressed &&
 		e.IsEncounterAuxiliary == other.IsEncounterAuxiliary &&
 		e.MovementSpeedBuff == other.MovementSpeedBuff &&
+		e.SwiftAuraSourceObjectID == other.SwiftAuraSourceObjectID &&
 		e.MarkerSetName == other.MarkerSetName &&
 		e.Introduction == other.Introduction &&
 		reflect.DeepEqual(e.NPCProfile, other.NPCProfile) &&

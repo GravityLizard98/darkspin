@@ -7,6 +7,7 @@ import (
 )
 
 type status struct {
+	swiftMovementSpeedBuff   float32
 	areaShiftExpiresAt       time.Time
 	absorptionShieldAmount   float32
 	absorptionShieldMaximum  float32

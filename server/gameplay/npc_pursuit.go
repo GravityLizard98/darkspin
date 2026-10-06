@@ -360,6 +360,12 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}
+	// Ordinary pursuit must observe aura entry/exit while a path is already
+	// running. Secondary actions retain their scripted charge/leap speed.
+	if !isSecondaryFamily && profile.Family != zonenpc.ActionCharge {
+		profile.MovementSpeed = nounProfile.MovementSpeed
+		profile.NonCombatMovementSpeed = nounProfile.NonCombatMovementSpeed
+	}
 	resolvedTargetObjectID := enemy.TargetObjectID
 	targetPosition := game.Vec3{}
 	isTargetFound := false

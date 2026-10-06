@@ -266,7 +266,7 @@ func authoredCombatSpeed(plan SpawnPlan, profile ActionProfile) ActionProfile {
 	}
 	// sub_9E9960 selects attribute 12 in combat or Arena, otherwise 11,
 	// then multiplies the selected base by 1 + attribute 48.
-	speedScale := 1 + plan.MovementSpeedBuff
+	speedScale := 1 + EffectiveMovementSpeedBuff(plan)
 	profile.MovementSpeed = combatSpeed * speedScale
 	profile.NonCombatMovementSpeed = idleSpeed * speedScale
 	return profile

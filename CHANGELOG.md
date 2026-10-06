@@ -2,6 +2,9 @@
 
 ### 2026-10-06
 
+- Honor authored captain affix difficulty bands instead of applying every band together, preserving explicit paired affixes such as Illust's Swift and Swift Aura.
+- Restore Swift's movement-speed bonus and Swift Aura propagation to nearby friendly enemies, with non-stacking overlap, departure/death cleanup, and synchronized co-op/rejoin state.
+- Fix the 1-1 boss failing to appear by resolving its trigger-owned spawn anchor and selecting its named captain from the boss roster instead of the lieutenant pool.
 - #51 Restore Voltroid's discharge beam on the shared attack-impact path, using the authored visual strength for its charge count.
 - #51 Restore Terminal Haven's scenery fire vents and plasma-pond damage through shared hazard handling across selected campaign layouts.
 - #51 Fix Gravity Well leaving pulled enemies floating by resetting their reaction at landing before the authored recovery ends.

@@ -75,71 +75,77 @@ type CreatureAbilityProperty struct {
 // NonPlayerClass is the proven runtime combat-stat projection for one
 // non-player noun base instance.
 type NonPlayerClass struct {
-	InstanceID             uint32
-	NounName               string
-	DisplayName            string
-	DisplayNameLocaleKey   string
-	Description            string
-	DescriptionLocaleKey   string
-	NPCAffixNames          [NonPlayerAffixLimit]string
-	ChallengeValue         int32
-	NPCRank                int32
-	NPCType                uint32
-	CreatureType           uint32
-	DropTypes              []uint32
-	IsTargetable           bool
-	IsPlayerPet            bool
-	PlayerCountHealthScale float32
-	AggroRange             float32
-	AlertRange             float32
-	DropAggroRange         float32
-	IdleMovementSpeed      float32
-	BaseCombatSpeed        float32
-	HitPoint               float32
-	PowerPoint             float32
-	Strength               float32
-	Dexterity              float32
-	Mind                   float32
-	DodgeRating            float32
-	ResistRating           float32
-	CriticalRating         float32
+	InstanceID                   uint32
+	NounName                     string
+	DisplayName                  string
+	DisplayNameLocaleKey         string
+	Description                  string
+	DescriptionLocaleKey         string
+	NPCAffixNames                [NonPlayerAffixLimit]string
+	NPCAffixMinimumDifficulties  [NonPlayerAffixLimit]int32
+	NPCAffixMaximumDifficulties  [NonPlayerAffixLimit]int32
+	AreNPCAffixDifficultiesKnown bool
+	ChallengeValue               int32
+	NPCRank                      int32
+	NPCType                      uint32
+	CreatureType                 uint32
+	DropTypes                    []uint32
+	IsTargetable                 bool
+	IsPlayerPet                  bool
+	PlayerCountHealthScale       float32
+	AggroRange                   float32
+	AlertRange                   float32
+	DropAggroRange               float32
+	IdleMovementSpeed            float32
+	BaseCombatSpeed              float32
+	HitPoint                     float32
+	PowerPoint                   float32
+	Strength                     float32
+	Dexterity                    float32
+	Mind                         float32
+	DodgeRating                  float32
+	ResistRating                 float32
+	CriticalRating               float32
 }
 
 // NonPlayerNounProfile joins one noun to its authored non-player class and
 // physical scale without exposing storage IDs to the game feature.
 type NonPlayerNounProfile struct {
-	AIDefinitionInstanceID uint32
-	IsClassKnown           bool
-	AggroType              uint32
-	NounName               string
-	DisplayName            string
-	DisplayNameLocaleKey   string
-	Description            string
-	DescriptionLocaleKey   string
-	NPCAffixNames          [NonPlayerAffixLimit]string
-	ChallengeValue         int32
-	NPCRank                int32
-	NPCType                uint32
-	CreatureType           uint32
-	DropTypes              []uint32
-	IsTargetable           bool
-	IsPlayerPet            bool
-	PlayerCountHealthScale float32
-	AggroRange             float32
-	AlertRange             float32
-	DropAggroRange         float32
-	IdleMovementSpeed      float32
-	BaseCombatSpeed        float32
-	HitPoint               float32
-	PowerPoint             float32
-	Strength               float32
-	Dexterity              float32
-	Mind                   float32
-	DodgeRating            float32
-	ResistRating           float32
-	CriticalRating         float32
-	GraphicsScale          float32
-	FootprintRadius        float32
+	AIDefinitionInstanceID       uint32
+	IsClassKnown                 bool
+	AggroType                    uint32
+	NounName                     string
+	DisplayName                  string
+	DisplayNameLocaleKey         string
+	Description                  string
+	DescriptionLocaleKey         string
+	NPCAffixNames                [NonPlayerAffixLimit]string
+	NPCAffixMinimumDifficulties  [NonPlayerAffixLimit]int32
+	NPCAffixMaximumDifficulties  [NonPlayerAffixLimit]int32
+	AreNPCAffixDifficultiesKnown bool
+	ChallengeValue               int32
+	NPCRank                      int32
+	NPCType                      uint32
+	CreatureType                 uint32
+	DropTypes                    []uint32
+	IsTargetable                 bool
+	IsPlayerPet                  bool
+	PlayerCountHealthScale       float32
+	AggroRange                   float32
+	AlertRange                   float32
+	DropAggroRange               float32
+	IdleMovementSpeed            float32
+	BaseCombatSpeed              float32
+	HitPoint                     float32
+	PowerPoint                   float32
+	Strength                     float32
+	Dexterity                    float32
+	Mind                         float32
+	DodgeRating                  float32
+	ResistRating                 float32
+	CriticalRating               float32
+	GraphicsScale                float32
+	FootprintRadius              float32
 }
 
 // NounPhysics is the storage representation of proven noun collision and
@@ -687,7 +693,9 @@ func (s *Store) NonPlayerClasses(ctx context.Context) ([]NonPlayerClass, error) 
 	}
 	affixRows, err := s.database.QueryContext(ctx, `
 		SELECT non_player_class.instance_id, non_player_class_affix.ordinal,
-		       non_player_class_affix.asset_name
+		       non_player_class_affix.asset_name,
+		       non_player_class_affix.minimum_difficulty,
+		       non_player_class_affix.maximum_difficulty
 		FROM non_player_class_affix
 		JOIN non_player_class
 		  ON non_player_class.content_source_resource_id=
@@ -701,7 +709,9 @@ func (s *Store) NonPlayerClasses(ctx context.Context) ([]NonPlayerClass, error) 
 		var instanceID uint32
 		var ordinal int
 		var affixName string
-		err = affixRows.Scan(&instanceID, &ordinal, &affixName)
+		var minimumDifficulty, maximumDifficulty int32
+		err = affixRows.Scan(&instanceID, &ordinal, &affixName,
+			&minimumDifficulty, &maximumDifficulty)
 		if err != nil {
 			return nil, fmt.Errorf("nonPlayerAffixScan: %w", err)
 		}
@@ -710,6 +720,12 @@ func (s *Store) NonPlayerClasses(ctx context.Context) ([]NonPlayerClass, error) 
 			return nil, fmt.Errorf("nonPlayerAffixOwner[%d:%d]: missing", instanceID, ordinal)
 		}
 		classes[classIndex].NPCAffixNames[ordinal] = affixName
+		if minimumDifficulty > maximumDifficulty {
+			return nil, fmt.Errorf("nonPlayerAffixRange[%d:%d]: inverted", instanceID, ordinal)
+		}
+		classes[classIndex].NPCAffixMinimumDifficulties[ordinal] = minimumDifficulty
+		classes[classIndex].NPCAffixMaximumDifficulties[ordinal] = maximumDifficulty
+		classes[classIndex].AreNPCAffixDifficultiesKnown = true
 	}
 	err = affixRows.Err()
 	if err != nil {
@@ -814,11 +830,14 @@ func nonPlayerClassProfile(nounName string, class NonPlayerClass) NonPlayerNounP
 	return NonPlayerNounProfile{
 		IsClassKnown: true,
 		NounName:     nounName, DisplayName: class.DisplayName,
-		DisplayNameLocaleKey: class.DisplayNameLocaleKey,
-		Description:          class.Description,
-		DescriptionLocaleKey: class.DescriptionLocaleKey,
-		NPCAffixNames:        class.NPCAffixNames,
-		ChallengeValue:       class.ChallengeValue, NPCRank: class.NPCRank,
+		DisplayNameLocaleKey:         class.DisplayNameLocaleKey,
+		Description:                  class.Description,
+		DescriptionLocaleKey:         class.DescriptionLocaleKey,
+		NPCAffixNames:                class.NPCAffixNames,
+		NPCAffixMinimumDifficulties:  class.NPCAffixMinimumDifficulties,
+		NPCAffixMaximumDifficulties:  class.NPCAffixMaximumDifficulties,
+		AreNPCAffixDifficultiesKnown: class.AreNPCAffixDifficultiesKnown,
+		ChallengeValue:               class.ChallengeValue, NPCRank: class.NPCRank,
 		NPCType: class.NPCType, CreatureType: class.CreatureType, DropTypes: class.DropTypes,
 		IsTargetable: class.IsTargetable, IsPlayerPet: class.IsPlayerPet,
 		PlayerCountHealthScale: class.PlayerCountHealthScale,
