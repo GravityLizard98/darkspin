@@ -2,6 +2,8 @@
 
 ### 2026-10-06
 
+- [#55](https://github.com/darkspinnet/darkspin/issues/55) Fix empty mission 1-3 boss arenas and the same callback-slot mismatch on other boss triggers by resolving the authored boss callback instead of stopping at its event-only entry.
+- [#55](https://github.com/darkspinnet/darkspin/issues/55)  Fix empty mission 1-3 boss arenas and the same callback-slot mismatch on other boss triggers by resolving the authored boss callback instead of stopping at its event-only entry.
 - Fix repeated attacks retaining an old facing by applying captured turns to the controlling client as well as observers, and prevent delayed projectile releases from resetting a newer attack animation.
 - Fix blue and green obelisks rejecting interaction by checking reachable contact beside their collision bounds instead of requiring their centers to be walkable.
 - Fix post-tutorial heroes appearing locked by refreshing the owned roster, granting Blitz Alpha and Sage Alpha by default, and preserving the third-hero activation credit across duplicate completion calls.

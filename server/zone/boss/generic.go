@@ -501,6 +501,12 @@ func namedBossTriggerAnchor(
 				continue
 			}
 			for _, event := range trigger.Events {
+				// A trigger's native event and Lua callback are separate slots
+				// with the same authored event name. The event-only slot is not
+				// the boss operation; keep looking for its named callback.
+				if !IsNamedCallback(event.CallbackName) {
+					continue
+				}
 				if !strings.EqualFold(
 					namedTriggerEventName(trigger, event), publication.EventName,
 				) {
