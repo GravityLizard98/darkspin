@@ -162,7 +162,7 @@ func resolveAttackDamage(
 	damageProfile.DamageBuff += npc.status.oozeGrowthDamageIncrease
 	if npc.Plan.IsCaptain || npc.Plan.IsElite || npc.Plan.IsBoss ||
 		npc.Plan.BossIdentity.HasModifier(EliteModifierName) {
-		damageProfile.DamageBuff += EliteDamageBonus
+		damageProfile.DamageBuff += EliteBonusForType(npc.Plan.NPCProfile.NPCType).Damage
 	}
 	descriptorMask := uint32(1 | 1<<6)
 	damageType := uint8(0)

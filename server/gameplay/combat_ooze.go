@@ -98,7 +98,7 @@ func (e campaignNPCOozeGrowthSchedule) hit() ([][]byte, error) {
 	targetPlan := result.Target.Plan
 	if targetPlan.IsCaptain || targetPlan.IsElite || targetPlan.IsBoss ||
 		targetPlan.BossIdentity.HasModifier(zonenpc.EliteModifierName) {
-		bodyScaleBonus += zonenpc.EliteBodyScaleBonus
+		bodyScaleBonus += zonenpc.EliteBonusForType(targetPlan.NPCProfile.NPCType).BodyScale
 	}
 	bodyScalePacket, bodyScaleErr := raknet.MarshalApplication(
 		raknet.AttributeDataUpdateMessage{

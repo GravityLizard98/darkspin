@@ -2,6 +2,7 @@
 
 ### 2026-10-06
 
+- Correct elite minions from +75% health, +50% damage and +25% size to the client-authored +400%, +150% and +50%, including Mutation Agent promotion and co-op presentation.
 - Group Ally Alert controls into a collapsible section with a scrollable settings area in the Server Rules dialog.
 - Move Server Rules into a dialog opened from Config and add Share to GitHub with the displayed settings in a TOML code block.
 - Move ally-alert tuning from manual configuration edits to live launcher controls backed by server.toml, with section versions that reset outdated overrides to validated defaults.

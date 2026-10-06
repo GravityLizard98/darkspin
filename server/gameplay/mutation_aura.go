@@ -17,7 +17,7 @@ func (e gameplayPendingRuntime) pollMutationAgentsLocked(member *gameplayPeerSes
 			raknet.AttributeDataUpdateMessage{
 				ObjectID: npc.Plan.ObjectID, Value: map[uint8]float32{
 					4:                              npc.Plan.NPCProfile.HitPoint,
-					uint8(game.AttributeBodyScale): zonenpc.EliteBodyScaleBonus,
+					uint8(game.AttributeBodyScale): zonenpc.EliteBonusForType(npc.Plan.NPCProfile.NPCType).BodyScale,
 				},
 			},
 			raknet.ModifierCreatedMessage{

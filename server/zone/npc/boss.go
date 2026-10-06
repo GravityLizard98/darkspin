@@ -12,10 +12,23 @@ import (
 const (
 	EliteModifierName     = "EliteModifier"
 	EliteModifierDuration = 1_000_000 * time.Second
-	EliteHealthBonus      = float32(0.75)
-	EliteDamageBonus      = float32(0.50)
-	EliteBodyScaleBonus   = float32(0.25)
+	eliteMinionNPCType    = uint32(0)
 )
+
+type EliteBonus struct {
+	Health    float32
+	Damage    float32
+	BodyScale float32
+}
+
+// EliteBonusForType matches indexed Lua chunk 650's GetNPCType(Minion) branch.
+// NPC type, rather than spawn-pool membership or NPC rank, selects the bonuses.
+func EliteBonusForType(npcType uint32) EliteBonus {
+	if npcType == eliteMinionNPCType {
+		return EliteBonus{Health: 4, Damage: 1.5, BodyScale: 0.5}
+	}
+	return EliteBonus{Health: 0.75, Damage: 0.5, BodyScale: 0.25}
+}
 
 // BossIdentityFromContent converts the identity authored in ClassAttributes
 // into the runtime modifiers used by zone simulation. Every elite-ranked
@@ -111,6 +124,6 @@ func (e BossIdentity) HasModifier(modifierName string) bool {
 }
 
 func ApplyEliteProfile(profile game.CampaignNPCProfile) game.CampaignNPCProfile {
-	profile.HitPoint *= 1 + EliteHealthBonus
+	profile.HitPoint *= 1 + EliteBonusForType(profile.NPCType).Health
 	return profile
 }

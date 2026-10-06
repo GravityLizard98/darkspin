@@ -69,7 +69,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	isElite := plan.IsCaptain || plan.IsElite || plan.IsBoss ||
 		plan.BossIdentity.HasModifier(zonenpc.EliteModifierName)
 	if isElite {
-		attribute[uint8(game.AttributeBodyScale)] = zonenpc.EliteBodyScaleBonus
+		attribute[uint8(game.AttributeBodyScale)] = zonenpc.EliteBonusForType(profile.NPCType).BodyScale
 	}
 	// The noun already owns its authored graphics scale. The create field is a
 	// runtime multiplier, so replaying the noun scale here enlarges major actors
