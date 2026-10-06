@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import LauncherDialog from '@/components/LauncherDialog.vue'
+import ServerRulesConfiguration from '@/components/ServerRulesConfiguration.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { BrowserOpenURL, CancelPatch, ClipboardSetText, CloseDetachedGameInstances, CloseRunningGame, CloseRunningProfile, CreateProfile, DeleteProfile, DeleteRemoteProfile, DiscardInterruptedMission, EventsOn, GetInstallationStatus, GetInterruptedMission, GetLauncherIntegrationStatus, GetProfileAvatars, GetProfiles, GetRemoteProfiles, GetServerConfiguration, GetStatus, HasDetachedGameInstances, IsProfileRunning, LaunchRemoteProfile, LoginRemoteProfile, OpenReportFolder, OpenSteamDemoInstall, Patch, Play, Quit, RefreshInstallationStatus, RefreshRemoteProfiles, RegisterRemoteProfile, RelocateToGameRoot, RemoveLauncherIntegration, RepairLauncherIntegration, RestartLauncher, ScanRemoteServers, SendReport, SetIdentity, SetServerConfiguration, StartDetachedGameInstance, UninstallDarkspinner } from './platform'
 
@@ -46,13 +47,14 @@ const isRemotePasswordRemembered = ref(true)
 const isRemoteRegistration = ref(false)
 const isRemoteBusy = ref(false)
 const remoteMessage = ref('Enter a server address or ask for LAN suggestions.')
-const serverConfiguration = ref({ port:42127, isMultiplayerEnabled:false, locale:'en-us', locales:[], snapshotMode:'off', isBorderlessFullscreenEnabled:false })
+const serverConfiguration = ref({ port:42127, isMultiplayerEnabled:false, locale:'en-us', locales:[], snapshotMode:'auto', isBorderlessFullscreenEnabled:false })
 const configuredServerPort = ref(42127)
 const isConfiguredMultiplayerEnabled = ref(false)
 const configuredLocale = ref('en-us')
-const configuredSnapshotMode = ref('off')
+const configuredSnapshotMode = ref('auto')
 const isConfiguredBorderlessFullscreenEnabled = ref(false)
 const isServerConfigurationBusy = ref(false)
+const isServerRulesOpen = ref(false)
 const serverConfigurationMessage = ref('')
 const integrationStatus = ref({ isStartMenuInstalled:false, isDesktopInstalled:false, isSteamLaunchInstalled:false, isManagementSupported:false, message:'' })
 const isManagementBusy = ref(false)
@@ -1131,6 +1133,7 @@ async function stopActiveClient() {
 
 function showPage(page) {
   if (page === activePage.value) return
+  isServerRulesOpen.value = false
   suppressAutoLaunch()
   if (page === 'launcher') {
     void refreshDetachedInterruptedMission()
@@ -1327,6 +1330,9 @@ async function copyLauncherFailure() {
     </section></TabsContent>
 
     <TabsContent v-else-if="activePage === 'config'" value="config" as-child><section class="management-frame config-frame">
+      <div class="config-toolbar">
+        <Button variant="outline" type="button" @click="isServerRulesOpen = true">SERVER RULES</Button>
+      </div>
       <div class="config-grid">
         <Card class="management-card config-port-card">
           <template v-if="isExperimentalLauncherFeatureVisible">
@@ -1508,6 +1514,8 @@ async function copyLauncherFailure() {
         <small>{{ footerStatus.message }}</small>
       </div>
     </footer>
+
+    <ServerRulesConfiguration v-if="isServerRulesOpen && activePage === 'config'" :build-version="status.version" @interact="handleLauncherInteraction" @close="isServerRulesOpen = false" />
 
     <LauncherDialog @interact="handleLauncherInteraction" v-if="isCreatingProfile && activePage !== 'remote' && activePage !== 'config'" :is-dismissible="!isFirstRunOnboarding && !isProfileCreationBusy" @close="cancelProfileCreation">
       <div class="notice-card onboarding-card profile-creation-notice">

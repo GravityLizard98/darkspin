@@ -133,6 +133,7 @@ type Target struct {
 }
 
 type Snapshot struct {
+	repairStackCount                uint32
 	IsNashiraPassiveActive          bool
 	NashiraFiendOwnerObjectID       uint32
 	NashiraFiendCasterObjectID      uint32

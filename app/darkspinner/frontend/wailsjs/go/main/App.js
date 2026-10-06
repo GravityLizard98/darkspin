@@ -74,6 +74,10 @@ export function GetServerConfiguration() {
   return window['go']['main']['App']['GetServerConfiguration']();
 }
 
+export function GetServerRulesConfiguration() {
+  return window['go']['main']['App']['GetServerRulesConfiguration']();
+}
+
 export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
@@ -160,6 +164,10 @@ export function SetServerConfiguration(arg1, arg2, arg3, arg4, arg5) {
 
 export function SetServerPort(arg1) {
   return window['go']['main']['App']['SetServerPort'](arg1);
+}
+
+export function SetServerRulesConfiguration(arg1) {
+  return window['go']['main']['App']['SetServerRulesConfiguration'](arg1);
 }
 
 export function SetSkipCinematic(arg1) {

@@ -31,6 +31,17 @@ func (e *Session) AlertObject(objectID, targetObjectID uint32) (Snapshot, bool, 
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	npc, isAdded, err := e.alertObjectLocked(objectID, targetObjectID)
+	if err != nil {
+		return Snapshot{}, false, fmt.Errorf("alertObject: %w", err)
+	}
+	return npc, isAdded, nil
+}
+
+// alertObjectLocked shares the recovered primitive with server propagation.
+// The caller holds e.mu. Assigning a combat target is a server bridge; the
+// native primitive itself only updates threat and first-alert state.
+func (e *Session) alertObjectLocked(objectID, targetObjectID uint32) (Snapshot, bool, error) {
 	npc, isFound := e.npcs[objectID]
 	if !isFound || npc.IsDefeated || !npc.IsPublished || npc.HitPoint <= 0 {
 		return Snapshot{}, false, fmt.Errorf("npcAlertUnavailable: %d", objectID)

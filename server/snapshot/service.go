@@ -191,7 +191,7 @@ type Service struct {
 	closeOnce                sync.Once
 }
 
-// New creates one opt-in snapshot service and starts its bounded artifact worker.
+// New creates one configured snapshot service and starts its bounded artifact worker.
 func New(options Options) (*Service, error) {
 	if strings.TrimSpace(options.Directory) == "" {
 		return nil, errors.New("snapshot directory missing")
@@ -723,17 +723,9 @@ func (e *Service) processAutomatic() {
 			e.removeAutomaticIncidentLocked(request.anomaly.Fingerprint)
 		}
 	}
-	notifier := e.notifier
 	e.mu.Unlock()
-	if notifier == nil || result.Actor.UserID == 0 {
-		return
-	}
-	err = notifier.NotifySnapshot(context.Background(), Notice{
-		Actor: result.Actor, Message: message,
-	})
-	if err != nil {
-		e.logger.Printf("Sync Snapshot chat notification failed: %v", err)
-	}
+	// Automatic diagnostics stay in logs and archives; explicit /ss commands
+	// still return their normal chat feedback through Execute.
 }
 
 func automaticRetryDelay(attemptCount uint64) time.Duration {

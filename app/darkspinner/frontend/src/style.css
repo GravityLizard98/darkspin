@@ -132,6 +132,7 @@
 .remote-profile-info-card { align-items: start; }
 .remote-profile-core .selected-profile-avatar { width: 88px; height: 88px; }
 .config-grid { display: grid; grid-template-columns: minmax(240px, .9fr) minmax(0, 1.1fr); align-items: start; gap: 16px; }
+.config-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .management-card { padding: 18px; gap: 0; }
 .onboarding-index { color: var(--muted-foreground); font-size: 11px; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; width: fit-content; }
 .config-port-card > label:not(.management-toggle) { display: block; margin: 14px 0 6px; font-size: 11px; }

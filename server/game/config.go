@@ -54,7 +54,7 @@ var defaultConfigValues = map[ConfigKey]string{
 	ConfigAuthJWTSecret:                 "darkspin-local-development-secret-do-not-use-in-production",
 	ConfigAuthJWTIssuer:                 "darkspin-web",
 	ConfigAuthJWTAudience:               "darkspin",
-	ConfigSnapshotMode:                  "off",
+	ConfigSnapshotMode:                  "auto",
 	ConfigSnapshotBufferSecond:          "30",
 	ConfigSnapshotDelaySecond:           "30",
 }

@@ -202,8 +202,6 @@ type zoneEffectPresentation struct {
 	campaignNPCVoltroidChargeExpires    map[uint32]uint64
 	campaignNPCVoltroidChargeReadiness  map[uint32]uint64
 	campaignNPCVoltroidEffectSlots      map[uint32]uint8
-	campaignNPCRepairStacks             map[uint32]uint32
-	campaignNPCRepairLockouts           map[uint32]uint64
 	campaignNPCRecoveryActionCounts     map[uint32]uint32
 	campaignNPCPolarisStates            map[uint32]campaignNPCPolarisState
 	campaignNPCCitadelSpecialFourStates map[uint32]campaignCitadelSpecialFourState
@@ -1135,8 +1133,6 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNPCVoltroidChargeExpires)
 	clear(s.campaignNPCVoltroidChargeReadiness)
 	clear(s.campaignNPCVoltroidEffectSlots)
-	clear(s.campaignNPCRepairStacks)
-	clear(s.campaignNPCRepairLockouts)
 	clear(s.campaignNPCCitadelSpecialFourStates)
 	clear(s.campaignNPCOrcusStates)
 	clear(s.campaignNPCLaserZones)

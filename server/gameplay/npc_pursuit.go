@@ -353,7 +353,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		return nil, nil
 	}
 	nounProfile, isProfileFound := zonenpc.ActionProfileForPlan(enemy.Plan)
-	isSecondaryFamily := isCampaignNPCSecondaryPursuit(profile.AbilityName)
+	isSecondaryFamily := isCampaignNPCSecondaryPursuit(profile.AbilityName) || profile.AbilityName == "Repair"
 	if !isProfileFound ||
 		(nounProfile.Family != profile.Family && !isSecondaryFamily) {
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
@@ -373,6 +373,9 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		targetNPC, isNPCFound := npcSession.NPC(targetObjectID)
 		isTargetFound = isNPCFound && !targetNPC.IsDefeated &&
 			targetNPC.IsPublished && targetNPC.HitPoint > 0
+		if profile.AbilityName == "Repair" {
+			isTargetFound = isNPCFound && targetNPC.IsDefeated && targetNPC.IsPublished
+		}
 		if isTargetFound {
 			resolvedTargetObjectID = targetObjectID
 			targetPosition = targetNPC.Plan.Position

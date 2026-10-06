@@ -7,6 +7,7 @@ import (
 )
 
 type status struct {
+	repairBlockedUntil       time.Time
 	swiftMovementSpeedBuff   float32
 	areaShiftExpiresAt       time.Time
 	absorptionShieldAmount   float32

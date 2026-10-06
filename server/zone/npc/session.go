@@ -1206,6 +1206,7 @@ func (s *Session) damage(
 		npc.IsSpawnStealthActive = false
 	}
 	if npc.IsDefeated {
+		npc.status.repairBlockedUntil = time.Time{}
 		npc.status.oozeGrowthReadyTimestamp = 0
 		if npc.status.oozeBaseMaximumHitPoint > 0 {
 			npc.Plan.NPCProfile.HitPoint = npc.status.oozeBaseMaximumHitPoint
@@ -1504,6 +1505,7 @@ func (s *Session) resurrect(
 	npc.HitPoint = maximumHitPoint * hitPointFraction
 	npc.ManaPoint = npc.Plan.NPCProfile.PowerPoint
 	npc.IsDefeated = false
+	npc.repairStackCount = 0
 	npc.TargetObjectID = 0
 	npc.TargetFaction = FactionUnknown
 	npc.TargetOwner = ActionOwner{}

@@ -779,6 +779,7 @@ type NavigationSource interface {
 }
 
 type gameplayHandlerDependencies struct {
+	allyAlertRuleSource    AllyAlertRuleSource
 	campaignSetup          *game.CampaignSetup
 	campaignNavigation     NavigationSource
 	publishCampaignEvent   func(game.CampaignDirectorPublication)
@@ -1130,9 +1131,14 @@ func NewHandler(
 	program Programs, logger *log.Logger, campaignSetup *game.CampaignSetup,
 	campaignNavigation NavigationSource, timer zone.Timer,
 	checkpoint zonecheckpoint.Repository,
+	allyAlertRuleSources ...AllyAlertRuleSource,
 ) (raknet.Handler, Lifecycle) {
 	lifecycle := Lifecycle{}
 	dependency := defaultGameplayHandlerDependencies()
+	dependency.allyAlertRuleSource = fixedAllyAlertRules{rules: zonenpc.DefaultAllyAlertRules()}
+	if len(allyAlertRuleSources) > 0 {
+		dependency.allyAlertRuleSource = allyAlertRuleSources[0]
+	}
 	dependency.campaignSetup = campaignSetup
 	dependency.campaignNavigation = campaignNavigation
 	dependency.zoneTimer = timer
@@ -1279,9 +1285,10 @@ func newGameplayHandlerWithDependencies(
 		registry: sessionRegistry, logger: logger,
 	}
 	npcAction := campaignNPCActionRuntime{
-		registry:   sessionRegistry,
-		projectile: campaignNPCProjectileAuthority{registry: sessionRegistry},
-		pursuit:    enemyPursuit, program: program,
+		allyAlertRuleSource: dependency.allyAlertRuleSource,
+		registry:            sessionRegistry,
+		projectile:          campaignNPCProjectileAuthority{registry: sessionRegistry},
+		pursuit:             enemyPursuit, program: program,
 		logger: logger, stats: statsRecorder, modifierPool: modifierInstancePool,
 		now: dependency.now, gameplayJoin: gameplayJoin,
 		timer:      dependency.zoneTimer,

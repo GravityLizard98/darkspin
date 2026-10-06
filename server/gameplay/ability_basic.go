@@ -2501,12 +2501,12 @@ func campaignHeroProjectileSource(
 }
 
 func campaignProjectileSpreadTarget(
-	source raknet.Vector3, target raknet.Vector3, angleDegrees float32,
+	aimSource, source, target raknet.Vector3, angleDegrees float32,
 ) (raknet.Vector3, raknet.Vector3) {
-	facing := geometryraknet.Direction(source, target)
-	if angleDegrees == 0 {
-		return target, facing
-	}
+	// Client projectile template chunk38, prototype0.16, computes direction
+	// before adding the transformed shot offset. Muzzle placement must not
+	// change pitch or make parallel launches converge on the same point.
+	facing := geometryraknet.Direction(aimSource, target)
 	radians := float64(angleDegrees) * math.Pi / 180
 	cosine := float32(math.Cos(radians))
 	sine := float32(math.Sin(radians))
@@ -2515,7 +2515,7 @@ func campaignProjectileSpreadTarget(
 		Y: facing.X*sine + facing.Y*cosine,
 		Z: facing.Z,
 	}
-	distance := zoneability.Distance(game.Vec3(source), game.Vec3(target))
+	distance := zoneability.Distance(game.Vec3(aimSource), game.Vec3(target))
 	return raknet.Vector3{
 		X: source.X + spreadFacing.X*distance,
 		Y: source.Y + spreadFacing.Y*distance,

@@ -3456,7 +3456,7 @@ func (d campaignDeathDeadline) execute() {
 		}
 	}
 	if d.isFinal {
-		death.Complete(d.objectID, d.run)
+		death.CompleteDeadline(d.objectID, d.run, d.deadline)
 	}
 }
 
@@ -4373,19 +4373,20 @@ func campaignNPCActionCommand(
 }
 
 type campaignNPCActionRuntime struct {
-	registry     *gameplaySessionRegistry
-	projectile   campaignNPCProjectileAuthority
-	pursuit      campaignNPCPursuitRuntime
-	program      Programs
-	logger       *log.Logger
-	stats        *playerstat.Recorder
-	modifierPool *modifierPool
-	now          func() time.Time
-	gameplayJoin *game.GameplayJoin
-	death        campaignDeathRuntime
-	timer        zone.Timer
-	projection   gameplayProjectionRuntime
-	effectPool   *attachedEffectPool
+	allyAlertRuleSource AllyAlertRuleSource
+	registry            *gameplaySessionRegistry
+	projectile          campaignNPCProjectileAuthority
+	pursuit             campaignNPCPursuitRuntime
+	program             Programs
+	logger              *log.Logger
+	stats               *playerstat.Recorder
+	modifierPool        *modifierPool
+	now                 func() time.Time
+	gameplayJoin        *game.GameplayJoin
+	death               campaignDeathRuntime
+	timer               zone.Timer
+	projection          gameplayProjectionRuntime
+	effectPool          *attachedEffectPool
 }
 
 type campaignSageCompanionRespawnStep struct {
@@ -6023,7 +6024,11 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 	if !isCurrent {
 		return nil, nil
 	}
-	err := r.startCorruptorControllers(
+	plans, err := r.alertAllies(zone, plans, timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("firstActionAllies: %w", err)
+	}
+	err = r.startCorruptorControllers(
 		packet, sessionKey, generation, plans, timestamp,
 	)
 	if err != nil {
@@ -8517,7 +8522,7 @@ func (r campaignNPCActionRuntime) producePushPull(
 		return nil, nil
 	}
 	distance := zonegeometry.Distance(enemy.Plan.Position, target.Position)
-	profile, err := zonenpc.ZelemSpecialTwoActionProfile(distance)
+	profile, err := zonenpc.ZelemSpecialTwoActionProfileForPlan(enemy.Plan, distance)
 	if err != nil {
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("enemyPushPullProfile: %w", err)

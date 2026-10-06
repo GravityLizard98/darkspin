@@ -2,6 +2,20 @@
 
 ### 2026-10-06
 
+- Group Ally Alert controls into a collapsible section with a scrollable settings area in the Server Rules dialog.
+- Move Server Rules into a dialog opened from Config and add Share to GitHub with the displayed settings in a TOML code block.
+- Move ally-alert tuning from manual configuration edits to live launcher controls backed by server.toml, with section versions that reset outdated overrides to validated defaults.
+- Match Reparatron's client-authored repair selection: prioritize eligible friendly Cyber corpses, exclude fading and critical-hit deaths, and share the two-second failed-roll block across co-op ownership changes.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Add configurable NPC ally-alert propagation for nearby idle enemies, with authored range scaling, bounded relay depth, and optional diagnostics for gameplay comparisons.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Restore Reparatron's client-authored approach, repeated repair and revival animations, shared co-op repair stacks, corpse-timer refresh and revived enemies' return to combat.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Fix hero projectile muzzle offsets changing shot direction, preventing close cursor shots from pitching downward and preserving the client-authored spread for Krel and other ranged heroes.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Fix hero projectile muzzle offsets changing shot direction, preventing close cursor shots from pitching downward and preserving the client-authored spread for Krel and other ranged heroes.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Restore Magnetic Master variants' client-authored rank-dependent pull ranges and push/pull cooldowns, and use their current movement attributes during pursuit.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Restore Magnetic Master variants' client-authored rank-dependent pull ranges and push/pull cooldowns, and use their current movement attributes during pursuit.
+- [#53](https://github.com/darkspinnet/darkspin/issues/53) Enable automatic Sync Snapshots by default and keep automatic captures silent in chat, while preserving explicit `/ss` command feedback.
+- Include a fresh Sync Snapshot with automatic capture history in `/bug` reports when `/ss` auto mode is enabled, recording capture failures without blocking the report.
+- Fix Dendrones and other combat pets repeatedly chasing instead of attacking by keeping pursuit destinations inside the hit-range acceptance margin.
+- Improve sync reports by sampling companions at capture time and including their active owner-follow goal, speed, and remaining travel time instead of comparing stale committed positions.
 - Fix enemy strafing desync by refreshing movement speed from current authored attributes and Swift, haste, and slow effects instead of retaining an older attack speed.
 - [#52](https://github.com/darkspinnet/darkspin/issues/52) Fix heroes moving toward enemies while attacking by matching the client's captured-point facing command instead of sending a pursuit target.
 - [#52](https://github.com/darkspinnet/darkspin/issues/52) Fix Exploder Scarabs repeatedly restarting instead of exploding when arming and movement processing occur in the same clock tick, preserving their authored 1.54-second fuse.

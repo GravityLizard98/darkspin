@@ -240,6 +240,24 @@ func (b *DeathBehavior) markForDeletion() error {
 	return nil
 }
 
+// ResetTimer implements BeingRepairedModifier's SetDeathTimer while the
+// corpse is still in its revival window.
+func (e *DeathBehavior) ResetTimer(delay time.Duration) (bool, error) {
+	if e == nil || e.simulator == nil || delay <= 0 {
+		return false, errors.New("invalid death timer")
+	}
+	if !e.isActive || e.isMarkedDelete || e.isCorpseFading {
+		return false, nil
+	}
+	e.simulator.Cancel(e.pendingTask)
+	e.pendingTask = 0
+	err := e.schedule(delay, e.finishRevivalWindow)
+	if err != nil {
+		return false, fmt.Errorf("timerSchedule: %w", err)
+	}
+	return true, nil
+}
+
 // Revive cancels pending deletion and emits Behavior_Death cleanup. It returns
 // false after the object has already been marked for deletion.
 func (b *DeathBehavior) Revive() (bool, error) {

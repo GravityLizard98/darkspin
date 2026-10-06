@@ -1,4 +1,4 @@
-// Package snapshot owns opt-in rolling RakNet and gameplay-state captures.
+// Package snapshot owns bounded rolling RakNet and gameplay-state captures.
 package snapshot
 
 import (

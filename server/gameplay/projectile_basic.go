@@ -179,7 +179,7 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 			actorPosition, facing, projectileOffset,
 		)
 		projectileTarget, projectileFacing := campaignProjectileSpreadTarget(
-			projectileSource, targetPosition, projectileAngles[projectileIndex],
+			actorPosition, projectileSource, targetPosition, projectileAngles[projectileIndex],
 		)
 		launchPosition := campaignProjectileLaunchPosition(
 			game.Vec3(projectileSource), game.Vec3(projectileTarget), actorFootprint,

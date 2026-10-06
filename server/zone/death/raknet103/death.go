@@ -23,11 +23,13 @@ var criticalEnemyDeathDeadlines = []time.Duration{100 * time.Millisecond, 3100 *
 const fixtureDeathDeleteDelay = time.Second
 
 type Run struct {
-	session   *sim.Session
-	behavior  *sim.DeathBehavior
-	outbox    *enemyDeathOutbox
-	deadlines []time.Duration
-	cancel    raknet.CancelSchedule
+	session         *sim.Session
+	behavior        *sim.DeathBehavior
+	outbox          *enemyDeathOutbox
+	deadlines       []time.Duration
+	cancel          raknet.CancelSchedule
+	startedAt       time.Time
+	isCriticalDeath bool
 }
 
 type Target struct {
@@ -166,7 +168,9 @@ func NewRun(
 	}
 	run := &Run{
 		session: session, behavior: behavior, outbox: outbox,
-		deadlines: append([]time.Duration(nil), deadlines...),
+		deadlines:       append([]time.Duration(nil), deadlines...),
+		startedAt:       time.Now(),
+		isCriticalDeath: isCritical,
 	}
 	return run, outbox.drain(), nil
 }
@@ -176,6 +180,13 @@ func (r *Run) Deadlines() []time.Duration {
 		return nil
 	}
 	return append([]time.Duration(nil), r.deadlines...)
+}
+
+// IsRepairableCorpse implements ShouldRepair's killing-hit and fade checks.
+// Critical bosses are excluded even when their death branch does not fade.
+func (e *Run) IsRepairableCorpse() bool {
+	return e != nil && e.outbox != nil && !e.isCriticalDeath &&
+		!e.outbox.isCorpseFading && !e.outbox.isMarkedForDeletion
 }
 
 func (r *Run) IsFinalDeadline(deadline time.Duration) bool {
@@ -235,11 +246,50 @@ func (r *Run) Advance(ctx context.Context, deadline time.Duration) ([][]byte, er
 func (r *Run) AdvanceDeath(
 	ctx context.Context, deadline time.Duration,
 ) ([]zonenpc.DeathEvent, error) {
+	isDeadlineFound := false
+	for _, current := range r.deadlines {
+		if current == deadline {
+			isDeadlineFound = true
+			break
+		}
+	}
+	if !isDeadlineFound {
+		return nil, nil
+	}
 	_, err := r.Advance(ctx, deadline)
 	if err != nil {
 		return nil, fmt.Errorf("deathAdvance: %w", err)
 	}
 	return r.outbox.drainProjection(), nil
+}
+
+func (e *Run) ResetDeathTimer(ctx context.Context, delay time.Duration) ([]time.Duration, bool, error) {
+	if e == nil || e.session == nil || e.behavior == nil || e.outbox == nil || ctx == nil || delay <= 0 {
+		return nil, false, errors.New("invalid death timer reset")
+	}
+	elapsed := time.Since(e.startedAt)
+	if len(e.deadlines) < 2 || elapsed >= e.deadlines[0] || e.outbox.isCorpseFading || e.outbox.isMarkedForDeletion {
+		return nil, false, nil
+	}
+	packets, err := e.Advance(ctx, max(elapsed, e.session.Director().Simulator().Now()))
+	if err != nil {
+		return nil, false, fmt.Errorf("timerAdvance: %w", err)
+	}
+	// A timer refresh emits no presentation; death projections remain owned
+	// by the scheduled death path if the revival window already expired.
+	if len(packets) != 0 {
+		return nil, false, errors.New("death timer advanced presentation unexpectedly")
+	}
+	isReset, err := e.behavior.ResetTimer(delay)
+	if err != nil {
+		return nil, false, fmt.Errorf("timerReset: %w", err)
+	}
+	if !isReset {
+		return nil, false, nil
+	}
+	elapsed = e.session.Director().Simulator().Now()
+	e.deadlines = []time.Duration{elapsed + delay, elapsed + delay + 5*time.Second}
+	return []time.Duration{delay, delay + 5*time.Second}, true, nil
 }
 
 func (r *Run) DrainProjection() []zonenpc.DeathEvent {

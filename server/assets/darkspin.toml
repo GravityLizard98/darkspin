@@ -40,7 +40,7 @@ jwt_audience = "darkspin"
 
 [snapshot]
 # Off keeps no rolling sync diagnostics. Manual records the rolling buffer for
-# /ss dump. Auto also snapshots detected RakNet ordering anomalies.
-mode = "off"
+# /ss dump. Auto also snapshots detected anomalies silently and is the default.
+mode = "auto"
 buffer_duration_seconds = 30
 delay_seconds = 30

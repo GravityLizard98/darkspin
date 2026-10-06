@@ -217,6 +217,7 @@ type Environment struct {
 type Server struct {
 	environment           Environment
 	config                *game.Config
+	serverRuleStore       *serverRuleStore
 	isConfigGenerated     bool
 	scheduler             *scheduler.Scheduler
 	blazeServers          []*blaze.Server
@@ -481,6 +482,10 @@ func New(options Options) (*Server, error) {
 	config, isConfigGenerated, err := game.LoadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("configLoad: %w", err)
+	}
+	serverRuleStore, err := loadServerRuleStore(context.Background(), configPath)
+	if err != nil {
+		return nil, fmt.Errorf("serverRulesLoad: %w", err)
 	}
 
 	logger := options.Logger
@@ -837,9 +842,13 @@ func New(options Options) (*Server, error) {
 		return nil, fmt.Errorf("navigationSource: %w", err)
 	}
 	taskScheduler := scheduler.New()
+	allyAlertRules := serverRuleStore.AllyAlertRules()
+	logger.Printf("NPC ally alert policy enabled=%t range_percent=%d range_owner=%s max_hops=%d diagnostics=%t",
+		allyAlertRules.IsEnabled, allyAlertRules.RangePercent, allyAlertRules.RangeOwner,
+		allyAlertRules.MaxHops, allyAlertRules.IsDiagnosticLoggingEnabled)
 	gameplayHandler, gameplayLifecycle := gameplay.NewHandler(
 		gameplayJoin, userManager, simulationProgram, logger, campaignSetup, navigationSource,
-		zone.NewSchedulerTimer(taskScheduler), checkpointManager,
+		zone.NewSchedulerTimer(taskScheduler), checkpointManager, serverRuleStore,
 	)
 	chatService.UseBugContextProvider(gameplayLifecycle)
 	chatService.UseHintProvider(gameplayLifecycle)
@@ -878,6 +887,7 @@ func New(options Options) (*Server, error) {
 			GameVersion:      gameVersion,
 		},
 		config:                config,
+		serverRuleStore:       serverRuleStore,
 		isConfigGenerated:     isConfigGenerated,
 		scheduler:             taskScheduler,
 		blazeServers:          blazeServers,

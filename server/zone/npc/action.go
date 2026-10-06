@@ -240,10 +240,12 @@ func PlanFirstAction(command FirstActionCommand) (FirstActionPlan, bool, error) 
 
 func ActionProfileForPlan(plan SpawnPlan) (ActionProfile, bool) {
 	if plan.IsActionKnown {
-		return authoredCombatSpeed(plan, IntroductionProfile(plan, plan.ActionProfile)), true
+		profile := zelemSpecialTwoDecisionProfile(plan, plan.ActionProfile)
+		return authoredCombatSpeed(plan, IntroductionProfile(plan, profile)), true
 	}
 	profile, isFound := ActionProfileForNoun(plan.NounName)
 	if isFound {
+		profile = zelemSpecialTwoDecisionProfile(plan, profile)
 		return authoredCombatSpeed(plan, IntroductionProfile(plan, profile)), true
 	}
 	if plan.IsFixture || plan.NounName == "" {
@@ -3522,6 +3524,51 @@ func ZelemSpecialTwoActionProfile(distance float32) (ActionProfile, error) {
 		return ZelemSpecialTwoPushProfile(), nil
 	}
 	return ZelemSpecialTwoPullProfile(), nil
+}
+
+// ZelemSpecialTwoActionProfileForPlan projects the packaged push/pull rank
+// arrays and current authored movement attributes for all Magnetic Master nouns.
+func ZelemSpecialTwoActionProfileForPlan(
+	plan SpawnPlan, distance float32,
+) (ActionProfile, error) {
+	profile, err := ZelemSpecialTwoActionProfile(distance)
+	if err != nil {
+		return ActionProfile{}, fmt.Errorf("magneticProfile: %w", err)
+	}
+	rank := zelemSpecialTwoRank(plan)
+	if profile.IsPull {
+		cooldowns := [...]time.Duration{12 * time.Second, 10 * time.Second, 8 * time.Second}
+		ranges := [...]float32{10, 12, 14}
+		profile.Cooldown = cooldowns[rank-1]
+		profile.Range = ranges[rank-1]
+	} else {
+		cooldowns := [...]time.Duration{8 * time.Second, 6 * time.Second, 4 * time.Second}
+		profile.Cooldown = cooldowns[rank-1]
+	}
+	return authoredCombatSpeed(plan, profile), nil
+}
+
+func zelemSpecialTwoRank(plan SpawnPlan) int32 {
+	rank := plan.NPCProfile.NPCRank
+	if rank < 1 || rank > 3 {
+		rank = 1
+		noun := strings.ToLower(plan.NounName)
+		if strings.HasSuffix(noun, "_2.noun") {
+			rank = 2
+		} else if strings.HasSuffix(noun, "_3.noun") {
+			rank = 3
+		}
+	}
+	return rank
+}
+
+func zelemSpecialTwoDecisionProfile(plan SpawnPlan, profile ActionProfile) ActionProfile {
+	if profile.AbilityName != "ZelemSpecialTwo" {
+		return profile
+	}
+	ranges := [...]float32{10, 12, 14}
+	profile.Range = ranges[zelemSpecialTwoRank(plan)-1]
+	return profile
 }
 
 func ActionProfileFromAbility(
