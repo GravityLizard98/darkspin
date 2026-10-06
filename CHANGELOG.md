@@ -2,6 +2,9 @@
 
 ### 2026-10-06
 
+- Fix repeated attacks retaining an old facing by applying captured turns to the controlling client as well as observers, and prevent delayed projectile releases from resetting a newer attack animation.
+- Fix blue and green obelisks rejecting interaction by checking reachable contact beside their collision bounds instead of requiring their centers to be walkable.
+- Fix post-tutorial heroes appearing locked by refreshing the owned roster, granting Blitz Alpha and Sage Alpha by default, and preserving the third-hero activation credit across duplicate completion calls.
 - Correct elite minions from +75% health, +50% damage and +25% size to the client-authored +400%, +150% and +50%, including Mutation Agent promotion and co-op presentation.
 - Group Ally Alert controls into a collapsible section with a scrollable settings area in the Server Rules dialog.
 - Move Server Rules into a dialog opened from Config and add Share to GitHub with the displayed settings in a TOML code block.

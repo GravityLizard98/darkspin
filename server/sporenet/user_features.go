@@ -51,7 +51,6 @@ const tutorialCompletionDNA = uint32(100)
 const tutorialCompletionMaximumExperience = uint32(1<<31 - 1)
 const tutorialBlitzTemplateName = "Blitz Alpha"
 const tutorialSageTemplateName = "Sage Alpha"
-const tutorialWraithTemplateName = "Wraith Alpha"
 const tutorialElectroClawsRigblock = uint16(268)
 const tutorialElectroClawsLevel = uint16(5)
 const maximumFunctionalItemCount = 6
@@ -759,9 +758,8 @@ func (u *User) recoverThirdHeroLesson() (Account, []Squad, bool) {
 	if u.Account.OnboardingProgress != tutorialCompletedProgress {
 		return previousAccount, previousSquad, false
 	}
-	if len(u.Creatures) >= 4 {
+	if len(u.Creatures) >= 3 {
 		u.Account.OnboardingProgress = 4000
-		u.Account.CreatureRewards = 0
 		for index := range u.Squads {
 			squad := &u.Squads[index]
 			if squad.ID != u.Account.DefaultDeckPVEID || squad.Category != "pve" ||
@@ -784,16 +782,15 @@ func (u *User) recoverThirdHeroLesson() (Account, []Squad, bool) {
 		return previousAccount, previousSquad,
 			u.Account != previousAccount || !slices.Equal(u.Squads, previousSquad)
 	}
-	if len(u.Creatures) != 3 || u.Account.CreatureRewards != 0 {
+	if len(u.Creatures) != 2 || u.Account.CreatureRewards != 0 {
 		return previousAccount, previousSquad, false
 	}
 	for index := range u.Squads {
 		squad := &u.Squads[index]
 		if squad.ID != u.Account.DefaultDeckPVEID || squad.Category != "pve" ||
-			squad.CreatureIDs[0] == 0 || squad.CreatureIDs[1] == 0 || squad.CreatureIDs[2] == 0 {
+			squad.CreatureIDs[0] == 0 || squad.CreatureIDs[1] == 0 || squad.CreatureIDs[2] != 0 {
 			continue
 		}
-		squad.CreatureIDs[2] = 0
 		u.Account.CreatureRewards = 1
 		return previousAccount, previousSquad, true
 	}
@@ -808,8 +805,11 @@ func (e *User) repairHeroRewards(maximumCreatureCount int) bool {
 		earned++
 	}
 	unlocked := uint32(0)
-	if len(e.Creatures) > 3 {
-		unlocked = uint32(len(e.Creatures) - 3)
+	for _, creature := range e.Creatures {
+		if creature != nil && creature.TemplateName != tutorialBlitzTemplateName &&
+			creature.TemplateName != tutorialSageTemplateName {
+			unlocked++
+		}
 	}
 	expected := uint32(0)
 	maximumAccountLevel := uint32(len(accountExperienceUpperBound) + 1)
@@ -930,12 +930,10 @@ func (m *UserManager) CompleteTutorial(ctx context.Context, userID int64) (Tutor
 	defer user.mutation.Unlock()
 	var blitzTemplate *TemplateCreature
 	var sageTemplate *TemplateCreature
-	var wraithTemplate *TemplateCreature
 	if m.template != nil {
 		blitzTemplate = m.template.ByName(tutorialBlitzTemplateName)
 		sageTemplate = m.template.ByName(tutorialSageTemplateName)
-		wraithTemplate = m.template.ByName(tutorialWraithTemplateName)
-		if blitzTemplate == nil || sageTemplate == nil || wraithTemplate == nil {
+		if blitzTemplate == nil || sageTemplate == nil {
 			return TutorialCompletion{}, ErrCreatureTemplateNotFound
 		}
 	}
@@ -948,8 +946,8 @@ func (m *UserManager) CompleteTutorial(ctx context.Context, userID int64) (Tutor
 	}
 	isChanged := completeTutorialAccount(&user.Account)
 	blitzID := uint32(0)
-	if blitzTemplate != nil && sageTemplate != nil && wraithTemplate != nil {
-		starterChanged := user.completeTutorialStarterSquad(blitzTemplate, sageTemplate, wraithTemplate)
+	if blitzTemplate != nil && sageTemplate != nil {
+		starterChanged := user.completeTutorialStarterSquad(blitzTemplate, sageTemplate)
 		isChanged = isChanged || starterChanged
 		blitzID = user.creatureIDByTemplateName(blitzTemplate.Name)
 		if isFirstCompletion && user.Account.CreatureRewards == 0 {
@@ -1068,20 +1066,23 @@ func completeTutorialAccount(account *Account) bool {
 	// resumable soft-lock boundary.
 	account.OnboardingProgress = max(account.OnboardingProgress, shipOnboardingCompletedProgress)
 	account.NewPlayerInventory = max(account.NewPlayerInventory, uint32(1))
-	account.CreatureRewards = 0
 	account.XP = max(account.XP, tutorialCompletionExperience)
 	account.Level = max(account.Level, tutorialCompletionLevel)
 	account.DNA = max(account.DNA, tutorialCompletionDNA)
 	return *account != previous
 }
 
-// completeTutorialStarterSquad ensures Blitz, Sage, and Wraith occupy the first
-// PvE squad. First completion separately grants the live client's native
-// post-tutorial Arsenal activation choice.
+// completeTutorialStarterSquad grants the two tutorial heroes. The third slot
+// stays empty for the player's post-tutorial Arsenal activation choice.
+// Existing starter rosters and player-authored deck assignments are preserved.
 func (u *User) completeTutorialStarterSquad(
-	blitzTemplate *TemplateCreature, sageTemplate *TemplateCreature, wraithTemplate *TemplateCreature,
+	blitzTemplate *TemplateCreature, sageTemplate *TemplateCreature,
 ) bool {
-	if u == nil || blitzTemplate == nil || sageTemplate == nil || wraithTemplate == nil {
+	if u == nil || blitzTemplate == nil || sageTemplate == nil {
+		return false
+	}
+	if u.creatureIDByTemplateName(blitzTemplate.Name) != 0 &&
+		u.creatureIDByTemplateName(sageTemplate.Name) != 0 {
 		return false
 	}
 	builder := tutorialStarterSquadBuilder{user: u, nextCreatureID: 1}
@@ -1092,7 +1093,6 @@ func (u *User) completeTutorialStarterSquad(
 	}
 	blitzID := builder.ensureCreature(blitzTemplate)
 	sageID := builder.ensureCreature(sageTemplate)
-	wraithID := builder.ensureCreature(wraithTemplate)
 	squadIndex := -1
 	for index := range u.Squads {
 		if u.Squads[index].Slot == 1 {
@@ -1109,13 +1109,6 @@ func (u *User) completeTutorialStarterSquad(
 	thirdCreatureID := squad.CreatureIDs[2]
 	if thirdCreatureID == blitzID || thirdCreatureID == sageID {
 		thirdCreatureID = 0
-	}
-	if thirdCreatureID == 0 {
-		thirdCreatureID = wraithID
-	}
-	if u.Account.CreatureRewards != 0 {
-		u.Account.CreatureRewards = 0
-		builder.isChanged = true
 	}
 	expectedCreatureIDs := [3]uint32{blitzID, sageID, thirdCreatureID}
 	if squad.CreatureIDs != expectedCreatureIDs || squad.Category != "pve" || squad.IsLocked {

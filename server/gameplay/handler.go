@@ -4719,9 +4719,22 @@ func marshalZonePlayerAttackPose(
 	// Native TurnToFace (103 A15610) uses a captured point and clears the
 	// locomotion target object. Keeping an object ID here makes the mover
 	// pursue that object instead of remaining in place during the attack.
-	packet, err := raknet.MarshalApplication(raknet.ObjectPlayerMoveMessage{
-		ObjectID: objectID, GoalFlags: 0x42, GoalPosition: position,
-		Facing: facing, TargetPosition: targetPosition,
+	// The fixed 0x91 receiver (5393D0) skips the locally controlled hero.
+	// The reflected receiver (539900) applies the same captured turn to both
+	// the owner and observers, including clearing a previous pursuit target.
+	goalFlags := uint32(0x42)
+	targetObjectID := uint32(0)
+	externalMotion := raknet.Vector3{}
+	stopDistance := float32(0)
+	packet, err := raknet.MarshalApplication(raknet.LocomotionUpdateContractMessage{
+		ObjectID: objectID,
+		Locomotion: raknet.LocomotionReflection{
+			GoalFlags: &goalFlags, GoalPosition: &position,
+			PartialGoalPosition: &position, Facing: &facing,
+			TargetPosition: &targetPosition, TargetObjectID: &targetObjectID,
+			ExternalLinearVelocity: &externalMotion, ExternalForce: &externalMotion,
+			AllowedStopDistance: &stopDistance, DesiredStopDistance: &stopDistance,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("playerAttackPose: %w", err)

@@ -99,7 +99,7 @@ func ValidateInteraction(
 	if err != nil {
 		return fmt.Errorf("navigationInteractionStart: %w", err)
 	}
-	targetProjection, err := mesh.Project(basenavigation.Vec3{
+	targetProjection, err := mesh.ProjectInteractionTarget(startProjection, basenavigation.Vec3{
 		X: target.X, Y: target.Y, Z: target.Z,
 	}, basenavigation.ProjectionOptions{
 		PlanLayer: planLayer, MaxDistance: interactionProjectionDistance,
@@ -110,6 +110,18 @@ func ValidateInteraction(
 	}
 	if !mesh.IsReachable(startProjection, targetProjection, planLayer) {
 		return errors.New("navigation interaction target unreachable")
+	}
+	path, err := mesh.CreatePath(startProjection.Position, targetProjection.Position, basenavigation.PathOptions{
+		ProjectionOptions: basenavigation.ProjectionOptions{
+			PlanLayer: planLayer, MaxDistance: ProjectionDistance,
+		},
+		MaxVisitedPolygon: 4096,
+	})
+	if err != nil {
+		return fmt.Errorf("navigationInteractionPath: %w", err)
+	}
+	if len(path.Points) == 0 {
+		return errors.New("navigation interaction path empty")
 	}
 	return nil
 }

@@ -438,7 +438,8 @@ func (r campaignAbilityCommandRuntime) handleProjectileBasic(
 		}
 	}
 	releaseStep := campaignProjectileReleaseStep{
-		registry: r.registry, sessionKey: sessionKey,
+		releaseReservation: releaseReservation,
+		registry:           r.registry, sessionKey: sessionKey,
 		generation: generation, sourceObjectID: command.Common.ObjectID,
 		timestamp: packet.SourceTime +
 			uint64(projectileDefinition.ReleaseDelay/time.Millisecond),

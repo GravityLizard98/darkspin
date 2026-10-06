@@ -791,7 +791,14 @@ func (a *API) accountProfileViewResponse(
 		http.SetCookie(writer, &http.Cookie{Name: "token", Value: view.AuthToken, Path: "/", HttpOnly: true, Secure: true})
 	}
 	accountNode := a.accountNode(user, view, isPublic)
-	if values.Get("include_creatures") == "true" || values.Get("include_decks") == "true" {
+	// The post-tutorial ship refresh requests only the player's account ID.
+	// Include the durable roster/decks so temporary tutorial characters are
+	// replaced immediately, without requiring another authentication request.
+	isTutorialRosterIncluded := !isPublic && view.Account.IsTutorialCompleted() &&
+		values.Get("include_creatures") == "" && values.Get("include_decks") == ""
+	areCreaturesIncluded := values.Get("include_creatures") == "true" || isTutorialRosterIncluded
+	areDecksIncluded := values.Get("include_decks") == "true" || isTutorialRosterIncluded
+	if areCreaturesIncluded || areDecksIncluded {
 		creatures := make([]*sporenet.Creature, len(view.Creatures))
 		for index, creature := range view.Creatures {
 			presentation, err := a.appearanceCreature(ctx, creature)
@@ -816,14 +823,14 @@ func (a *API) accountProfileViewResponse(
 		}
 		nodes = append(nodes, xmlNode("settings", settings...))
 	}
-	if values.Get("include_creatures") == "true" {
+	if areCreaturesIncluded {
 		creatures := make([]string, 0, len(view.Creatures))
 		for _, creature := range view.Creatures {
 			creatures = append(creatures, a.accountCreatureNode(creature))
 		}
 		nodes = append(nodes, xmlNode("creatures", creatures...))
 	}
-	if values.Get("include_decks") == "true" {
+	if areDecksIncluded {
 		creatureByID := make(map[uint32]*sporenet.Creature, len(view.Creatures))
 		for _, creature := range view.Creatures {
 			if creature != nil {

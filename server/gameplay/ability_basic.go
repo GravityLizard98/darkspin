@@ -2460,12 +2460,13 @@ type campaignProjectileScheduleFailure struct {
 }
 
 type campaignProjectileReleaseStep struct {
-	registry       *gameplaySessionRegistry
-	sessionKey     string
-	generation     uint64
-	sourceObjectID uint32
-	timestamp      uint64
-	packet         []byte
+	releaseReservation zoneaction.ReleaseReservation
+	registry           *gameplaySessionRegistry
+	sessionKey         string
+	generation         uint64
+	sourceObjectID     uint32
+	timestamp          uint64
+	packet             []byte
 }
 
 type campaignElectronSecondarySchedule struct {
@@ -2646,9 +2647,14 @@ func (e campaignProjectileReleaseStep) produce() ([][]byte, error) {
 	peerSession, isFound := e.registry.sessions[e.sessionKey]
 	isCurrent := isFound && peerSession.generation == e.generation &&
 		peerSession.deployedObjectID == e.sourceObjectID
+	isReleaseCurrent := isCurrent &&
+		peerSession.abilityReleaseSession().IsCurrent(e.releaseReservation)
 	e.registry.mutex.RUnlock()
 	if !isCurrent {
 		return nil, nil
+	}
+	if !isReleaseCurrent {
+		return [][]byte{e.packet}, nil
 	}
 	resetPacket, err := abilityraknet.AnimationReset(
 		e.sourceObjectID, e.timestamp,
