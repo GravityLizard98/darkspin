@@ -220,6 +220,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 		}
 	}
 	nounProjectilesByInstance := make(map[uint32]bool, len(nouns))
+	staticBlockersByInstance := make(map[uint32]bool)
 	nounTypesByInstance := make(map[uint32]game.NounType, len(nouns))
 	nounInteractablesByID := make(map[uint32]*game.CampaignInteractableDefinition, len(nouns))
 	for _, noun := range nouns {
@@ -227,6 +228,12 @@ func (s *DirectorSource) LoadCampaignDirector(
 			return game.CampaignDirector{}, fmt.Errorf("nounTypeID[%d]: out of range", noun.ResourceID)
 		}
 		nounID := uint32(noun.InstanceID)
+		// Mutable doors, switches and combatants require their own collision lifecycle.
+		if noun.IsFixed && noun.PhysicsType != 0 && !noun.IsDoor && !noun.IsSwitch &&
+			!noun.IsPressureSwitch && !noun.IsDynamicWall && noun.LocomotionTuning == nil &&
+			!noun.IsCombatantComponentPresent {
+			staticBlockersByInstance[nounID] = true
+		}
 		nounType := game.NounType(noun.NounType)
 		previousType, isFound := nounTypesByInstance[nounID]
 		if isFound && previousType != nounType {
@@ -261,6 +268,7 @@ func (s *DirectorSource) LoadCampaignDirector(
 		NounFootprintsByInstance:  nounFootprintsByInstance,
 		NounTypesByInstance:       nounTypesByInstance,
 		NounProjectilesByInstance: nounProjectilesByInstance,
+		StaticBlockersByInstance:  staticBlockersByInstance,
 		OrbDifficultyScales:       orbDifficultyScales,
 		DNADropTuning:             dnaTuning,
 		CompositionTuning: game.CampaignCompositionTuning{
@@ -427,8 +435,9 @@ func (s *DirectorSource) LoadCampaignDirector(
 		for _, definition := range markerSet.Definitions {
 			mapped.Definitions = append(mapped.Definitions, game.CampaignMarkerDefinition{
 				Ordinal: definition.Ordinal, MarkerID: definition.MarkerID, NounName: definition.NounName,
-				Position:                game.Vec3{X: definition.PositionX, Y: definition.PositionY, Z: definition.PositionZ},
-				Rotation:                game.Vec3{X: definition.RotationX, Y: definition.RotationY, Z: definition.RotationZ},
+				Position: game.Vec3{X: definition.PositionX, Y: definition.PositionY, Z: definition.PositionZ},
+				Rotation: game.Vec3{X: definition.RotationX, Y: definition.RotationY, Z: definition.RotationZ},
+				Scale:    definition.Scale, IsCollisionEnabled: definition.IsCollisionEnabled,
 				TeleporterTriggerRadius: definition.TeleporterTriggerRadius,
 				Teleporter:              campaignTeleporter(definition.Teleporter),
 			})

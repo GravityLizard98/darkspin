@@ -61,6 +61,10 @@ func plasmaPoolContact(member *gameplayPeerSession, position game.Vec3) (game.Ca
 			if !strings.EqualFold(marker.NounName, "DEST_citadel_plasma_pool.Noun") || marker.MarkerID == 0 {
 				continue
 			}
+			definition, isSelected := director.SelectedMarkerDefinition(marker.MarkerID)
+			if !isSelected || game.SceneryHazardAbility(definition.NounName) != "CitadelPlasmaBurn" {
+				continue
+			}
 			if position.Sub(marker.Position).Length() <= 5 {
 				return marker, true
 			}
@@ -109,8 +113,9 @@ func (e campaignNPCActionRuntime) applyPlasmaPoolContact(
 		Profile: zonenpc.ActionProfile{
 			Family: zonenpc.ActionRetainedArea, AbilityName: "CitadelPlasmaBurn",
 			ModifierName: "CitadelPlasmaBurn", MinimumDamage: 10, MaximumDamage: 20,
-			DescriptorMask: 1<<2 | 1<<14,
-			DamageType:     3, DamageSource: 1, IsDamageProfileKnown: true,
+			DescriptorMask:         1<<2 | 1<<14,
+			IsRetainedVolumeDamage: true,
+			DamageType:             3, DamageSource: 1, IsDamageProfileKnown: true,
 		},
 	}
 	damagePackets, delta, isApplied, err := e.applyEnemyStatusDamage(

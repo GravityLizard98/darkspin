@@ -259,6 +259,6 @@ func (e chargeEffectExpiry) execute() {
 	e.run.registry.mutex.Lock()
 	defer e.run.registry.mutex.Unlock()
 	e.run.releaseEffectLocked()
-	e.run.restorePhantomCollisionLocked()
+	e.run.resetPhantomAnimationLocked()
 	e.run.registry.pruneChargeRunLocked(e.run)
 }

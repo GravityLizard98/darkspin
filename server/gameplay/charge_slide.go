@@ -2,9 +2,11 @@ package gameplay
 
 import (
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
-	"github.com/darkspinnet/darkspin/server/raknet"
+	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 	actionraknet "github.com/darkspinnet/darkspin/server/zone/action/raknet103"
 )
 
@@ -22,41 +24,54 @@ func (e heroChargeSchedule) beginPhantomSlide() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("phantomSlide: %w", err)
 	}
-	collisionPacket, err := raknet.MarshalApplication(raknet.ObjectCollisionUpdateMessage{
-		ObjectID: e.sourceObjectID, IsCollisionEnabled: false,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("phantomCollisionDisable: %w", err)
-	}
-	restorePacket, err := raknet.MarshalApplication(raknet.ObjectCollisionUpdateMessage{
-		ObjectID: e.sourceObjectID, IsCollisionEnabled: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("phantomCollisionRestore: %w", err)
-	}
 	e.run.mutex.Lock()
 	if e.run.isCleaned {
 		e.run.mutex.Unlock()
 		return nil, nil
 	}
-	e.run.isCollisionSuppressed = true
-	e.run.collisionRestorePacket = restorePacket
 	e.run.mutex.Unlock()
-	e.runtime.registry.queueChargePacketsLocked(e.run.zone, [][]byte{collisionPacket, jumpPacket})
+	// ObjectUpdate field 17 destroys the navigation agent. SetNavCollision
+	// changes agent avoidance instead; a flat jump needs the agent alive and
+	// suspends physics collision itself during its native travel lifecycle.
+	e.runtime.registry.queueChargePacketsLocked(e.run.zone, [][]byte{jumpPacket})
 	return nil, nil
 }
 
-// The registry lock is held by release, interruption and retirement callers.
-func (e *heroChargeRun) restorePhantomCollisionLocked() [][]byte {
+// Retire the pose before admitting another action, even when the charge's
+// silence modifiers must remain alive. Late expiry must not reset a new pose.
+// The registry lock is held by every caller.
+func (e *heroChargeRun) resetPhantomAnimationLocked() [][]byte {
 	e.mutex.Lock()
-	if !e.isCollisionSuppressed {
+	if !e.isAnimationActive {
 		e.mutex.Unlock()
 		return nil
 	}
-	e.isCollisionSuppressed = false
-	packets := [][]byte{e.collisionRestorePacket}
-	e.collisionRestorePacket = nil
+	e.isAnimationActive = false
+	timestamp := e.animationTimestamp
+	if e.now != nil {
+		timestamp += uint64(max(time.Duration(0), e.now().Sub(e.animationStartTime)) / time.Millisecond)
+	}
 	e.mutex.Unlock()
+	if e.registry != nil {
+		isCurrent := false
+		for _, member := range e.registry.sessions {
+			if member.zone == e.zone && member.binding.UserID == e.userID &&
+				member.generation == e.generation && member.heroCharge == e &&
+				member.deployedObjectID == e.ownerObjectID {
+				isCurrent = true
+				break
+			}
+		}
+		if !isCurrent {
+			return nil
+		}
+	}
+	packet, err := abilityraknet.AnimationReset(e.ownerObjectID, timestamp)
+	if err != nil {
+		log.Printf("RakNet Phantom Charge animation retirement failed owner=%d: %v", e.ownerObjectID, err)
+		return nil
+	}
+	packets := [][]byte{packet}
 	if e.registry != nil {
 		e.registry.queueChargePacketsLocked(e.zone, packets)
 		return nil

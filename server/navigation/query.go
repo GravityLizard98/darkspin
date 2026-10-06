@@ -42,7 +42,14 @@ func (m *Mesh) Project(point Vec3, options ProjectionOptions) (Projection, error
 	polygonIndexes := selected.spatial.candidatePolygonIndexes(
 		point, options.MaxDistance, len(selected.polygons),
 	)
-	return projectPolygonIndexes(selected, point, options, polygonIndexes)
+	projection, err := projectPolygonIndexes(selected, point, options, polygonIndexes)
+	if err != nil {
+		return Projection{}, fmt.Errorf("projectPolygon: %w", err)
+	}
+	if m.isObstructed(projection.Position, options.PlanLayer) {
+		return Projection{}, errors.New("navigation projection obstructed")
+	}
+	return projection, nil
 }
 
 func projectPolygonIndexes(
@@ -92,7 +99,7 @@ func (m *Mesh) IsReachable(start Projection, goal Projection, planLayer uint8) b
 	return isStartFound && isGoalFound
 }
 
-func (m *Mesh) CreatePath(start Vec3, goal Vec3, options PathOptions) (Path, error) {
+func (m *Mesh) terrainPath(start Vec3, goal Vec3, options PathOptions) (Path, error) {
 	if options.MaxVisitedPolygon <= 0 {
 		return Path{}, errors.New("navigation path limit invalid")
 	}

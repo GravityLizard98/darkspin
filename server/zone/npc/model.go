@@ -153,6 +153,7 @@ type Snapshot struct {
 	TargetOwner                     ActionOwner
 	ActionOwner                     ActionOwner
 	ActionGeneration                uint64
+	PositionRevision                uint64
 	IsDefeated                      bool
 	IsActionStarted                 bool
 	IsFirstActionStarted            bool

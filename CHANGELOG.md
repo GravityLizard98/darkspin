@@ -1,5 +1,14 @@
 # Changelog
 
+### 2026-10-06
+
+- #51 Restore Voltroid's discharge beam on the shared attack-impact path, using the authored visual strength for its charge count.
+- #51 Restore Terminal Haven's scenery fire vents and plasma-pond damage through shared hazard handling across selected campaign layouts.
+- #51 Fix Gravity Well leaving pulled enemies floating by resetting their reaction at landing before the authored recovery ends.
+- #51 Restore Shielded Grenadier's frontal shield-bash damage and animated knockback, and allow field and periodic damage through its directional shield while retaining special full-immunity shields.
+- #51 Restore authored static collision blockers around Infinity mining machines so movement routes around them instead of passing through them.
+- #51 Fix stuck Phantom Charge and Shade Drifter movement by preserving client navigation agents, and retire charge poses after completion or interruption without resetting newer actions.
+
 ### 2026-10-05
 
 - Remove reflected request text from HTTP URI errors and prevent untyped traced responses from being interpreted as HTML.

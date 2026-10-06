@@ -417,7 +417,7 @@ func (s *gameplayPeerSession) extendEnemyStun(
 }
 
 func (s *gameplayPeerSession) isEnemyStunActive(at time.Time) bool {
-	if s != nil && s.isOperativeCaged(at) {
+	if s != nil && (s.isOperativeCaged(at) || s.isKnockbackActive(at)) {
 		return true
 	}
 	return s != nil && !at.IsZero() &&

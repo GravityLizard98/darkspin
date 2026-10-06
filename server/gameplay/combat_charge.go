@@ -194,7 +194,6 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		movementProfile.AbilityName == "BoomerCharge" {
 		statePackets, stateErr := npcraknet.ChargeMovementState(
 			e.objectID, movementProfile.ForcedMovementSpeed, 0,
-			movementProfile.AbilityName != "NocturnaSpecialDriftCharge",
 		)
 		if stateErr != nil {
 			return e.fail("enemyDriftMovementState", stateErr)
@@ -353,7 +352,7 @@ func (e campaignChargeSchedule) followup(timestamp uint64) ([][]byte, error) {
 		e.plan.Profile.AbilityName == "BoomerCharge" {
 		var stateErr error
 		restoredStatePackets, stateErr = npcraknet.ChargeMovementState(
-			e.objectID, 0, e.plan.Profile.StealthType, true,
+			e.objectID, 0, e.plan.Profile.StealthType,
 		)
 		if stateErr != nil {
 			return e.fail("enemyDriftRestoreState", stateErr)
@@ -679,9 +678,16 @@ func (r campaignNPCActionRuntime) produceChargeSegmentCollision(
 		runtime: r, packet: packet, sessionKey: sessionKey,
 		generation: generation, objectID: objectID, timestamp: nextTimestamp,
 	}
-	cancel, err := scheduleNPCProducers(r.registry, packet, []raknet.ScheduledPacketProducer{{
-		Delay: nextDelay, Produce: next.produce,
-	}})
+	poseEnd := campaignChargePoseEnd{
+		runtime: r, sessionKey: sessionKey, generation: generation,
+		objectID: objectID, actionGeneration: chargePlan.ActionGeneration,
+		readyTimestamp: readyTimestamp,
+		timestamp:      timestamp + uint64(profile.EndAnimationDelay/time.Millisecond),
+	}
+	cancel, err := scheduleNPCProducers(r.registry, packet, []raknet.ScheduledPacketProducer{
+		{Delay: profile.EndAnimationDelay, Produce: poseEnd.produce},
+		{Delay: nextDelay, Produce: next.produce},
+	})
 	if err == nil && cancel == nil {
 		err = errors.New("nil cancellation")
 	}

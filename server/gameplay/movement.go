@@ -617,6 +617,11 @@ func (r campaignMovementCommandRuntime) handle(
 	commandSession gameplayPeerSession,
 ) ([][]byte, error) {
 	var err error
+	if commandSession.isKnockbackActive(r.now()) {
+		// The native jump owns the mover until landing. A walk/stop correction
+		// here would cancel its displacement and airborne reaction.
+		return nil, nil
+	}
 	if commandSession.isEnemySleepActive(r.now()) {
 		response, marshalErr := marshalZonePlayerMove(
 			command.Common.ObjectID, commandSession.playerPosition,

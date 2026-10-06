@@ -1099,11 +1099,14 @@ func (s *Session) damage(
 	}
 	isAreaAttack = isAreaAttack || meta.DescriptorMask&8 != 0
 	isDamageOverTime = isDamageOverTime || meta.DescriptorMask&4 != 0
+	// Multi-target selection alone does not turn a melee/projectile strike
+	// into a field. Preserve their frontal interception even in area plans.
+	isFieldDamage := isAreaAttack && meta.DescriptorMask&(1<<1|1<<7) == 0
 	now := time.Now()
 	if !meta.isForcedDefeat && (npc.Plan.IsIntroductionHidden || now.Before(npc.status.intangibleExpiresAt) ||
 		now.Before(npc.status.banishExpiresAt) || now.Before(npc.status.chargeProtectionEnd) ||
 		(npc.IsTurtleActive && (len(damageSource) == 0 || damageSource[0] == 0)) ||
-		(npc.IsShieldActive && isShieldDamageImmune(npc, sourcePosition))) {
+		(npc.IsShieldActive && isShieldDamageImmune(npc, sourcePosition, isFieldDamage, isDamageOverTime))) {
 		return DamageResult{
 			ObjectID: targetObjectID, LocusID: npc.Plan.LocusID,
 			MarkerSetName: npc.Plan.MarkerSetName, PreviousHealth: npc.HitPoint,
@@ -1375,9 +1378,17 @@ func isNomadSpecialThreeNoun(nounName string) bool {
 	return species == "nomadspecialthree"
 }
 
-func isShieldDamageImmune(npc Snapshot, sourcePosition *game.Vec3) bool {
+func isShieldDamageImmune(npc Snapshot, sourcePosition *game.Vec3, isFieldDamage, isPeriodic bool) bool {
 	_, isDirectional := NomadShielderDirectionalShieldProfile(npc.Plan.NounName)
-	if !isDirectional || sourcePosition == nil {
+	if !isDirectional {
+		return true
+	}
+	// A field/drain tick has no incoming frontal strike. Keep scripted full
+	// immunity shields separate from this directional interception rule.
+	if isFieldDamage || isPeriodic {
+		return false
+	}
+	if sourcePosition == nil {
 		return true
 	}
 	incoming := sourcePosition.Sub(npc.Plan.Position)
@@ -1970,6 +1981,7 @@ func (s *Session) SetPosition(objectID uint32, position game.Vec3) error {
 	}
 	// Teleports and forced corrections preserve heading.
 	npc.Plan.Position = position
+	npc.PositionRevision++
 	s.npcs[objectID] = npc
 	return nil
 }

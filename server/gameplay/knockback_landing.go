@@ -11,8 +11,11 @@ import (
 )
 
 type heroKnockbackLanding struct {
-	objectID uint32
-	readyAt  time.Time
+	objectID     uint32
+	readyAt      time.Time
+	holdUntil    time.Time
+	isNativeJump bool
+	isLanded     bool
 }
 
 func (e *gameplayPeerSession) retainKnockbackLanding(
@@ -29,6 +32,16 @@ func (e *gameplayPeerSession) retainKnockbackLanding(
 	e.heroKnockbackLanding = heroKnockbackLanding{
 		objectID: plan.TargetObjectID, readyAt: now.Add(duration),
 	}
+	if plan.Profile.ModifierName == "NomadShielderBashKnockback" {
+		e.heroKnockbackLanding.isNativeJump = true
+		e.heroKnockbackLanding.holdUntil = now.Add(duration + 500*time.Millisecond)
+	}
+}
+
+func (e *gameplayPeerSession) isKnockbackActive(at time.Time) bool {
+	return e != nil && e.deployedObjectID != 0 &&
+		e.heroKnockbackLanding.objectID == e.deployedObjectID &&
+		e.heroKnockbackLanding.isNativeJump && at.Before(e.heroKnockbackLanding.holdUntil)
 }
 
 func (e gameplayPendingRuntime) pollKnockbackLanding(packet raknet.Packet) ([][]byte, error) {
@@ -51,10 +64,19 @@ func (e gameplayPendingRuntime) pollKnockbackLanding(packet raknet.Packet) ([][]
 		e.registry.mutex.Unlock()
 		return nil, nil
 	}
+	if !isCanceled && landing.isLanded && e.now().Before(landing.holdUntil) {
+		e.registry.mutex.Unlock()
+		return nil, nil
+	}
+	isLandingDue := !isCanceled && !landing.isLanded
 	member.heroKnockbackLanding = heroKnockbackLanding{}
+	if !isCanceled && landing.isNativeJump && !landing.isLanded {
+		landing.isLanded = true
+		member.heroKnockbackLanding = landing
+	}
 	e.registry.sessions[sessionKey] = member
 	e.registry.mutex.Unlock()
-	if isCanceled {
+	if !isLandingDue {
 		return nil, nil
 	}
 	// Authored knockback modifiers wait for the jump to finish, then call

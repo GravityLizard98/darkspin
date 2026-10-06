@@ -4757,7 +4757,7 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		return nil, nil
 	}
 	currentNPC, isNPCFound := current.zone.NPCs().NPC(req.objectID)
-	if isNPCFound && currentNPC.IsShieldActive {
+	if isNPCFound && currentNPC.IsShieldActive && e.plan.Profile.AbilityName != "NomadShielderBash" {
 		runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
@@ -4791,7 +4791,23 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		req.kind == campaignNPCAttackCryosChargeHeadbutt ||
 		req.kind == campaignNPCAttackPickyCharging ||
 		req.kind == campaignNPCAttackPickyMelee {
-		if e.plan.Profile.AbilityName == "FastSwipe" {
+		if e.plan.Profile.AbilityName == "NomadShielderBash" {
+			// The melee template uses a 90-degree impact arc with the authored
+			// hitArcLength; this non-facing bash must not hit behind the shield.
+			arc, arcErr := zoneability.NewMeleeArc(currentNPC.Plan.Position, currentNPC.Facing,
+				e.plan.Profile.Radius+currentNPC.Plan.ActorFootprintRadius(), 90)
+			if arcErr != nil {
+				runtime.registry.mutex.Unlock()
+				return e.fail("bashArc", arcErr)
+			}
+			if !arc.Contains(currentTarget.Position, currentTarget.ActorFootprintRadius) {
+				runtime.registry.mutex.Unlock()
+				return nil, nil
+			}
+			currentPlan, err = zonenpc.PlanAreaAttackWithProfile(
+				currentNPC, currentTarget.ObjectID, currentTarget.Position, e.plan.Profile,
+			)
+		} else if e.plan.Profile.AbilityName == "FastSwipe" {
 			currentPlan, err = zonenpc.PlanFastSwipeHit(
 				currentNPC, currentTarget.ObjectID, currentTarget.Position,
 				e.plan.Profile, currentTarget.ActorFootprintRadius,
@@ -4818,6 +4834,14 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		}
 		return e.fail("enemyAttackPlan", err)
 	}
+	var beamPacket []byte
+	if currentPlan.Profile.AbilityName == "CitadelDischarge" {
+		beamPacket, err = npcraknet.BeamEffect(currentPlan)
+		if err != nil {
+			runtime.registry.mutex.Unlock()
+			return e.fail("dischargeBeam", err)
+		}
+	}
 	if current.zone.NPCRandom() == nil {
 		runtime.registry.mutex.Unlock()
 		return e.fail("enemyAttackRandom", errors.New("unavailable"))
@@ -4842,6 +4866,9 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 	)
 	if !isApplied {
 		runtime.registry.mutex.Unlock()
+		if beamPacket != nil {
+			packets = append(packets, beamPacket)
+		}
 		if impactPacket != nil {
 			packets = append(packets, impactPacket)
 		}
@@ -4876,6 +4903,9 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 	}
 	if impactPacket != nil {
 		packets = append([][]byte{impactPacket}, packets...)
+	}
+	if beamPacket != nil {
+		packets = append([][]byte{beamPacket}, packets...)
 	}
 	if isApplied && campaignDifficultyNounFamily(currentNPC.Plan.NounName) ==
 		"cryosbasicmelee" {
@@ -5791,28 +5821,16 @@ func (r campaignNPCActionRuntime) produceDronePunch(
 		Delay: timeline.NextDelay, Produce: schedule.next,
 	}
 	producers := []raknet.ScheduledPacketProducer{hitProducer, nextProducer}
-	var voltroidBeamPacket []byte
-	if attackPlan.Profile.AbilityName == "CitadelDischarge" &&
-		attackPlan.Profile.TrailEffectName != "" {
-		voltroidBeamPacket, err = npcraknet.BeamEffect(attackPlan)
-		if err != nil {
-			return nil, fmt.Errorf("enemyPunchVoltroidBeam: %w", err)
-		}
-	}
 	producers = r.registry.producerGuard.scheduledProducers(sessionKey, producers)
 	cancel, scheduleErr := packet.ScheduleProducers(producers)
 	if scheduleErr == nil && cancel == nil {
 		scheduleErr = errors.New("nil cancellation")
 	}
 	if scheduleErr != nil {
-		voltroidBeamPacket = nil
 		r.releaseAction(sessionKey, generation, objectID)
 		r.logger.Printf("RakNet campaign enemy punch continuation not scheduled object=%d: %v", objectID, scheduleErr)
 	}
 	packets := append(revealPackets, startPackets...)
-	if voltroidBeamPacket != nil {
-		packets = append(packets, voltroidBeamPacket)
-	}
 	return packets, nil
 }
 
@@ -7860,6 +7878,11 @@ func (r campaignNPCActionRuntime) applyEnemyDamage(
 	if isDefeatedSourceAllowed {
 		damage, isApplied, err = peerSession.zone.ApplyNPCReflectedTargetDamage(
 			owner, plan.SourceObjectID, plan.TargetObjectID, result.Damage,
+		)
+	} else if plan.Profile.IsRetainedVolumeDamage &&
+		(plan.Profile.AbilityName == "CitadelPlasmaBurn" || plan.Profile.AbilityName == "VentFlameCone") {
+		damage, isApplied, err = peerSession.zone.ApplySceneryHazardDamage(
+			owner, plan.SourceObjectID, plan.TargetObjectID, plan.Profile.AbilityName, result.Damage,
 		)
 	} else if isRetainedStatus || plan.Profile.IsRetainedVolumeDamage {
 		damage, isApplied, err = peerSession.zone.ApplyNPCTargetStatusDamage(

@@ -5827,6 +5827,26 @@ func (p campaignPreparation) initialize(
 			return fmt.Errorf("statusChainNavigation: %w", setupErr)
 		}
 	}
+	if campaignNav != nil {
+		sceneryObstacles, obstacleErr := director.SceneryObstacles()
+		if obstacleErr != nil {
+			return fmt.Errorf("statusChainObstacles: %w", obstacleErr)
+		}
+		obstacles := make([]navigation.Obstacle, 0, len(sceneryObstacles))
+		for _, obstacle := range sceneryObstacles {
+			obstacles = append(obstacles, navigation.Obstacle{
+				Position: navigation.Vec3(obstacle.Position), Minimum: navigation.Vec3(obstacle.Minimum),
+				Maximum: navigation.Vec3(obstacle.Maximum), Yaw: obstacle.Yaw,
+			})
+		}
+		campaignNav, setupErr = campaignNav.WithObstacles(obstacles)
+		if setupErr != nil {
+			return fmt.Errorf("statusChainBlockers: %w", setupErr)
+		}
+		if p.logger != nil {
+			p.logger.Printf("RakNet static collision level=%q seed=%#x obstacle_count=%d scope=selected-layout", binding.Level, director.MapVariantSeed, len(obstacles))
+		}
+	}
 	directorSession, sessionErr := game.NewCampaignDirectorSession(director)
 	if sessionErr != nil {
 		return fmt.Errorf("statusChainDirectorSession: %w", sessionErr)

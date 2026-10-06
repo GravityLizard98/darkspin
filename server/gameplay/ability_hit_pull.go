@@ -22,14 +22,41 @@ const binarySentinelPullOutro = 250 * time.Millisecond
 const binarySentinelBossPullDuration = 1600 * time.Millisecond
 
 type heroPullExpiry struct {
-	runtime      campaignDamageRuntime
-	sessionKey   string
-	generation   uint64
-	run          *campaignNPCModifierRun
-	zone         *zone.Zone
-	deletePacket []byte
-	isCommitted  bool
-	isExpired    bool
+	runtime          campaignDamageRuntime
+	sessionKey       string
+	generation       uint64
+	run              *campaignNPCModifierRun
+	zone             *zone.Zone
+	deletePacket     []byte
+	isCommitted      bool
+	isExpired        bool
+	actionGeneration uint64
+	positionRevision uint64
+	landingTimestamp uint64
+}
+
+// BinarySentinelPullModifier waits for the jump, resets react_pulled, then
+// waits for the outro. Fence this reset against later actions and displacement.
+func (e *heroPullExpiry) land() ([][]byte, error) {
+	e.runtime.registry.mutex.Lock()
+	defer e.runtime.registry.mutex.Unlock()
+	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
+	if !e.isCommitted || e.isExpired || !isFound || peerSession.generation != e.generation ||
+		peerSession.zone != e.zone || peerSession.campaignNPCModifiers[e.run.instanceID] != e.run {
+		return nil, nil
+	}
+	target, isTargetFound := e.zone.NPCs().LiveNPC(e.run.record.TargetObjectID)
+	if !isTargetFound || target.ActionGeneration != e.actionGeneration ||
+		target.PositionRevision != e.positionRevision {
+		return nil, nil
+	}
+	packet, err := npcraknet.ResetAnimation(target.Plan.ObjectID, e.landingTimestamp)
+	if err != nil {
+		return nil, fmt.Errorf("heroPullLanding: %w", err)
+	}
+	e.runtime.queueHeroPullPacketsLocked(e.sessionKey, &peerSession, [][]byte{packet})
+	e.runtime.registry.sessions[e.sessionKey] = peerSession
+	return nil, nil
 }
 
 func (e *heroPullExpiry) produce() ([][]byte, error) {
@@ -192,7 +219,14 @@ func (e campaignDamageRuntime) applyHeroPull(
 		runtime: e, sessionKey: sessionKey, generation: generation,
 		run: run, zone: originalZone, deletePacket: deletePacket,
 	}
-	cancel, scheduleErr := packet.ScheduleProducers([]raknet.ScheduledPacketProducer{{Delay: duration, Produce: expiry.produce}})
+	producers := make([]raknet.ScheduledPacketProducer, 0, 2)
+	if isMoving {
+		landingDelay := duration - binarySentinelPullOutro
+		expiry.landingTimestamp = timestamp + uint64(landingDelay/time.Millisecond)
+		producers = append(producers, raknet.ScheduledPacketProducer{Delay: landingDelay, Produce: expiry.land})
+	}
+	producers = append(producers, raknet.ScheduledPacketProducer{Delay: duration, Produce: expiry.produce})
+	cancel, scheduleErr := packet.ScheduleProducers(producers)
 	if scheduleErr == nil && cancel == nil {
 		scheduleErr = errors.New("nil cancellation")
 	}
@@ -210,6 +244,7 @@ func (e campaignDamageRuntime) applyHeroPull(
 		isLatest = isLatestHeroFound && latestHero.ObjectID == sourceObjectID && latestHero.Position == hero.Position &&
 			isLatestTargetFound && !latestTarget.IsDefeated && !latestTarget.IsTurtleActive &&
 			latestTarget.ActionGeneration == target.ActionGeneration && latestTarget.ActionOwner == target.ActionOwner &&
+			latestTarget.PositionRevision == target.PositionRevision &&
 			latestTarget.Plan.IsEqual(target.Plan) &&
 			(originalZone.NPCs().RootRemaining(target.Plan.ObjectID, e.npc.now()) > 0) == isRooted
 	}
@@ -263,6 +298,11 @@ func (e campaignDamageRuntime) applyHeroPull(
 	}
 	if isMoving {
 		e.registry.commitCampaignNPCForcedMovementLocked(sessionKey, &latest, interruption)
+		movedTarget, isMovedTargetFound := originalZone.NPCs().NPC(target.Plan.ObjectID)
+		if isMovedTargetFound {
+			expiry.actionGeneration = movedTarget.ActionGeneration
+			expiry.positionRevision = movedTarget.PositionRevision
+		}
 	}
 	run.cancel = cancel
 	isCreated := run.create()

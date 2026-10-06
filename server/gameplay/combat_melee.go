@@ -239,6 +239,13 @@ func (r campaignNPCActionRuntime) produceEnemyMeleeWithPull(
 	profile, isProfileFound := campaignNPCActionProfile(
 		enemy.Plan, target.Position, target.ActorFootprintRadius,
 	)
+	if profile.AbilityName == "CitadelDischarge" {
+		// GetChannelEffect clamps the retained charge counter to four authored
+		// visual strengths, starting at one when no counter is present.
+		stackCount := min(max(uint32(1), peerSession.campaignNPCVoltroidCharges[objectID]), uint32(4))
+		profile.TrailEffectName = fmt.Sprintf("citadel_zap_discharge_%d.ServerEventDef", stackCount)
+		profile.ImpactEffectName = fmt.Sprintf("citadel_zap_hit_%d.ServerEventDef", stackCount)
+	}
 	isOperativeChannel := zonenpc.IsOperativeCage(profile.ModifierName) &&
 		r.registry.isOperativeChannelLocked(peerSession, objectID, target.ObjectID)
 	if isOperativeChannel {

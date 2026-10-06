@@ -2,9 +2,9 @@ package gameplay
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/sporenet"
 	"github.com/darkspinnet/darkspin/server/util"
@@ -31,14 +31,7 @@ func (e *gameplayPeerSession) pollFireVents(runtime campaignNPCActionRuntime, ti
 		e.fireVentWarnings = make(map[uint32]uint64)
 		e.fireVentEruptions = make(map[uint32]uint64)
 	}
-	for _, vent := range e.zone.NPCs().LiveSnapshots() {
-		if !strings.EqualFold(vent.Plan.NounName, "DEST_prefab_citadel_factoryvent.Noun") &&
-			!strings.EqualFold(vent.Plan.NounName, "DEST_citadel_factoryvent_boss.Noun") {
-			continue
-		}
-		if !vent.IsPublished {
-			continue
-		}
+	for _, vent := range e.fireVentSources() {
 		if e.zone.NPCRandom() == nil {
 			return nil, stats, fmt.Errorf("ventRandom: random unavailable")
 		}
@@ -96,7 +89,7 @@ func (e *gameplayPeerSession) pollFireVents(runtime campaignNPCActionRuntime, ti
 						IsRetainedVolumeDamage: true,
 						DamageType:             3, DamageSource: 1, DescriptorMask: 1 << 14, IsDamageProfileKnown: true,
 					}
-					plan, err := zonenpc.PlanAreaAttackWithProfile(vent, target.ObjectID, target.Position, profile)
+					plan, err := zonenpc.PlanRetainedAreaAttackWithProfile(vent, target.ObjectID, target.Position, profile)
 					if err != nil {
 						return nil, stats, fmt.Errorf("ventPlan: %w", err)
 					}
@@ -123,6 +116,44 @@ func (e *gameplayPeerSession) pollFireVents(runtime campaignNPCActionRuntime, ti
 		}
 	}
 	return packets, stats, nil
+}
+
+// Some maps place the bare, noncombatant vent instead of its damageable prefab.
+// Keep selected scenery sources alongside live fixtures, without inventing NPC
+// health or allowing destroyed/unpublished fixtures to restart their passive.
+func (e *gameplayPeerSession) fireVentSources() []zonenpc.Snapshot {
+	vents := make([]zonenpc.Snapshot, 0)
+	seenObjectIDs := make(map[uint32]bool)
+	for _, vent := range e.zone.NPCs().Snapshots() {
+		if game.SceneryHazardAbility(vent.Plan.NounName) != "VentFlameCone" {
+			continue
+		}
+		seenObjectIDs[vent.Plan.ObjectID] = true
+		if vent.IsPublished && !vent.IsDefeated {
+			vents = append(vents, vent)
+		}
+	}
+	director := e.zone.DirectorDefinition()
+	if !director.IsInitialLayoutSelected {
+		return vents
+	}
+	for _, set := range director.MarkerSets {
+		for _, definition := range set.Definitions {
+			if definition.MarkerID == 0 || seenObjectIDs[definition.MarkerID] ||
+				game.SceneryHazardAbility(definition.NounName) != "VentFlameCone" {
+				continue
+			}
+			fixture, isFixtureFound := e.zone.NPCs().NPC(definition.MarkerID)
+			if isFixtureFound && (!fixture.IsPublished || fixture.IsDefeated) {
+				continue
+			}
+			seenObjectIDs[definition.MarkerID] = true
+			plan := zonenpc.SpawnPlan{ObjectID: definition.MarkerID,
+				NounName: definition.NounName, Position: definition.Position, Rotation: definition.Rotation}
+			vents = append(vents, zonenpc.Snapshot{Plan: plan, Facing: plan.InitialFacing()})
+		}
+	}
+	return vents
 }
 
 func (e *campaignFireVent) rest(member *gameplayPeerSession, now time.Time) {

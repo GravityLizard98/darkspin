@@ -25,6 +25,7 @@ type campaignAcceptedHitPushResetStep struct {
 	objectID         uint32
 	timestamp        uint64
 	actionGeneration uint64
+	positionRevision uint64
 }
 
 func (e campaignAcceptedHitPushResetStep) produce() ([][]byte, error) {
@@ -34,7 +35,8 @@ func (e campaignAcceptedHitPushResetStep) produce() ([][]byte, error) {
 		peerSession.zone != nil && peerSession.zone.NPCs() != nil
 	if isCurrent {
 		target, isTargetFound := peerSession.zone.NPCs().LiveNPC(e.objectID)
-		isCurrent = isTargetFound && target.ActionGeneration == e.actionGeneration
+		isCurrent = isTargetFound && target.ActionGeneration == e.actionGeneration &&
+			target.PositionRevision == e.positionRevision
 	}
 	e.runtime.registry.mutex.RUnlock()
 	if !isCurrent {
@@ -162,6 +164,7 @@ func (e campaignDamageRuntime) applyAcceptedHitPushes(
 			continue
 		}
 		reset.actionGeneration = latestTarget.ActionGeneration
+		reset.positionRevision = latestTarget.PositionRevision
 		if packet.ScheduleFunc == nil {
 			return packets, errors.New("hero push reset schedule unavailable")
 		}

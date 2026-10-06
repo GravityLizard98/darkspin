@@ -295,6 +295,7 @@ type CampaignDirector struct {
 	NounFootprintsByInstance  map[uint32]NavigationFootprint
 	NounTypesByInstance       map[uint32]NounType
 	NounProjectilesByInstance map[uint32]bool
+	StaticBlockersByInstance  map[uint32]bool
 	NPCIdentitiesByNoun       map[string]CampaignNPCIdentity
 }
 

@@ -96,6 +96,15 @@ func ForcedMovement(
 	plan zonenpc.AttackPlan, destination game.Vec3, timestamp uint64,
 ) ([][]byte, error) {
 	profile := plan.Profile
+	if profile.ModifierName == "NomadShielderBashKnockback" {
+		// The bash inherits nModifier_Knockback_Template's JumpInDirection
+		// arc. A teleport followed by react_knockback never plays that jump.
+		packets, err := ForcedJump(plan, destination, timestamp, [3]float32{2, 2, 4})
+		if err != nil {
+			return nil, fmt.Errorf("bashJump: %w", err)
+		}
+		return packets, nil
+	}
 	if plan.SourceObjectID == 0 || plan.TargetObjectID == 0 ||
 		profile.ForcedMovementSpeed <= 0 || !isFiniteVec3(destination) {
 		return nil, errors.New("npc forced movement invalid")
@@ -1325,8 +1334,9 @@ func ChargeStart(
 
 func ChargeMovementState(
 	objectID uint32, movementSpeedBuff float32, stealthType game.StealthType,
-	isCollisionEnabled bool,
 ) ([][]byte, error) {
+	// Preserve the locomotion agent. ObjectUpdate field 17 toggles the whole
+	// physics/navigation object, not the authored SetNavCollision avoidance.
 	if objectID == 0 || math.IsNaN(float64(movementSpeedBuff)) ||
 		math.IsInf(float64(movementSpeedBuff), 0) {
 		return nil, errors.New("npc charge movement state invalid")
@@ -1337,9 +1347,6 @@ func ChargeMovementState(
 		},
 		raknet.AgentBlackboardUpdateMessage{
 			ObjectID: objectID, Stealth: uint8(stealthType), IsTargetable: true,
-		},
-		raknet.ObjectCollisionUpdateMessage{
-			ObjectID: objectID, IsCollisionEnabled: isCollisionEnabled,
 		},
 	}, "chargeMovementState")
 }
