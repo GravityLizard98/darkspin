@@ -2,7 +2,8 @@
 
 ### 2026-10-07
 
-- Add a Wine Runtime option to the launcher Config tab that detects the system Wine, Lutris, Heroic and Bottles Wine builds, Steam Proton and Proton-GE, and starts the game with the selected build in its own launcher-owned prefix.
+- #58 Add a Wine Runtime option to the launcher Config tab that detects the system Wine, Lutris, Heroic and Bottles Wine builds, Steam Proton and Proton-GE, and starts the game with the selected build in its own launcher-owned prefix.
+- Fix Wine Runtime scans skipping Wine and Proton installations linked through directory symlinks.
 
 ### 2026-10-06
 

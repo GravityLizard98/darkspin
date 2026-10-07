@@ -154,12 +154,12 @@ export function ScanRemoteServers(arg1) {
   return window['go']['main']['App']['ScanRemoteServers'](arg1);
 }
 
-export function SendReport(arg1) {
-  return window['go']['main']['App']['SendReport'](arg1);
-}
-
 export function ScanWineRunners() {
   return window['go']['main']['App']['ScanWineRunners']();
+}
+
+export function SendReport(arg1) {
+  return window['go']['main']['App']['SendReport'](arg1);
 }
 
 export function SetIdentity(arg1) {

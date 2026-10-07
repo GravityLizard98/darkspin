@@ -92,13 +92,11 @@ func (e *wineRunnerSet) addWineChildren(parentPath string) {
 		return
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 		if parentPath == "/opt" && !strings.HasPrefix(strings.ToLower(entry.Name()), "wine") {
 			continue
 		}
 		runtimePath := filepath.Join(parentPath, entry.Name())
+		// Checking bin/wine follows symlinked runtime directories too.
 		if !isWineRunnerDirectory(runtimePath) {
 			continue
 		}
@@ -112,10 +110,8 @@ func (e *wineRunnerSet) addProtonChildren(parentPath string) {
 		return
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 		protonPath := filepath.Join(parentPath, entry.Name())
+		// Stat follows symlinked Proton directories; files and broken links fail.
 		fi, statErr := os.Stat(filepath.Join(protonPath, "proton"))
 		if statErr != nil || fi.IsDir() {
 			continue
