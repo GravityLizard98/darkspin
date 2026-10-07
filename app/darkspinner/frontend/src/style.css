@@ -145,6 +145,8 @@
 .config-borderless strong { line-height: 1.35; }
 .config-borderless small { color: var(--muted-foreground); }
 .config-save { margin-top: 16px; width: 100%; font-size: 11px; }
+.config-wine-runner-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.config-wine-runner-heading > label { margin: 0 0 6px; }
 .integration-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-block: 12px; border-bottom: 1px solid var(--border); }
 .integration-row > div { grid-column: 1 / -1; }
 .integration-row strong { display: block; font-size: 11px; }

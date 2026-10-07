@@ -98,7 +98,7 @@ func (e *debugEventLoop) detach() error {
 
 func launchInjected(
 	ctx context.Context, gamePath, gameWorkingDirectory, fangPath string,
-	gameArguments []string, serverAddress string,
+	gameArguments []string, serverAddress string, _ wineLaunchEnvironment,
 ) (err error) {
 	process, err := startInjectedProcess(ctx, gamePath, gameWorkingDirectory, fangPath, gameArguments, serverAddress, nil)
 	if err != nil {

@@ -37,6 +37,7 @@ type spinnerPathSet struct {
 	configPath     string
 	contentPath    string
 	staticPath     string
+	settingPath    string
 }
 
 func resolveSpinnerPaths(basePath string) (*spinnerPathSet, error) {
@@ -63,6 +64,7 @@ func resolveSpinnerPaths(basePath string) (*spinnerPathSet, error) {
 		configPath:     filepath.Join(basePath, game.DefaultConfigFilename),
 		contentPath:    filepath.Join(cachePath, server.ContentDatabaseFilename),
 		staticPath:     filepath.Join(cachePath, "www", "static"),
+		settingPath:    filepath.Join(runtimePath, "launcher.toml"),
 	}
 	return pathSet, nil
 }
