@@ -1,5 +1,9 @@
 # Changelog
 
+### 2026-10-07
+
+- Add a Wine Runtime option to the launcher Config tab that detects the system Wine, Lutris, Heroic and Bottles Wine builds, Steam Proton and Proton-GE, and starts the game with the selected build in its own launcher-owned prefix.
+
 ### 2026-10-06
 
 - #56 Restore Polaris's higher-rank Mark of Zelem cast, thirty-second target mark and reticle cleanup.

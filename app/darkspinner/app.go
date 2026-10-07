@@ -50,6 +50,7 @@ type App struct {
 	launcherHandler    http.Handler
 	beforeServerStart  func() error
 	isHeadless         bool
+	wineRunnerCache    wineRunnerCache
 }
 
 type LauncherStatus struct {

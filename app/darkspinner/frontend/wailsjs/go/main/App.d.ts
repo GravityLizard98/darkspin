@@ -43,6 +43,8 @@ export function GetServerRulesConfiguration():Promise<runtime.ServerRulesConfigu
 
 export function GetStatus():Promise<main.LauncherStatus>;
 
+export function GetWineRunnerConfiguration():Promise<main.WineRunnerConfiguration>;
+
 export function HasDetachedGameInstances():Promise<boolean>;
 
 export function IsProfileRunning(arg1:string):Promise<boolean>;
@@ -79,6 +81,8 @@ export function ScanRemoteServers(arg1:string):Promise<Array<main.RemoteServer>>
 
 export function SendReport(arg1:string):Promise<main.ReportResult>;
 
+export function ScanWineRunners():Promise<main.WineRunnerConfiguration>;
+
 export function SetIdentity(arg1:string):Promise<main.LauncherStatus>;
 
 export function SetServerConfiguration(arg1:number,arg2:boolean,arg3:string,arg4:string,arg5:boolean):Promise<main.ServerConfiguration>;
@@ -88,6 +92,8 @@ export function SetServerPort(arg1:number):Promise<main.ServerConfiguration>;
 export function SetServerRulesConfiguration(arg1:runtime.ServerRulesConfiguration):Promise<runtime.ServerRulesConfiguration>;
 
 export function SetSkipCinematic(arg1:boolean):Promise<void>;
+
+export function SetWineRunner(arg1:string):Promise<main.WineRunnerConfiguration>;
 
 export function SignOut():Promise<void>;
 

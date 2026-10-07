@@ -384,9 +384,13 @@ func run(ctx context.Context, arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("fangPrepare: %w", err)
 	}
+	wineLaunch, err := resolveWineLaunch(pathSet)
+	if err != nil {
+		return fmt.Errorf("winePrefix: %w", err)
+	}
 	err = launchInjected(
 		ctx, gamePath, installDirectory(gameWorkingDirectory), fangPath,
-		gameArguments, configuration.serverAddress,
+		gameArguments, configuration.serverAddress, wineLaunch,
 	)
 	if err != nil {
 		return fmt.Errorf("gameLaunch: %w", err)

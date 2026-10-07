@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import LauncherDialog from '@/components/LauncherDialog.vue'
 import ServerRulesConfiguration from '@/components/ServerRulesConfiguration.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { BrowserOpenURL, CancelPatch, ClipboardSetText, CloseDetachedGameInstances, CloseRunningGame, CloseRunningProfile, CreateProfile, DeleteProfile, DeleteRemoteProfile, DiscardInterruptedMission, EventsOn, GetInstallationStatus, GetInterruptedMission, GetLauncherIntegrationStatus, GetProfileAvatars, GetProfiles, GetRemoteProfiles, GetServerConfiguration, GetStatus, HasDetachedGameInstances, IsProfileRunning, LaunchRemoteProfile, LoginRemoteProfile, OpenReportFolder, OpenSteamDemoInstall, Patch, Play, Quit, RefreshInstallationStatus, RefreshRemoteProfiles, RegisterRemoteProfile, RelocateToGameRoot, RemoveLauncherIntegration, RepairLauncherIntegration, RestartLauncher, ScanRemoteServers, SendReport, SetIdentity, SetServerConfiguration, StartDetachedGameInstance, UninstallDarkspinner } from './platform'
+import { BrowserOpenURL, CancelPatch, ClipboardSetText, CloseDetachedGameInstances, CloseRunningGame, CloseRunningProfile, CreateProfile, DeleteProfile, DeleteRemoteProfile, DiscardInterruptedMission, EventsOn, GetInstallationStatus, GetInterruptedMission, GetLauncherIntegrationStatus, GetProfileAvatars, GetProfiles, GetRemoteProfiles, GetServerConfiguration, GetStatus, GetWineRunnerConfiguration, HasDetachedGameInstances, IsProfileRunning, LaunchRemoteProfile, LoginRemoteProfile, OpenReportFolder, OpenSteamDemoInstall, Patch, Play, Quit, RefreshInstallationStatus, RefreshRemoteProfiles, RegisterRemoteProfile, RelocateToGameRoot, RemoveLauncherIntegration, RepairLauncherIntegration, RestartLauncher, ScanRemoteServers, ScanWineRunners, SendReport, SetIdentity, SetServerConfiguration, SetWineRunner, StartDetachedGameInstance, UninstallDarkspinner } from './platform'
 
 const status = ref({ state:'starting', message:'Starting DarkSpinner', identity:'', auth:'Starting', server:'Starting', patch:'Pending', game:'Checking', avatar:'Preparing', profile:'Starting', content:'Pending', identityError:'', authError:'', serverError:'', patchError:'', gameError:'', avatarError:'', profileError:'', contentError:'', lastRun:'', launcherNotice:'', version:'', buildChannel:'production', progress:0, patchProgress:0, avatarProgress:0, contentProgress:0, isAuthenticated:false, isAuthOnline:false, isServerOnline:false, isPatchComplete:false, isPatchActive:false, isGameReady:false, isAvatarReady:false, isProfileStoreReady:false, isContentReady:false, isPlayReady:false, isCinematicSkipped:false, isLastRunFailure:false, isStartupBlocked:false })
 const retainedProfileName = localStorage.getItem('darkspinner.selectedProfile') || localStorage.getItem('darkspinner.identity') || ''
@@ -53,6 +53,10 @@ const isConfiguredMultiplayerEnabled = ref(false)
 const configuredLocale = ref('en-us')
 const configuredSnapshotMode = ref('auto')
 const isConfiguredBorderlessFullscreenEnabled = ref(false)
+const systemWineRunner = 'system'
+const wineRunnerConfiguration = ref({ isSupported:false, selectedPath:'', runners:[] })
+const configuredWineRunner = ref(systemWineRunner)
+const isWineRunnerBusy = ref(false)
 const isServerConfigurationBusy = ref(false)
 const isServerRulesOpen = ref(false)
 const serverConfigurationMessage = ref('')
@@ -580,7 +584,34 @@ async function refreshServerConfiguration() {
     isConfiguredBorderlessFullscreenEnabled.value = serverConfiguration.value.isBorderlessFullscreenEnabled
   }
   catch (error) { serverConfigurationMessage.value = visibleLauncherText(error) }
+  await refreshWineRunnerConfiguration()
 }
+
+function applyWineRunnerConfiguration(configuration) {
+  wineRunnerConfiguration.value = configuration
+  configuredWineRunner.value = configuration.selectedPath || systemWineRunner
+}
+
+async function refreshWineRunnerConfiguration() {
+  try { applyWineRunnerConfiguration(await GetWineRunnerConfiguration()) }
+  catch (error) { serverConfigurationMessage.value = visibleLauncherText(error) }
+}
+
+async function scanWineRunners() {
+  if (isWineRunnerBusy.value) return
+  isWineRunnerBusy.value = true
+  try { applyWineRunnerConfiguration(await ScanWineRunners()) }
+  catch (error) { serverConfigurationMessage.value = visibleLauncherText(error) }
+  finally { isWineRunnerBusy.value = false }
+}
+
+function wineRunnerLabel(runner) {
+  const version = runner.version && runner.version !== runner.label ? ` (${runner.version})` : ''
+  const suffix = runner.isMissing ? ' — not installed' : ''
+  return `${runner.kind} — ${runner.label}${version}${suffix}`
+}
+
+const selectedWineRunner = computed(() => wineRunnerConfiguration.value.runners.find(runner => (runner.path || systemWineRunner) === configuredWineRunner.value))
 
 async function saveServerConfiguration() {
   if (!isServerPortValid.value || isServerConfigurationBusy.value) return
@@ -605,6 +636,15 @@ async function applyServerConfiguration() {
   isServerConfigurationBusy.value = true
   const isNetworkChanged = Number(configuredServerPort.value) !== Number(serverConfiguration.value.port) ||
     isConfiguredMultiplayerEnabled.value !== serverConfiguration.value.isMultiplayerEnabled
+  const selectedWineRunnerPath = configuredWineRunner.value === systemWineRunner ? '' : configuredWineRunner.value
+  if (wineRunnerConfiguration.value.isSupported && selectedWineRunnerPath !== wineRunnerConfiguration.value.selectedPath) {
+    try { applyWineRunnerConfiguration(await SetWineRunner(selectedWineRunnerPath)) }
+    catch (error) {
+      serverConfigurationMessage.value = visibleLauncherText(error)
+      isServerConfigurationBusy.value = false
+      return
+    }
+  }
   serverConfigurationMessage.value = isNetworkChanged
     ? 'Saving darkspin.toml and restarting the local server...'
     : 'Saving darkspin.toml...'
@@ -623,7 +663,10 @@ async function applyServerConfiguration() {
       const interfaceLabel = serverConfiguration.value.isMultiplayerEnabled ? 'all network interfaces' : 'loopback only'
       serverConfigurationMessage.value = `Local server restarted on ${interfaceLabel}, port ${serverConfiguration.value.port}. Language: ${serverConfiguration.value.locale}.`
     } else {
-      serverConfigurationMessage.value = `Configuration saved. Game language: ${serverConfiguration.value.locale}. Sync Snapshot: ${serverConfiguration.value.snapshotMode}.`
+      const wineRunnerSummary = wineRunnerConfiguration.value.isSupported
+        ? ` Wine runtime: ${selectedWineRunner.value?.label || 'System Wine'}.`
+        : ''
+      serverConfigurationMessage.value = `Configuration saved. Game language: ${serverConfiguration.value.locale}. Sync Snapshot: ${serverConfiguration.value.snapshotMode}.${wineRunnerSummary}`
     }
   }
   catch (error) { serverConfigurationMessage.value = visibleLauncherText(error) }
@@ -1356,6 +1399,18 @@ async function copyLauncherFailure() {
             <SelectItem value="auto">AUTO — capture and detect ordering anomalies</SelectItem>
           </SelectContent>
           </Select>
+          <template v-if="wineRunnerConfiguration.isSupported">
+            <div class="config-wine-runner-heading">
+              <label class="config-locale" for="config-wine-runner"><strong>WINE RUNTIME</strong></label>
+              <Button variant="outline" size="sm" type="button" :disabled="isWineRunnerBusy || isServerConfigurationBusy" @click="scanWineRunners">{{ isWineRunnerBusy ? 'SCANNING...' : 'RESCAN' }}</Button>
+            </div>
+            <Select v-model="configuredWineRunner" :disabled="isWineRunnerBusy || isServerConfigurationBusy">
+              <SelectTrigger id="config-wine-runner" class="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+              <SelectItem v-for="runner in wineRunnerConfiguration.runners" :key="runner.path || systemWineRunner" :value="runner.path || systemWineRunner" :title="runner.path">{{ wineRunnerLabel(runner) }}</SelectItem>
+            </SelectContent>
+            </Select>
+          </template>
           <label v-if="status.buildChannel === 'development'" class="management-toggle config-borderless"><Checkbox v-model="isConfiguredBorderlessFullscreenEnabled" :disabled="isServerConfigurationBusy" /><span><strong>EXPERIMENTAL BORDERLESS FULLSCREEN</strong><small>Use Fang's borderless window and live-resolution compatibility hooks on the next game launch.</small></span></label>
           <p v-if="serverConfigurationMessage" class="management-message">{{ serverConfigurationMessage }}</p>
           <Button variant="default" class="config-save" type="button" :disabled="!isServerPortValid || !configuredLocale || isServerConfigurationBusy" @click="saveServerConfiguration">{{ isServerConfigurationBusy ? 'SAVING...' : 'SAVE CONFIGURATION' }}</Button>

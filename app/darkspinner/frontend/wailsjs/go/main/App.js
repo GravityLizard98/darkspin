@@ -82,6 +82,10 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function GetWineRunnerConfiguration() {
+  return window['go']['main']['App']['GetWineRunnerConfiguration']();
+}
+
 export function HasDetachedGameInstances() {
   return window['go']['main']['App']['HasDetachedGameInstances']();
 }
@@ -154,6 +158,10 @@ export function SendReport(arg1) {
   return window['go']['main']['App']['SendReport'](arg1);
 }
 
+export function ScanWineRunners() {
+  return window['go']['main']['App']['ScanWineRunners']();
+}
+
 export function SetIdentity(arg1) {
   return window['go']['main']['App']['SetIdentity'](arg1);
 }
@@ -172,6 +180,10 @@ export function SetServerRulesConfiguration(arg1) {
 
 export function SetSkipCinematic(arg1) {
   return window['go']['main']['App']['SetSkipCinematic'](arg1);
+}
+
+export function SetWineRunner(arg1) {
+  return window['go']['main']['App']['SetWineRunner'](arg1);
 }
 
 export function SignOut() {
