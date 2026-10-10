@@ -1,11 +1,15 @@
 # Changelog
 
+### 2026-10-10
+
+- Experimental branch only: add an in-game `/debug` overlay for development Fang builds (Info, Enemies, Items, Player and World tabs) backed by a loopback-only server debug API that reuses the existing developer commands; off by default via `[developer] is_overlay_enabled`.
+
 ### 2026-10-06
 
-- Restore Polaris's higher-rank Mark of Zelem cast, thirty-second target mark and reticle cleanup.
-- Restore Merak's higher-rank dynamic plasma geysers, accelerating spawn cadence, entry-triggered burning, co-op publication and cleanup.
-- Change Orcus's Consume from a nearby-servant opportunistic action to one activation at each authored health threshold, with rank-specific servant rings, following, repeated channel/eat cycles and individual healing; correct normal servant spawning from staggered births to one contact-frame batch.
-- Correct Arcturus's minion spawn chance from 20% at every rank to the authored 20%, 25% and 30% progression.
+- [#56](https://github.com/darkspinnet/darkspin/issues/56) Restore Polaris's higher-rank Mark of Zelem cast, thirty-second target mark and reticle cleanup.
+- [#56](https://github.com/darkspinnet/darkspin/issues/56) Restore Merak's higher-rank dynamic plasma geysers, accelerating spawn cadence, entry-triggered burning, co-op publication and cleanup.
+- [#56](https://github.com/darkspinnet/darkspin/issues/56) Change Orcus's Consume from a nearby-servant opportunistic action to one activation at each authored health threshold, with rank-specific servant rings, following, repeated channel/eat cycles and individual healing; correct normal servant spawning from staggered births to one contact-frame batch.
+- [#56](https://github.com/darkspinnet/darkspin/issues/56) Correct Arcturus's minion spawn chance from 20% at every rank to the authored 20%, 25% and 30% progression.
 - [#55](https://github.com/darkspinnet/darkspin/issues/55) Fix empty mission 1-3 boss arenas and the same callback-slot mismatch on other boss triggers by resolving the authored boss callback instead of stopping at its event-only entry.
 - [#55](https://github.com/darkspinnet/darkspin/issues/55)  Fix empty mission 1-3 boss arenas and the same callback-slot mismatch on other boss triggers by resolving the authored boss callback instead of stopping at its event-only entry.
 - Fix repeated attacks retaining an old facing by applying captured turns to the controlling client as well as observers, and prevent delayed projectile releases from resetting a newer attack animation.
