@@ -253,6 +253,44 @@ func (c *PartCatalog) ByRigblock(rigblockID uint16) (PartDefinition, bool) {
 	return definition, isFound
 }
 
+// Rigblocks returns independent copies of every base-item definition in
+// catalog order.
+func (e *PartCatalog) Rigblocks() []PartDefinition {
+	if e == nil {
+		return nil
+	}
+	definitions := make([]PartDefinition, 0, len(e.rigblocks))
+	for _, definition := range e.rigblocks {
+		definition.CatalogOrdinal = cloneCatalogOrdinal(definition.CatalogOrdinal)
+		definitions = append(definitions, definition)
+	}
+	return definitions
+}
+
+// Affixes returns independent copies of every "prefix" or "suffix"
+// definition in catalog order.
+func (e *PartCatalog) Affixes(kind string) []PartAffixDefinition {
+	if e == nil {
+		return nil
+	}
+	sources := e.affixesByKind[kind]
+	affixes := make([]PartAffixDefinition, 0, len(sources))
+	for _, affix := range sources {
+		affix.PartTypes = append([]string(nil), affix.PartTypes...)
+		affix.CatalogOrdinal = cloneCatalogOrdinal(affix.CatalogOrdinal)
+		affixes = append(affixes, affix)
+	}
+	return affixes
+}
+
+func cloneCatalogOrdinal(ordinal *uint32) *uint32 {
+	if ordinal == nil {
+		return nil
+	}
+	clone := *ordinal
+	return &clone
+}
+
 // GenerateCampaignPart chooses one class/science-compatible in-level campaign
 // drop using the ordinary rarity distribution. The caller owns random-stream
 // selection and durable identity. Campaign stage gates categories independently

@@ -38,6 +38,7 @@ const (
 	ConfigSnapshotMode                  ConfigKey = "SNAPSHOT_MODE"
 	ConfigSnapshotBufferSecond          ConfigKey = "SNAPSHOT_BUFFER_SECOND"
 	ConfigSnapshotDelaySecond           ConfigKey = "SNAPSHOT_DELAY_SECOND"
+	ConfigIsDeveloperOverlayEnabled     ConfigKey = "IS_DEVELOPER_OVERLAY_ENABLED"
 )
 
 var defaultConfigValues = map[ConfigKey]string{
@@ -57,6 +58,7 @@ var defaultConfigValues = map[ConfigKey]string{
 	ConfigSnapshotMode:                  "auto",
 	ConfigSnapshotBufferSecond:          "30",
 	ConfigSnapshotDelaySecond:           "30",
+	ConfigIsDeveloperOverlayEnabled:     "false",
 }
 
 // Config is a concurrency-safe representation of darkspin.toml.
@@ -66,12 +68,13 @@ type Config struct {
 }
 
 type configDocument struct {
-	Game     configGame     `toml:"game"`
-	Server   configServer   `toml:"server"`
-	Chat     configChat     `toml:"chat"`
-	Storage  configStorage  `toml:"storage"`
-	Auth     configAuth     `toml:"auth"`
-	Snapshot configSnapshot `toml:"snapshot"`
+	Game      configGame      `toml:"game"`
+	Server    configServer    `toml:"server"`
+	Chat      configChat      `toml:"chat"`
+	Storage   configStorage   `toml:"storage"`
+	Auth      configAuth      `toml:"auth"`
+	Snapshot  configSnapshot  `toml:"snapshot"`
+	Developer configDeveloper `toml:"developer"`
 }
 
 type configAuth struct {
@@ -100,6 +103,10 @@ type configServer struct {
 
 type configStorage struct {
 	Driver *string `toml:"driver"`
+}
+
+type configDeveloper struct {
+	IsOverlayEnabled *bool `toml:"is_overlay_enabled"`
 }
 
 type configSnapshot struct {
@@ -163,6 +170,7 @@ func LoadConfig(path string) (*Config, bool, error) {
 	config.setString(ConfigSnapshotMode, document.Snapshot.Mode)
 	config.setInt(ConfigSnapshotBufferSecond, document.Snapshot.BufferDurationSecond)
 	config.setInt(ConfigSnapshotDelaySecond, document.Snapshot.DelaySecond)
+	config.setBool(ConfigIsDeveloperOverlayEnabled, document.Developer.IsOverlayEnabled)
 
 	return config, false, nil
 }
@@ -246,6 +254,9 @@ func encodeConfigDocument(values map[ConfigKey]string) (configDocument, error) {
 			Mode:                 configPointer(values[ConfigSnapshotMode]),
 			BufferDurationSecond: snapshotBufferSecond,
 			DelaySecond:          snapshotDelaySecond,
+		},
+		Developer: configDeveloper{
+			IsOverlayEnabled: configPointer(configBool(values[ConfigIsDeveloperOverlayEnabled])),
 		},
 	}, nil
 }

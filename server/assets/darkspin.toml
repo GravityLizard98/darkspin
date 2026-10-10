@@ -44,3 +44,8 @@ jwt_audience = "darkspin"
 mode = "auto"
 buffer_duration_seconds = 30
 delay_seconds = 30
+
+[developer]
+# Serve the loopback-only API of the in-game debug overlay, which development
+# Fang builds bind when the player types /debug. Restart the server to apply.
+is_overlay_enabled = false

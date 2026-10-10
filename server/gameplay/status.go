@@ -1390,8 +1390,7 @@ func (s *gameplayPeerSession) applyDeveloperEventCommand(
 	registry *gameplaySessionRegistry, command game.PlayerEventCommand,
 	now time.Time, timestamp uint64,
 ) ([][]byte, error) {
-	if s == nil || s.binding.Mode != game.ModeChain || s.squad == nil ||
-		s.deployedObjectID == 0 || s.isZoneTerminal() {
+	if s == nil || !s.isDeveloperEventApplicable() {
 		return nil, errors.New("event session unavailable")
 	}
 	plan, err := developerfeature.PlanEvent(developerfeature.EventCommand{
@@ -1686,8 +1685,7 @@ func (s *gameplayPeerSession) marshalResetBaselineAt(
 func (s *gameplayPeerSession) applyDeveloperKillCommand() (
 	[]zoneability.AreaResult, []campaignDamageTransition, error,
 ) {
-	if s == nil || s.binding.Mode != game.ModeChain || s.squad == nil ||
-		s.deployedObjectID == 0 || s.isZoneTerminal() || s.zone.NPCs() == nil {
+	if s == nil || !s.isDeveloperKillApplicable() {
 		return nil, nil, errors.New("kill session unavailable")
 	}
 	snapshot := s.zone.NPCs().LiveSnapshots()
@@ -1728,8 +1726,7 @@ func (s *gameplayPeerSession) applyDeveloperKillCommand() (
 }
 
 func (s *gameplayPeerSession) applyDeveloperVictoryCommand() ([]byte, uint32, error) {
-	if s == nil || s.binding.Mode != game.ModeChain || s.squad == nil ||
-		s.deployedObjectID == 0 || s.isZoneTerminal() || s.chainResult != nil {
+	if s == nil || !s.isDeveloperChainVictoryApplicable() {
 		return nil, 0, errors.New("victory session unavailable")
 	}
 	if s.zone == nil {
@@ -1765,8 +1762,7 @@ func (s *gameplayPeerSession) applyDeveloperTutorialVictoryCommand() (
 }
 
 func (s *gameplayPeerSession) applyDeveloperDefeatCommand() ([][]byte, error) {
-	if s == nil || s.binding.Mode != game.ModeChain || s.squad == nil ||
-		s.deployedObjectID == 0 || s.isZoneTerminal() {
+	if s == nil || !s.isDeveloperEventApplicable() {
 		return nil, errors.New("defeat session unavailable")
 	}
 	interruptedBasic := s.resetAbilityAdmissionForSwitch()

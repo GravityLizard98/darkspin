@@ -1142,8 +1142,7 @@ func (r gameplayPendingRuntime) completeDeveloperArenaVictory(
 	r.registry.mutex.Lock()
 	currentSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && currentSession.generation == queuedSession.generation &&
-		currentSession.binding.Mode == game.ModeArena &&
-		currentSession.binding.Team != 0
+		currentSession.isDeveloperArenaVictoryApplicable()
 	if !isCurrent {
 		r.registry.mutex.Unlock()
 		return nil, false, errors.New("arenaVictorySession: replaced")

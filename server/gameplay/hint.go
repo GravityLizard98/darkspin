@@ -61,8 +61,7 @@ func hintForSession(peerSession gameplayPeerSession) (chat.HintResult, error) {
 	nearestDistanceSquared := float32(math.Inf(1))
 	nearestNPC := zonenpc.Snapshot{}
 	for _, npc := range npcSession.Snapshots() {
-		if npc.IsDefeated || !npc.IsPublished || npc.HitPoint <= 0 ||
-			npc.Plan.IsFixture || npc.Faction != zonenpc.FactionNonPlayerAligned {
+		if isHintExcluded(&npc) {
 			continue
 		}
 		deltaX := npc.Plan.Position.X - playerPosition.X
@@ -81,6 +80,13 @@ func hintForSession(peerSession gameplayPeerSession) (chat.HintResult, error) {
 		Name:      hintNPCName(peerSession, nearestNPC),
 		Direction: hintDirection(playerPosition, nearestNPC.Plan.Position),
 	}, nil
+}
+
+// isHintExcluded rejects every NPC except the living, published hostiles that
+// /hint and the debug overlay report.
+func isHintExcluded(npc *zonenpc.Snapshot) bool {
+	return npc.IsDefeated || !npc.IsPublished || npc.HitPoint <= 0 ||
+		npc.Plan.IsFixture || npc.Faction != zonenpc.FactionNonPlayerAligned
 }
 
 func hintNPCName(peerSession gameplayPeerSession, npc zonenpc.Snapshot) string {

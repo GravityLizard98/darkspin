@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/raknet"
 	"github.com/darkspinnet/darkspin/server/squad"
 	heroraknet "github.com/darkspinnet/darkspin/server/zone/hero/raknet103"
@@ -22,8 +21,7 @@ func (e gameplayPendingRuntime) recapParty(
 	caller, isFound := e.registry.sessions[packet.Address.String()]
 	if !isFound || caller.generation != queuedSession.generation ||
 		caller.transportGeneration != queuedSession.transportGeneration ||
-		caller.binding.Mode != game.ModeChain || caller.zone == nil ||
-		caller.isZoneTerminal() {
+		!caller.isDeveloperRecapApplicable() {
 		return nil, false, errors.New("recap party unavailable")
 	}
 	for sessionKey, member := range e.registry.sessions {

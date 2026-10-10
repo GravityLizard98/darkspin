@@ -28,9 +28,7 @@ func (r gameplayPendingRuntime) createDeveloperEquipmentDrop(
 	r.registry.mutex.Lock()
 	currentSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && currentSession.generation == queuedSession.generation &&
-		currentSession.binding.Mode == game.ModeChain && currentSession.zone != nil &&
-		currentSession.zone.NPCs() != nil && currentSession.deployedObjectID != 0 &&
-		!currentSession.isZoneTerminal()
+		currentSession.isDeveloperDropApplicable()
 	if !isCurrent {
 		r.registry.mutex.Unlock()
 		return nil, false, errors.New("dropCreateSession: unavailable")

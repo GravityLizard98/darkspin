@@ -2947,8 +2947,7 @@ func (r gameplayPendingRuntime) consumeEffectPreview(
 ) ([][]byte, bool, error) {
 	r.registry.mutex.RLock()
 	queuedSession, isSessionFound := r.registry.sessions[packet.Address.String()]
-	isPreviewEligible := isSessionFound && queuedSession.stage.IsDungeon() &&
-		queuedSession.dungeonSetup.IsCommitted() && queuedSession.deployedObjectID != 0
+	isPreviewEligible := isSessionFound && queuedSession.isEffectPreviewEligible()
 	r.registry.mutex.RUnlock()
 	if !isSessionFound {
 		return nil, false, nil
@@ -2986,9 +2985,7 @@ func (r gameplayPendingRuntime) consumePlayerResourceCommand(
 ) ([][]byte, bool, error) {
 	r.registry.mutex.RLock()
 	queuedSession, isSessionFound := r.registry.sessions[packet.Address.String()]
-	isCommandEligible := isSessionFound && queuedSession.stage.IsDungeon() &&
-		queuedSession.dungeonSetup.IsCommitted() && queuedSession.deployedObjectID != 0 &&
-		queuedSession.squad != nil && !queuedSession.isZoneTerminal()
+	isCommandEligible := isSessionFound && queuedSession.isResourceCommandEligible()
 	r.registry.mutex.RUnlock()
 	if !isSessionFound {
 		return nil, false, nil
@@ -3038,9 +3035,7 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 ) ([][]byte, bool, error) {
 	r.registry.mutex.RLock()
 	queuedSession, isSessionFound := r.registry.sessions[packet.Address.String()]
-	isCommandEligible := isSessionFound && queuedSession.stage.IsDungeon() &&
-		queuedSession.dungeonSetup.IsCommitted() &&
-		queuedSession.deployedObjectID != 0 && !queuedSession.isZoneTerminal()
+	isCommandEligible := isSessionFound && queuedSession.isEventCommandEligible()
 	r.registry.mutex.RUnlock()
 	if !isSessionFound {
 		return nil, false, nil
@@ -3245,9 +3240,7 @@ func (r gameplayPendingRuntime) spawnDeveloperNPC(
 	r.registry.mutex.Lock()
 	currentSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && currentSession.generation == queuedSession.generation &&
-		currentSession.binding.IsWarped && currentSession.zone != nil &&
-		currentSession.zone.NPCs() != nil && currentSession.deployedObjectID != 0 &&
-		!currentSession.isZoneTerminal()
+		currentSession.isDeveloperSpawnEligible()
 	if !isCurrent {
 		r.registry.mutex.Unlock()
 		return nil, false, errors.New("npcSpawnSession: unavailable")
@@ -3453,8 +3446,7 @@ func (r gameplayPendingRuntime) completeDeveloperTutorialVictory(
 	r.registry.mutex.RLock()
 	currentSession, isFound := r.registry.sessions[packet.Address.String()]
 	isCurrent := isFound && currentSession.generation == queuedSession.generation &&
-		currentSession.binding.Mode == game.ModeTutorial &&
-		!currentSession.isZoneTerminal()
+		currentSession.isDeveloperTutorialVictoryApplicable()
 	r.registry.mutex.RUnlock()
 	if !isCurrent {
 		rollbackErr := r.gameplayJoin.RollbackTutorialComplete(

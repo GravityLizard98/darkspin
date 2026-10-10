@@ -156,7 +156,7 @@ func Build() error {
 	if err != nil {
 		return fmt.Errorf("launcherBuild: %w", err)
 	}
-	err = buildFang(true, false, linkerFlags)
+	err = buildFang(true, false, true, linkerFlags)
 	if err != nil {
 		return fmt.Errorf("fangBuild: %w", err)
 	}
@@ -253,9 +253,15 @@ func darkSpinnerLinkerFlags(base, buildChannel, version string) (string, error) 
 		" -X " + darkSpinnerBuildChannelVariable + "=" + buildChannel, nil
 }
 
-func buildFang(isDiagnostics, isScenario bool, linkerFlags string) error {
+func buildFang(isDiagnostics, isScenario, isOverlay bool, linkerFlags string) error {
 	if isScenario && !isDiagnostics {
 		return errors.New("scenario Fang requires fangdebug diagnostics")
+	}
+	if isOverlay && !isDiagnostics {
+		return errors.New("overlay Fang requires fangdebug diagnostics")
+	}
+	if isOverlay && isScenario {
+		return errors.New("overlay and scenario Fang builds are mutually exclusive")
 	}
 	fangPath := filepath.Join("bin", "game", "fang.dll")
 	environment := map[string]string{"GOOS": "windows", "GOARCH": "386", "CGO_ENABLED": "1"}
@@ -265,6 +271,9 @@ func buildFang(isDiagnostics, isScenario bool, linkerFlags string) error {
 		buildTags = "fangdebug"
 		if isScenario {
 			buildTags += ",scenario"
+		}
+		if isOverlay {
+			buildTags += ",fangoverlay"
 		}
 	}
 	arguments = append(arguments, "-tags", buildTags)
@@ -611,7 +620,7 @@ func (Scenario) Build() error {
 	if err != nil {
 		return fmt.Errorf("scenarioRunner: %w", err)
 	}
-	err = buildDarkSpinnerTarget(true, true, true, linkerFlags, runtime.GOOS)
+	err = buildDarkSpinnerTarget(true, true, true, false, linkerFlags, runtime.GOOS)
 	if err != nil {
 		return fmt.Errorf("scenarioLauncher: %w", err)
 	}
@@ -658,7 +667,7 @@ func (Darkrun) BuildCI(targetOS string) error {
 func (Darkspinner) Build() error {
 	mg.SerialDeps(Version)
 
-	err := buildDarkSpinnerTarget(true, true, false, buildVersionLinkerFlags(), runtime.GOOS)
+	err := buildDarkSpinnerTarget(true, true, false, true, buildVersionLinkerFlags(), runtime.GOOS)
 	if err != nil {
 		return fmt.Errorf("darkSpinnerBuild: %w", err)
 	}
@@ -742,7 +751,7 @@ func (Darkspinner) BuildCINative() error {
 	default:
 		return fmt.Errorf("unsupported launcher platform %s", platformName)
 	}
-	err := buildDarkSpinnerTarget(false, true, false, buildVersionLinkerFlags(), targetOS)
+	err := buildDarkSpinnerTarget(false, true, false, false, buildVersionLinkerFlags(), targetOS)
 	if err != nil {
 		return fmt.Errorf("nativeBuild: %w", err)
 	}
@@ -820,15 +829,18 @@ func archiveBinary(outputPath, binaryName, archiveName string) error {
 	return nil
 }
 
-func buildDarkSpinnerTarget(isDevelopment, isFangDiagnostics, isScenario bool, linkerFlags string, targetPlatforms ...string) error {
+func buildDarkSpinnerTarget(isDevelopment, isFangDiagnostics, isScenario, isOverlay bool, linkerFlags string, targetPlatforms ...string) error {
 	if isScenario && !isDevelopment {
 		return errors.New("scenario composition requires an explicit development build")
+	}
+	if isOverlay && !isDevelopment {
+		return errors.New("overlay composition requires an explicit development build")
 	}
 	err := os.MkdirAll(filepath.Join("bin", "game"), 0o755)
 	if err != nil {
 		return fmt.Errorf("gameMkdir: %w", err)
 	}
-	err = buildFang(isFangDiagnostics, isScenario, linkerFlags)
+	err = buildFang(isFangDiagnostics, isScenario, isOverlay, linkerFlags)
 	if err != nil {
 		return fmt.Errorf("fangBuild: %w", err)
 	}
@@ -1078,7 +1090,7 @@ func (Darkspin) Build() error {
 	if err != nil {
 		return fmt.Errorf("launcherBuild: %w", err)
 	}
-	err = buildFang(true, false, linkerFlags)
+	err = buildFang(true, false, true, linkerFlags)
 	if err != nil {
 		return fmt.Errorf("fangBuild: %w", err)
 	}

@@ -24,6 +24,9 @@ import (
 	"github.com/darkspinnet/darkspin/server/chat"
 	chatlocal "github.com/darkspinnet/darkspin/server/chat/local"
 	"github.com/darkspinnet/darkspin/server/chat/textlog"
+	"github.com/darkspinnet/darkspin/server/developer/overlay"
+	overlaylocal "github.com/darkspinnet/darkspin/server/developer/overlay/local"
+	overlayweb "github.com/darkspinnet/darkspin/server/developer/overlay/web"
 	"github.com/darkspinnet/darkspin/server/game"
 	"github.com/darkspinnet/darkspin/server/game/appearancefs"
 	gamecontentsqlite "github.com/darkspinnet/darkspin/server/game/contentsqlite"
@@ -859,6 +862,26 @@ func New(options Options) (*Server, error) {
 	gameManager.UseRemovalObserver(gameplayLifecycle.DiscardGame)
 	gameManager.UseMemberRemovalObserver(gameplayLifecycle.DiscardMember)
 	gameManager.UseMemberResumePolicy(gameplayLifecycle)
+	isOverlayEnabled := config.Bool(game.ConfigIsDeveloperOverlayEnabled)
+	overlayService := overlay.NewService(overlay.Options{
+		ChatService: chatService,
+		ActorSource: overlaylocal.NewActorSource(userManager, gameManager),
+		StateSource: gameplayLifecycle,
+		ItemSource:  overlaylocal.NewItemSource(partCatalog, contentStore),
+		BuildID:     buildinfo.ID,
+		Version:     buildinfo.Version,
+		IsEnabled:   isOverlayEnabled,
+	})
+	chatService.UseOverlayBinder(overlayService)
+	if isOverlayEnabled {
+		err = overlayweb.Register(router, overlayweb.Options{
+			OverlayService: overlayService, Logger: logger, Port: ports.http,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("overlayRegister: %w", err)
+		}
+		logger.Printf("Debug overlay API enabled for loopback clients on port %d", ports.http)
+	}
 	udpServer := sharedudp.NewSharedServer(
 		net.JoinHostPort(bindHost, fmt.Sprintf("%d", ports.qos)), logger, gameplayHandler,
 	)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -14,9 +15,9 @@ import (
 
 	"github.com/darkspinnet/darkspin/server/blaze/tdf"
 	"github.com/darkspinnet/darkspin/server/chat"
+	"github.com/darkspinnet/darkspin/server/developer"
 	"github.com/darkspinnet/darkspin/server/party"
 	"github.com/darkspinnet/darkspin/server/sporenet"
-	"github.com/darkspinnet/darkspin/server/util"
 )
 
 var nextSystemMessageID atomic.Uint64
@@ -329,7 +330,7 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 		}
 		commandName, isCommand := messagingCommandName(body)
 		if isCommand {
-			responseBody := fmt.Sprintf("Unknown command %s. Available: /help, /taunt, /ss, /bug, /b, /ping, /hint, /loc, /stat, /follow, /ai, /effect, /summon, /level, /warp, /spawn, /drop, /dna, /damage, /heal, /power, /mana, /event, /goto, /kill, /reset, /recap, /victory, /defeat, /exit", commandName)
+			responseBody := fmt.Sprintf("Unknown command %s. Available: /help, /taunt, /ss, /bug, /b, /ping, /hint, /loc, /stat, /follow, /ai, /effect, /summon, /level, /warp, /spawn, /drop, /dna, /damage, /heal, /power, /mana, /event, /goto, /kill, /reset, /recap, /victory, /defeat, /debug, /exit", commandName)
 			if commandName == "/help" {
 				responseBody = darkspinChatHelp
 			}
@@ -503,16 +504,16 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 				if len(field) == 3 && strings.EqualFold(field[2], "attached") {
 					responseBody = "Attached effect previews are unsupported: the build-103 removal and admission contract is not proven"
 				} else if isWorldMode {
-					definition, isValid := effectPreviewAsset(field[1])
+					definition, isValid := developer.EffectPreviewAsset(field[1])
 					if isValid {
 						previewErr := messenger.PreviewEffect(ctx, chat.EffectPreviewCommand{
 							Sender: chat.Participant{ID: user.Account.ID, Name: user.DisplayName},
-							GameID: user.CurrentGameID(), Asset: definition.asset,
+							GameID: user.CurrentGameID(), Asset: definition.Asset,
 						})
 						if previewErr == nil {
 							responseBody = fmt.Sprintf(
 								"Previewing Fang world effect %s (0x%08x, %s)",
-								definition.name, definition.asset, definition.context,
+								definition.Name, definition.Asset, definition.Context,
 							)
 						} else if !errors.Is(previewErr, chat.ErrEffectPreviewUnavailable) {
 							return nil, fmt.Errorf("commandEffect: %w", previewErr)
@@ -609,7 +610,7 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 				category := ""
 				isCreate := len(field) >= 2 && strings.EqualFold(field[1], "create")
 				if len(field) == 3 {
-					category = dropCategory(field[2])
+					category = developer.DropCategory(field[2])
 				}
 				isCategoryValid := len(field) == 2 || len(field) == 3 && category != ""
 				if isCreate && isCategoryValid {
@@ -620,7 +621,7 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 					if dropErr == nil {
 						responseBody = "Campaign equipment drop debug queued"
 						if category != "" {
-							responseBody += " for " + dropCategoryDisplay(category)
+							responseBody += " for " + developer.DropCategoryDisplay(category)
 						}
 					} else if errors.Is(dropErr, chat.ErrEventUnavailable) {
 						responseBody = "Drop creation only works during an active campaign mission"
@@ -715,7 +716,7 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 				responseBody = eventSyntax
 				field := strings.Fields(body)
 				if len(field) == 2 {
-					eventName, isEventFound := developerEventName(field[1])
+					eventName, isEventFound := developer.EventName(field[1])
 					if isEventFound {
 						eventErr := messenger.TriggerEvent(ctx, chat.EventCommand{
 							Sender: chat.Participant{ID: user.Account.ID, Name: user.DisplayName},
@@ -821,6 +822,38 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 						responseBody = "Completing the campaign with defeat"
 					} else if !errors.Is(eventErr, chat.ErrEventUnavailable) {
 						return nil, fmt.Errorf("commandDefeat: %w", eventErr)
+					}
+				}
+			}
+			if commandName == "/debug" {
+				responseBody = debugSyntax
+				fields := strings.Fields(body)
+				if len(fields) <= 2 {
+					key := ""
+					if len(fields) == 2 {
+						key = fields[1]
+					}
+					peerIP := net.ParseIP(sessionRemoteIP(request.Session))
+					bindErr := messenger.BindOverlay(ctx, chat.OverlayBindCommand{
+						Sender:      chat.Participant{ID: user.Account.ID, Name: user.DisplayName},
+						Key:         key,
+						IsLocalPeer: peerIP != nil && peerIP.IsLoopback(),
+					})
+					// The reply replaces the command body, so the key is never echoed.
+					if bindErr == nil {
+						responseBody = "Debug overlay connected"
+					} else if errors.Is(bindErr, chat.ErrOverlayUnavailable) {
+						responseBody = "Debug overlay: API disabled on this server ([developer] is_overlay_enabled = false)"
+					} else if errors.Is(bindErr, chat.ErrOverlayPeerRemote) {
+						responseBody = "Debug overlay: the game client must run on the server machine"
+					} else if errors.Is(bindErr, chat.ErrOverlayKeyMissing) {
+						responseBody = "Debug overlay: this Fang build has no overlay (development build required); API is enabled"
+					} else if errors.Is(bindErr, chat.ErrOverlayKeyInvalid) {
+						responseBody = "Debug overlay: invalid session key"
+					} else if errors.Is(bindErr, chat.ErrSenderNotMember) {
+						responseBody = "Debug overlay: account not online"
+					} else {
+						return nil, fmt.Errorf("commandDebug: %w", bindErr)
 					}
 				}
 			}
@@ -1029,9 +1062,11 @@ const victorySyntax = "Syntax: /victory"
 
 const defeatSyntax = "Syntax: /defeat"
 
+const debugSyntax = "Syntax: /debug (development overlay builds add their session key)"
+
 const darkspinChatHelp = "Darkspin: /help | /taunt (availability info) | " + snapshotSyntax + " | /bug <what happened> | /b <what happened> | /ping | /hint | /loc | /stat | /follow [ally name] | /ai | /effect <exact-authored-name> [world] | " +
 	"/summon <rigid> <primary> <secondary> <suffix> | /level <1-100> | /warp [area] | /spawn <noun> | /drop create [weapon|hand|foot|offense|defense|utility] | /dna <amount> | " +
-	"/damage <amount> | /heal | /power [negative amount] | /mana [negative amount] | /event [1|security-next|2|boss-start|3|boss-complete] | /goto <x> <y> <z> | /kill | /reset | /recap | /victory | /defeat | /exit | " +
+	"/damage <amount> | /heal | /power [negative amount] | /mana [negative amount] | /event [1|security-next|2|boss-start|3|boss-complete] | /goto <x> <y> <z> | /kill | /reset | /recap | /victory | /defeat | /debug | /exit | " +
 	"Built-in: /tell <player> <message> | /party <message> | /game <message> | /lobby <message> | " +
 	"/invite <player> | /leave | /friend <player> | /unfriend <player> | /block <player> | " +
 	"/unblock <player> | /reply <message> | /setprofanityfilter 0|1 | /dance"
@@ -1052,24 +1087,6 @@ func messagingCommandName(body string) (string, bool) {
 	return "/" + strings.ToLower(commandName), true
 }
 
-func dropCategory(category string) string {
-	switch strings.ToLower(category) {
-	case "weapon", "foot", "offense", "defense", "utility":
-		return strings.ToLower(category)
-	case "hand":
-		return "grasper"
-	default:
-		return ""
-	}
-}
-
-func dropCategoryDisplay(category string) string {
-	if category == "grasper" {
-		return "hand"
-	}
-	return category
-}
-
 func commandRemainder(body string) string {
 	body = strings.TrimSpace(body)
 	separator := strings.IndexAny(body, " \t\r\n")
@@ -1077,47 +1094,6 @@ func commandRemainder(body string) string {
 		return ""
 	}
 	return strings.TrimSpace(body[separator:])
-}
-
-func developerEventName(alias string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(alias)) {
-	case "1", "security-next":
-		return "security-next", true
-	case "2", "boss-start":
-		return "boss-start", true
-	case "3", "boss-complete":
-		return "boss-complete", true
-	default:
-		return "", false
-	}
-}
-
-type effectPreviewDefinition struct {
-	name    string
-	context string
-	asset   uint32
-}
-
-var effectPreviewDefinitionByName = func() map[string]effectPreviewDefinition {
-	definition := []effectPreviewDefinition{
-		{name: "character_beam_in_plasma_electric", context: "beam-in"},
-		{name: "character_beam_out_plasma_electric", context: "beam-out"},
-		{name: "character_beam_in_bio", context: "beam-in"},
-		{name: "character_beam_out_bio", context: "beam-out"},
-		{name: "character_teleport_beam_out", context: "beam-out"},
-	}
-	byName := make(map[string]effectPreviewDefinition, len(definition))
-	for _, candidate := range definition {
-		candidate.asset = util.HashID(candidate.name + ".ServerEventDef")
-		byName[strings.ToLower(candidate.name)] = candidate
-	}
-	return byName
-}()
-
-func effectPreviewAsset(argument string) (effectPreviewDefinition, bool) {
-	name := strings.ToLower(strings.TrimSpace(argument))
-	definition, isFound := effectPreviewDefinitionByName[name]
-	return definition, isFound
 }
 
 func parseCommandUint(argument string, bitSize int) (uint64, bool) {

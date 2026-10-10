@@ -51,6 +51,16 @@ var (
 	ErrBugReportUnavailable = errors.New("bug report unavailable")
 	// ErrSnapshotUnavailable means the sync snapshot service is disabled or unavailable.
 	ErrSnapshotUnavailable = errors.New("sync snapshot unavailable")
+	// ErrOverlayUnavailable means the debug overlay API is disabled or not installed.
+	ErrOverlayUnavailable = errors.New("debug overlay unavailable")
+	// ErrOverlayKeyMissing means /debug carried no session key, so the Fang
+	// build has no overlay.
+	ErrOverlayKeyMissing = errors.New("debug overlay key missing")
+	// ErrOverlayKeyInvalid means the /debug session key is not 64 lowercase
+	// hexadecimal characters.
+	ErrOverlayKeyInvalid = errors.New("debug overlay key invalid")
+	// ErrOverlayPeerRemote means /debug arrived from a non-loopback Blaze peer.
+	ErrOverlayPeerRemote = errors.New("debug overlay peer remote")
 )
 
 // Scope identifies a protocol-independent chat audience.
@@ -327,6 +337,19 @@ type SnapshotManager interface {
 	Execute(context.Context, SnapshotCommand) (SnapshotResult, error)
 }
 
+// OverlayBindCommand binds a Fang-generated debug overlay key to the
+// authenticated sender. IsLocalPeer reports whether the Blaze peer is loopback.
+type OverlayBindCommand struct {
+	Sender      Participant
+	Key         string
+	IsLocalPeer bool
+}
+
+// OverlayBinder owns debug overlay session keys.
+type OverlayBinder interface {
+	BindOverlay(context.Context, OverlayBindCommand) error
+}
+
 // Message is an accepted transient chat message and its delivery audience.
 type Message struct {
 	ID           uint64
@@ -358,6 +381,7 @@ type Service struct {
 	bugReporter            BugReporter
 	bugContext             BugContextProvider
 	snapshotManager        SnapshotManager
+	overlayBinder          OverlayBinder
 }
 
 // UseEffectPreviewer installs the gameplay-owned effect preview adapter.
@@ -432,6 +456,11 @@ func (s *Service) UseBugContextProvider(provider BugContextProvider) {
 // UseSnapshotManager installs the server-owned sync snapshot feature.
 func (s *Service) UseSnapshotManager(snapshotManager SnapshotManager) {
 	s.snapshotManager = snapshotManager
+}
+
+// UseOverlayBinder installs the developer debug overlay session feature.
+func (s *Service) UseOverlayBinder(overlayBinder OverlayBinder) {
+	s.overlayBinder = overlayBinder
 }
 
 // NewService creates a chat service backed by the active multiplayer directory.
@@ -871,6 +900,22 @@ func (s *Service) Snapshot(
 		return result, nil
 	}
 	return SnapshotResult{}, ErrSenderNotMember
+}
+
+// BindOverlay validates the actor before delegating /debug key binding. The
+// binder owns key, peer, and feature checks.
+func (s *Service) BindOverlay(ctx context.Context, req OverlayBindCommand) error {
+	if req.Sender.ID == 0 || req.Sender.Name == "" {
+		return ErrSenderNotMember
+	}
+	if s.overlayBinder == nil {
+		return ErrOverlayUnavailable
+	}
+	err := s.overlayBinder.BindOverlay(ctx, req)
+	if err != nil {
+		return fmt.Errorf("overlayBind: %w", err)
+	}
+	return nil
 }
 
 func validScope(scope Scope) bool {

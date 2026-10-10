@@ -1,5 +1,9 @@
 # Changelog
 
+### 2026-10-10
+
+- Experimental branch only: add an in-game `/debug` overlay for development Fang builds (Info, Enemies, Items, Player and World tabs) backed by a loopback-only server debug API that reuses the existing developer commands; off by default via `[developer] is_overlay_enabled`.
+
 ### 2026-10-06
 
 - #56 Restore Polaris's higher-rank Mark of Zelem cast, thirty-second target mark and reticle cleanup.
