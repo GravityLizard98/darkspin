@@ -712,17 +712,13 @@ func (r campaignMovementCommandRuntime) handle(
 		return nil, nil
 	}
 	if admissionErr != nil {
-		response, marshalErr := marshalZonePlayerMove(
-			command.Common.ObjectID, commandSession.playerPosition,
-		)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("moveCampaignNavigationMarshal: %w", marshalErr)
-		}
 		r.logger.Printf("RakNet campaign movement rejected by navigation source=%d position=(%g,%g,%g) goal=(%g,%g,%g): %v",
 			command.Common.ObjectID,
 			command.Common.Position.X, command.Common.Position.Y, command.Common.Position.Z,
 			goal.X, goal.Y, goal.Z, admissionErr)
-		return response, nil
+		// Use the common rejection path to stop authoritative motion as well
+		// as correcting the controlling client's predicted physics position.
+		return nil, fmt.Errorf("moveCampaignNavigation: %w", admissionErr)
 	}
 	sessionKey := packet.Address.String()
 	interruption := r.action.interruptMovement(

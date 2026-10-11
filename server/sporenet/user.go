@@ -571,6 +571,10 @@ func (m *UserManager) login(ctx context.Context, loginName string, verify func(s
 	if verify == nil || !verify(record.Password) {
 		return LoginResult{User: user}
 	}
+	err = m.prepareTutorialRoster(ctx, user)
+	if err != nil {
+		return LoginResult{User: user}
+	}
 	err = m.prepareProfileStart(ctx, user)
 	if err != nil {
 		return LoginResult{User: user}

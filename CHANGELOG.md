@@ -2,6 +2,9 @@
 
 ### 2026-10-11
 
+- #59 Correct rejected hero movement through the native local-player physics and locomotion receivers, preventing persistent position drift reported alongside tutorial camera-follow failures and keeping co-op peers aligned.
+- #59 Initialize Blitz Alpha and Sage Alpha before authentication so completing the tutorial, including with `/victory`, leaves them available in the Arsenal; repair missing starters on existing profiles at login.
+- #59 Improve static-obstacle detours on narrow walkways by searching connected navigation-edge points when box-corner routes fail, addressing movement rejection before the tutorial boss teleporter.
 - #60 Extend Sync Snapshot packet history from 30 to 60 seconds for snapshots and attached bug-report diagnostics while retaining the 30-second automatic capture interval.
 - #60 Restore Helix's first-campaign planet-reinfection narration during Continue navigation by publishing completed progression before the client checks the offered planet's voice cue.
 - #60 Fix equipped heroes entering missions with base health and energy by applying the client-authored Strength and Mind resource bonuses for Sage Alpha and all other heroes.

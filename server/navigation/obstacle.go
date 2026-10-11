@@ -101,6 +101,7 @@ type obstacleRoute struct {
 	obstacleIndexes   map[int]bool
 	heights           map[int]float32
 	areObstaclesAdded map[int]bool
+	areContactsAdded  map[int]bool
 }
 
 // CreatePath retains terrain corridors, then searches around authored collision
@@ -116,10 +117,13 @@ func (e *Mesh) CreatePath(start Vec3, goal Vec3, options PathOptions) (Path, err
 	if len(indexes) == 0 {
 		return path, nil
 	}
+	options.ComponentID = path.Start.ComponentID
+	options.IsComponentConstrained = true
 	route := obstacleRoute{
 		mesh: e, options: options, nodes: []Vec3{path.Start.Position, path.Goal.Position},
 		paths: make(map[[2]int]Path), areEdgesExamined: make(map[[2]int]bool),
 		obstacleIndexes: make(map[int]bool), heights: make(map[int]float32), areObstaclesAdded: make(map[int]bool),
+		areContactsAdded: make(map[int]bool),
 	}
 	route.recordObstacles(path, indexes)
 	for pass := 0; pass < len(e.obstacles); pass++ {
@@ -132,7 +136,71 @@ func (e *Mesh) CreatePath(start Vec3, goal Vec3, options PathOptions) (Path, err
 			return result, nil
 		}
 	}
+	// A box corner can lie outside a narrow authored walkway. Search nearby
+	// terrain portals as well rather than declaring that walkway impassable.
+	// The client also searches polygon/edge connectivity (127 A59C40/A77F50);
+	// this is a bounded compatibility fallback, not its full native backend.
+	for pass := 0; pass < len(e.obstacles); pass++ {
+		if !route.addTerrainContacts() {
+			break
+		}
+		result, isFound := route.search()
+		if isFound {
+			result.Start, result.Goal = path.Start, path.Goal
+			return result, nil
+		}
+	}
 	return Path{}, errors.New("navigation obstacle route unavailable")
+}
+
+func (e *obstacleRoute) addTerrainContacts() bool {
+	selected := e.mesh.layers[e.options.PlanLayer]
+	padding := selected.info.Radius*2 + e.options.MaxDistance
+	isAddedAny := false
+	for index, obstacle := range e.mesh.obstacles {
+		if !e.obstacleIndexes[index] || e.areContactsAdded[index] {
+			continue
+		}
+		e.areContactsAdded[index] = true
+		for _, polygon := range selected.polygons {
+			if polygon.ComponentID != e.options.ComponentID && e.options.IsComponentConstrained {
+				continue
+			}
+			for edgeIndex, edge := range polygon.Edges {
+				if edge.NeighborOffset == 0 {
+					continue
+				}
+				end := polygon.Edges[(edgeIndex+1)%len(polygon.Edges)].Vertex
+				for _, fraction := range [3]float32{0.5, 0.05, 0.95} {
+					point := add(edge.Vertex, scale(subtract(end, edge.Vertex), fraction))
+					local := obstacle.local(point)
+					if local.X < obstacle.Minimum.X-padding || local.X > obstacle.Maximum.X+padding ||
+						local.Y < obstacle.Minimum.Y-padding || local.Y > obstacle.Maximum.Y+padding ||
+						local.Z < obstacle.Minimum.Z-selected.info.Height-padding || local.Z > obstacle.Maximum.Z+padding {
+						continue
+					}
+					if e.mesh.isObstructed(point, e.options.PlanLayer) || e.hasNode(point) {
+						continue
+					}
+					if len(e.nodes) >= 128 {
+						return isAddedAny
+					}
+					e.nodes = append(e.nodes, point)
+					isAddedAny = true
+				}
+			}
+		}
+	}
+	return isAddedAny
+}
+
+func (e *obstacleRoute) hasNode(point Vec3) bool {
+	for _, node := range e.nodes {
+		if squaredDistance(point, node) < 0.0025 {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *obstacleRoute) addCorners() bool {

@@ -569,11 +569,16 @@ func (r gameplayActionRuntime) reject(
 		}
 		r.registry.mutex.Unlock()
 		if isFound && peerSession.deployedObjectID != 0 {
-			packets, err := marshalZonePlayerStop(
+			packets, err := marshalPlayerMovementCorrection(
 				peerSession.deployedObjectID, peerSession.playerPosition,
+				command.Common.Orientation,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("movementCorrection: %w", err)
+			}
+			err = publishCampaignPeersAfterCommit(r.registry, request, packets)
+			if err != nil {
+				return nil, fmt.Errorf("correctionPublish: %w", err)
 			}
 			r.logger.Printf(
 				"RakNet movement corrected object=%d duration=%s error=%v",
