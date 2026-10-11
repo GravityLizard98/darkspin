@@ -81,8 +81,7 @@ func (r campaignNPCActionRuntime) applyEnemyProjectileDamage(
 		)
 		return packets, statDelta, false, err
 	}
-	if target.IsHero && (targetSession.heroModifierRun.IsDamageImmune() ||
-		targetSession.heroQuantumBlink != nil) {
+	if target.IsHero && targetSession.isHeroDamageImmune(r.now()) {
 		hitPackets, immunityErr := projectileRun.ResolveCollision(
 			context.Background(), deadline, true, true,
 			target.HitPoint, 0, false, targetPosition, facing,

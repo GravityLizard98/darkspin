@@ -7775,8 +7775,7 @@ func (r campaignNPCActionRuntime) applyEnemyDamage(
 		)
 		return packets, statDelta, false, err
 	}
-	if target.IsHero && (targetSession.heroModifierRun.IsDamageImmune() ||
-		targetSession.heroQuantumBlink != nil) {
+	if target.IsHero && targetSession.isHeroDamageImmune(r.now()) {
 		immunePacket, immunityErr := npcraknet.Immune(
 			plan.SourceObjectID, target.ObjectID,
 		)

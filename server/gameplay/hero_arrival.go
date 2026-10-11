@@ -98,6 +98,19 @@ func campaignCharacterArrivalMessages(
 // DeployModifier holds Immobilized until WaitUntilTime(1), after the landing.
 const heroArrivalLockDuration = time.Second
 
+// DeployModifier (Modifiers/0xAFF01FD0.lua) waits until 0.5 before
+// applying its knockback, then until 1.0 before completing deployment.
+const heroArrivalKnockbackDelay = 500 * time.Millisecond
+
+func (e gameplayPeerSession) isHeroArrivalProtected(at time.Time) bool {
+	return e.heroInputLockedObjectID != 0 && at.Before(e.heroInputLockedUntil)
+}
+
+func (e gameplayPeerSession) isHeroDamageImmune(at time.Time) bool {
+	return e.isHeroArrivalProtected(at) || e.heroModifierRun.IsDamageImmune() ||
+		e.heroQuantumBlink != nil
+}
+
 func advanceHeroArrivalTimestamp(
 	timestamp uint64, startedAt time.Time, currentTime time.Time,
 ) uint64 {

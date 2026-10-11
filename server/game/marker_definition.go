@@ -11,6 +11,7 @@ type CampaignMarkerDefinition struct {
 	Position                Vec3
 	Rotation                Vec3
 	Scale                   float32
+	IsVisible               bool
 	IsCollisionEnabled      bool
 	TeleporterTriggerRadius float32
 	Teleporter              *CampaignTeleporterDefinition

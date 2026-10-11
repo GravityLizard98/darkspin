@@ -3464,8 +3464,10 @@ func CryosSpecialThreeRezMeleeProfile(nounName string) (ActionProfile, bool) {
 }
 
 func citadelFireBreathProfile(
-	minimumDamage float32, maximumDamage float32, radius float32,
+	cooldown time.Duration,
 ) ActionProfile {
+	// Abilities/0x52ABE07B.lua: all three ranks deal 4-7 damage in a
+	// four-metre, ninety-degree cone; only the cooldown changes by rank.
 	return ActionProfile{
 		Family: ActionCone, AbilityName: "CitadelMinionMelee_Flamethrower",
 		AnimationName:             "cry_minn_el_1_attack1",
@@ -3473,15 +3475,15 @@ func citadelFireBreathProfile(
 		FirstAggroDelay:           1630 * time.Millisecond,
 		HitDelay:                  430 * time.Millisecond,
 		ReleaseDelay:              1200 * time.Millisecond,
-		Cooldown:                  3 * time.Second,
-		Range:                     radius,
-		Radius:                    radius,
-		Angle:                     120,
+		Cooldown:                  cooldown,
+		Range:                     4,
+		Radius:                    4,
+		Angle:                     90,
 		MovementSpeed:             6.5,
 		NonCombatMovementSpeed:    5,
-		MinimumDamage:             minimumDamage,
-		MaximumDamage:             maximumDamage,
-		DescriptorMask:            128,
+		MinimumDamage:             4,
+		MaximumDamage:             7,
+		DescriptorMask:            136,
 		DamageType:                3,
 		DamageSource:              1,
 		IsDamageProfileKnown:      true,
@@ -4016,11 +4018,11 @@ func ActionProfileForNoun(nounName string) (ActionProfile, bool) {
 	case "nocturnabasicrangedsilence_3.noun":
 		return nocturnaBasicRangedSilenceProfile(4*time.Second, 17.5), true
 	case "citadelbasicmelee.noun":
-		return citadelFireBreathProfile(24, 36, 10), true
+		return citadelFireBreathProfile(3 * time.Second), true
 	case "citadelbasicmelee_2.noun":
-		return citadelFireBreathProfile(28, 42, 12), true
+		return citadelFireBreathProfile(2500 * time.Millisecond), true
 	case "citadelbasicmelee_3.noun":
-		return citadelFireBreathProfile(32, 48, 14), true
+		return citadelFireBreathProfile(2 * time.Second), true
 	case "citadelbasicgunner.noun":
 		return citadelBasicGunnerShotProfile(8, false, 0, 5, 3.5, 250), true
 	case "citadelbasicgunner_2.noun":

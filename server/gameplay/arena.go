@@ -380,7 +380,7 @@ func (r campaignAbilityCommandRuntime) handleArenaCharacter(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("arenaDefense: %w", defenseErr)
 	}
-	if targetSession.heroModifierRun.IsDamageImmune() || targetSession.heroQuantumBlink != nil {
+	if targetSession.isHeroDamageImmune(attackTime) {
 		defenseFlags = 0x40
 	}
 	damage := critical.Damage

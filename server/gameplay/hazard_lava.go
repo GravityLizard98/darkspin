@@ -71,6 +71,9 @@ func (s *gameplayPeerSession) applyCampaignLavaContact(
 	position game.Vec3, timestamp uint64, now time.Time,
 	runtime campaignNPCActionRuntime,
 ) ([][]byte, sporenet.PlayerStatDelta, error) {
+	if s != nil && s.isHeroArrivalProtected(now) {
+		return nil, sporenet.PlayerStatDelta{}, nil
+	}
 	plasmaPackets, plasmaDelta, isPlasmaActive, plasmaErr := runtime.applyPlasmaPoolContact(s, position, timestamp, now)
 	if plasmaErr != nil {
 		return nil, sporenet.PlayerStatDelta{}, fmt.Errorf("plasmaContact: %w", plasmaErr)

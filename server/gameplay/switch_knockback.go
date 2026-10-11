@@ -12,11 +12,38 @@ import (
 	npcraknet "github.com/darkspinnet/darkspin/server/zone/npc/raknet103"
 )
 
-const heroSwapKnockbackRadius = float32(6)
+// DeployModifier's authored knockbackRadius is 3.
+const heroSwapKnockbackRadius = float32(3)
 const heroSwapKnockbackDistance = float32(4)
 const heroSwapKnockbackSpeed = float32(20)
 const heroSwapKnockbackOutro = time.Second
 const surefootedNPCAffixModifierName = "Surefooted_NPCAffixModifier"
+
+type gameplaySwitchLandingStep struct {
+	arrival gameplaySwitchArrivalStep
+}
+
+func (e gameplaySwitchLandingStep) produce() ([][]byte, error) {
+	return e.arrival.runtime.heroSwapArrivalKnockback(
+		e.arrival.packet, e.arrival.sessionKey, e.arrival.generation,
+		e.arrival.targetObjectID,
+		e.arrival.timestamp+uint64(heroArrivalKnockbackDelay/time.Millisecond),
+	)
+}
+
+func (e gameplaySwitchArrivalStep) scheduleLanding() {
+	landing := gameplaySwitchLandingStep{arrival: e}
+	if e.packet.ScheduleFunc == nil {
+		if e.runtime.logger != nil {
+			e.runtime.logger.Printf("RakNet hero swap landing schedule unavailable target=%d", e.targetObjectID)
+		}
+		return
+	}
+	err := e.packet.ScheduleFunc(heroArrivalKnockbackDelay, landing.produce)
+	if err != nil && e.runtime.logger != nil {
+		e.runtime.logger.Printf("RakNet hero swap landing schedule failed target=%d: %v", e.targetObjectID, err)
+	}
+}
 
 type gameplaySwitchKnockbackResetStep struct {
 	runtime    gameplaySwitchRuntime

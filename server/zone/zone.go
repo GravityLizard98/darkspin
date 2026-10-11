@@ -3084,6 +3084,9 @@ func (e *Zone) resurrectNPC(
 	if !isFound || !defeated.IsDefeated || defeated.Plan.IsFixture {
 		return zonenpc.Snapshot{}, false, nil
 	}
+	if e.Boss() != nil && !e.Boss().CanRevive(defeated) {
+		return zonenpc.Snapshot{}, false, nil
+	}
 	event, isRevived, err := e.Death().Revive(ctx, objectID)
 	if err != nil {
 		return zonenpc.Snapshot{}, false, fmt.Errorf("resurrectDeath: %w", err)
@@ -3099,6 +3102,12 @@ func (e *Zone) resurrectNPC(
 	}
 	if err != nil {
 		return zonenpc.Snapshot{}, false, fmt.Errorf("resurrectNPC: %w", err)
+	}
+	if e.Boss() != nil {
+		err = e.Boss().Revive(revived)
+		if err != nil {
+			return zonenpc.Snapshot{}, false, fmt.Errorf("resurrectBoss: %w", err)
+		}
 	}
 	if e.Horde() != nil {
 		err = e.Horde().Revive(revived)

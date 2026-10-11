@@ -1048,7 +1048,7 @@ func (s *gameplayPeerSession) campaignNPCTarget(
 
 func (s *gameplayPeerSession) isHeroDebuffImmune(targetObjectID uint32) bool {
 	return s != nil && targetObjectID == s.deployedObjectID &&
-		s.heroModifierRun.IsDebuffImmune()
+		(s.isHeroArrivalProtected(time.Now()) || s.heroModifierRun.IsDebuffImmune())
 }
 
 func (s *gameplayPeerSession) trackCampaignNPCProjectile(
@@ -3701,19 +3701,8 @@ func (s gameplaySwitchArrivalStep) produce() ([][]byte, error) {
 	if !s.isKnockback {
 		return packets, nil
 	}
-	knockbackPackets, err := s.runtime.heroSwapArrivalKnockback(
-		s.packet, s.sessionKey, s.generation, s.targetObjectID, s.timestamp,
-	)
-	if err != nil {
-		if s.runtime.logger != nil {
-			s.runtime.logger.Printf(
-				"RakNet hero swap arrival knockback omitted target=%d: %v",
-				s.targetObjectID, err,
-			)
-		}
-		return packets, nil
-	}
-	return append(packets, knockbackPackets...), nil
+	s.scheduleLanding()
+	return packets, nil
 }
 
 func (r gameplaySwitchRuntime) recoverPassiveSchedule(

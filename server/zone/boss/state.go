@@ -220,7 +220,9 @@ func (s *Session) ObserveDamage(
 	if !isEncounterActor {
 		return Transition{}, nil
 	}
-	if s.phase != PhaseActive || !s.liveObjectIDs[result.ObjectID] {
+	// A revived opening add can remain alive while captain entry is pending.
+	// Only admitted live actors may report damage in either combat phase.
+	if (s.phase != PhaseActive && s.phase != PhaseArming) || !s.liveObjectIDs[result.ObjectID] {
 		return Transition{}, errors.New("boss damage: unexpected actor")
 	}
 	if result.ObjectID == s.leaderObjectID {

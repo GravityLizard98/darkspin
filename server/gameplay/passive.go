@@ -287,6 +287,9 @@ func (e *gameplayPeerSession) absorbTCShield(
 func (s gameplayPeerSession) applyPassiveDamageReduction(
 	damage float32, damageSource uint8, sourceObjectID uint32, now time.Time,
 ) float32 {
+	if s.isHeroArrivalProtected(now) {
+		return 0
+	}
 	if damage <= 0 || math.IsNaN(float64(damage)) || math.IsInf(float64(damage), 0) ||
 		s.deployedCreatureIndex >= uint32(len(s.binding.Creatures)) {
 		return damage

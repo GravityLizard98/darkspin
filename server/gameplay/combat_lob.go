@@ -328,7 +328,7 @@ func (e campaignNPCLobSchedule) landing() ([][]byte, error) {
 				peerSession.ghostFormRun.IsActive(
 					peerSession.deployedCreatureIndex,
 					peerSession.deployedHitPoint() > 0,
-				)) || peerSession.heroModifierRun.IsDamageImmune())
+				)) || peerSession.isHeroDamageImmune(e.runtime.now()))
 		var isApplied bool
 		var err error
 		damagePackets, statDelta, reflection, isApplied, err =

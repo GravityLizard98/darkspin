@@ -5965,9 +5965,16 @@ func (p campaignPreparation) initialize(
 	if planErr != nil {
 		return fmt.Errorf("statusChainScriptObjectPlans: %w", planErr)
 	}
-	// The prepare packet and director share the native map selection. Static
-	// scenery stays client-owned; no independently selected layout is republished.
-	sceneryPlans := make([]zoneobject.SceneryPlan, 0)
+	// Client-owned scenery stays native. Publish server-owned static trees from
+	// that same selected layout, including on the shared rejoin baseline.
+	sceneryMarkers, sceneryErr := director.ServerTreeScenery()
+	if sceneryErr != nil {
+		return fmt.Errorf("statusTreeScenery: %w", sceneryErr)
+	}
+	sceneryPlans, sceneryErr := zoneobject.PlanScenery(sceneryMarkers)
+	if sceneryErr != nil {
+		return fmt.Errorf("statusTreePlans: %w", sceneryErr)
+	}
 	tutorialCapsulePlans := make([]tutorialCapsulePlan, 0)
 	if binding.Mode == game.ModeTutorial {
 		tutorialCapsulePlans, nextObjectID, planErr = planTutorialCapsules(

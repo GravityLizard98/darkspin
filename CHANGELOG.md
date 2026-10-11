@@ -2,6 +2,11 @@
 
 ### 2026-10-11
 
+- #64 Restore Pyro's client-authored fire-breath damage, reach, cone angle, area descriptor and rank cooldowns across all missions instead of the inflated server profile.
+- #64 Correct Overdrive capacity from 100 to the packaged 420 so the client can reach charged state, and restore the packaged 70-per-second drain for activation duration and tutorial unlocks.
+- #64 Protect heroes from damage during switching and deployment, and move nearby-enemy knockback from arrival start to the client-authored landing time with its authored radius.
+- #64 Restore revived enemies to their boss-wave roster so subsequent hits publish their death correctly and the mission waits for them to be defeated; prevent delayed resurrection from reopening a completed arena.
+- #64 Restore omitted server-owned tree scenery at its authored placements across campaign maps, including Spectral Forest's yellow trees, while preserving client-owned trees and sharing the restored scenery with co-op and reconnecting players.
 - #63 Add a Boss Spawning accordion to launcher Server Settings with saved controls for opening adds per anchor, adds alongside Illust and captain-entry delay; changes apply to new missions and are included when sharing settings to GitHub.
 - #63 Include difficulty-eligible, horde-legal special enemies alongside minions in captain-arena waves across campaign maps, restoring candidates such as Hasters, Decelerators and Invincitrons that were excluded from boss adds.
 - #63 Resolve hero movement destinations inside static blockers to nearby walkable contact points instead of repeatedly stopping and snapping the hero back, while retaining collision and navigation limits.

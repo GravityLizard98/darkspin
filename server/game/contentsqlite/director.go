@@ -437,7 +437,8 @@ func (s *DirectorSource) LoadCampaignDirector(
 				Ordinal: definition.Ordinal, MarkerID: definition.MarkerID, NounName: definition.NounName,
 				Position: game.Vec3{X: definition.PositionX, Y: definition.PositionY, Z: definition.PositionZ},
 				Rotation: game.Vec3{X: definition.RotationX, Y: definition.RotationY, Z: definition.RotationZ},
-				Scale:    definition.Scale, IsCollisionEnabled: definition.IsCollisionEnabled,
+				Scale:    definition.Scale, IsVisible: definition.IsVisible,
+				IsCollisionEnabled:      definition.IsCollisionEnabled,
 				TeleporterTriggerRadius: definition.TeleporterTriggerRadius,
 				Teleporter:              campaignTeleporter(definition.Teleporter),
 			})

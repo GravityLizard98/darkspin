@@ -11,8 +11,8 @@ import (
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
 )
 
-const campaignOverdriveMaximumEnergy = float64(100)
-const campaignOverdriveBaseDrainPerSecond = float64(3.3)
+const campaignOverdriveMaximumEnergy = game.OverdriveMaximumEnergy
+const campaignOverdriveBaseDrainPerSecond = game.OverdriveDrainPerSecond
 
 type campaignOverdriveRuntime struct {
 	registry *gameplaySessionRegistry
@@ -79,7 +79,7 @@ func (e *gameplayPeerSession) rechargeOverdrive(
 		return 0, false
 	}
 	bonus := max(float32(-1), e.binding.Creatures[creatureIndex].OverdriveBuildupIncrease)
-	// A full meter takes at most 25 ordinary kills before equipment bonuses.
+	// Kill recharge remains server policy; capacity and drain use packaged tuning.
 	recharge := max(float32(4), float32(baseEnergy)*2) * (1 + bonus)
 	if recharge <= 0 {
 		return 0, false
@@ -139,7 +139,7 @@ func campaignOverdriveBaseDuration() time.Duration {
 		campaignOverdriveMaximumEnergy, campaignOverdriveBaseDrainPerSecond, 0,
 	)
 	if err != nil {
-		return 30 * time.Second
+		return 6 * time.Second
 	}
 	return duration
 }

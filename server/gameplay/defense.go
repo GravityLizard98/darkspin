@@ -2,6 +2,7 @@ package gameplay
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/darkspinnet/darkspin/server/combat"
 	"github.com/darkspinnet/darkspin/server/raknet"
@@ -80,7 +81,7 @@ func enemyDefenseRequest(profile zonenpc.ActionProfile, damage float32, isArea, 
 func (e gameplayPeerSession) rollDefense(random *sim.SimulatorRandom,
 	req combat.DefenseRequest, tuning sim.CriticalTuning,
 ) (uint16, error) {
-	if e.heroModifierRun.IsDamageImmune() || e.heroQuantumBlink != nil {
+	if e.isHeroDamageImmune(time.Now()) {
 		return 0, nil
 	}
 	if e.ghostFormRun != nil && e.ghostFormRun.IsActive(e.deployedCreatureIndex, e.deployedHitPoint() > 0) {
