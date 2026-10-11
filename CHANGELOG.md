@@ -2,10 +2,16 @@
 
 ### 2026-10-11
 
-- Fix attacks sticking immediately after a hero switch by replying to attacks blocked during deployment so the client clears their pending action state.
-- Prevent queued damage feedback from restoring a defeated enemy's earlier health, fixing exploding enemies appearing to return after death for players and co-op allies.
-- Fix blue and green obelisk hover effects surviving interaction by attaching them to the client object so the authored effect-removal request can stop them.
-- Change NPC pursuit redirects from goal-only updates to complete movement commands, preserving client path waypoints and refreshing movement state and stopping distances to address enemies stalling and snapping during combat.
+- #60 Extend Sync Snapshot packet history from 30 to 60 seconds for snapshots and attached bug-report diagnostics while retaining the 30-second automatic capture interval.
+- #60 Restore Helix's first-campaign planet-reinfection narration during Continue navigation by publishing completed progression before the client checks the offered planet's voice cue.
+- #60 Fix equipped heroes entering missions with base health and energy by applying the client-authored Strength and Mind resource bonuses for Sage Alpha and all other heroes.
+- #60 Prevent delayed NPC actions, target updates, and join snapshots from restarting defeated enemies or recreating their live models after death.
+- #60 Give valid movement priority over an active melee swing by cancelling its pending hit and held repeat, and prevent targetless player melee inputs from automatically selecting a nearby enemy.
+- #60 Fix enemy attacks gaining extra reach at impact by preserving authored ability ranges instead of applying footprint and stopping-distance adjustments twice.
+- #61 Fix attacks sticking immediately after a hero switch by replying to attacks blocked during deployment so the client clears their pending action state.
+- #61 Prevent queued damage feedback from restoring a defeated enemy's earlier health, fixing exploding enemies appearing to return after death for players and co-op allies.
+- #61 Fix blue and green obelisk hover effects surviving interaction by attaching them to the client object so the authored effect-removal request can stop them.
+- #61 Change NPC pursuit redirects from goal-only updates to complete movement commands, preserving client path waypoints and refreshing movement state and stopping distances to address enemies stalling and snapping during combat.
 
 ### 2026-10-07
 

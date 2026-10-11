@@ -111,6 +111,23 @@ func (e *gameplayPeerSession) queueCampaignPresentation(packets [][]byte) error 
 	queuedPackets := make([][]byte, 0, len(packets)+len(events))
 	projectedPacketCounts := make(map[string]int)
 	for _, event := range events {
+		var liveObjectID uint32
+		isSuppressed := false
+		switch event.Kind {
+		case zoneprojection.EventNPCAction:
+			liveObjectID = event.Action.Plan.ObjectID
+		case zoneprojection.EventNPCSnapshot:
+			liveObjectID = event.NPCSnapshot.Plan.ObjectID
+		case zoneprojection.EventNPCTarget:
+			liveObjectID = event.NPCTarget.Plan.ObjectID
+		}
+		if liveObjectID != 0 {
+			// Native 5393D0 installs movement on any retained object, including
+			// a corpse. A delayed action must not restart pursuit or overwrite
+			// its death animation; a delayed join snapshot must not recreate it.
+			enemy, isFound := e.zone.NPCs().NPC(liveObjectID)
+			isSuppressed = !isFound || enemy.IsDefeated
+		}
 		if event.Kind == zoneprojection.EventNPCDamage && !event.Damage.IsDamageImmune {
 			// Damage publication can finish after a later projectile has killed
 			// the target. Native 5399D0 applies combatant snapshots without a
@@ -136,7 +153,11 @@ func (e *gameplayPeerSession) queueCampaignPresentation(packets [][]byte) error 
 			}
 			return fmt.Errorf("presentationProjection: %w", err)
 		}
-		queuedPackets = append(queuedPackets, projectedPackets...)
+		if !isSuppressed {
+			queuedPackets = append(queuedPackets, projectedPackets...)
+		}
+		// Count suppressed packets too, so an encoded copy supplied by the
+		// producer cannot reintroduce the stale event below.
 		for _, projectedPacket := range projectedPackets {
 			projectedPacketCounts[string(projectedPacket)]++
 		}

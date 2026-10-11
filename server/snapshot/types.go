@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultBufferDuration = 30 * time.Second
+	DefaultBufferDuration = 60 * time.Second
 	DefaultDelay          = 30 * time.Second
 	minimumDelay          = time.Second
 	maximumDelay          = time.Hour

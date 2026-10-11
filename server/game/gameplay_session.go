@@ -721,7 +721,7 @@ func gameplayEquippedParts(
 // it can be stale when a mission is entered immediately after an equipment
 // change.
 func gameplayCreatureStats(
-	creature *sporenet.Creature, partAttribute [partAttributeCount]float32,
+	creature *sporenet.Creature, partAttributes [partAttributeCount]float32,
 ) []sporenet.Stat {
 	if creature == nil {
 		return nil
@@ -729,13 +729,19 @@ func gameplayCreatureStats(
 	if creature.Template == nil || len(creature.Template.Stats) == 0 {
 		return creature.Stats
 	}
+	// Native 1.2.7 sub_9E7360 derives health from Strength and energy from
+	// Mind. MagicNumbers.MagicNumbers supplies coefficients 5 and 1 at
+	// offsets 12 and 28. Template stats already include the base attributes,
+	// so convert only equipment deltas here, alongside direct resource bonuses.
+	partAttributes[4] += partAttributes[0] * 5
+	partAttributes[5] += partAttributes[2]
 	stats := append([]sporenet.Stat(nil), creature.Template.Stats...)
 	for index := range stats {
 		attributeIndex, isFound := gameplayCorePartAttribute(stats[index].Name)
 		if !isFound {
 			continue
 		}
-		maximum := max(float32(0), float32(stats[index].Maximum)+partAttribute[attributeIndex])
+		maximum := max(float32(0), float32(stats[index].Maximum)+partAttributes[attributeIndex])
 		stats[index].Maximum = uint32(maximum)
 		stats[index].Current = stats[index].Maximum
 	}

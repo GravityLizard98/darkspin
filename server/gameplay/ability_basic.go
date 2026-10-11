@@ -778,10 +778,11 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 		creature, definition, maximumRange,
 	)
 	if planErr == nil && !isActiveRequest &&
-		definition.Kind == sim.AbilityKindProjectile && targetObjectID == 0 {
-		// Targetless projectile basics are cursor-fired. The generic planner's
+		(definition.Kind == sim.AbilityKindProjectile || definition.Kind == sim.AbilityKindMelee) &&
+		targetObjectID == 0 {
+		// Targetless player basics are cursor-directed. The generic planner's
 		// nearby-attacker fallback is useful for autonomous attacks, but would
-		// redirect a player's missed cursor shot to an unrelated enemy.
+		// redirect a player's ground-directed attack to an unrelated enemy.
 		plan.TargetObjectID = 0
 	}
 	if planErr == nil && targetObjectID != 0 &&

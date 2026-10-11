@@ -1884,6 +1884,22 @@ type LabsPlayerCrystalBonusesMessage struct {
 	AreBonusesActive [8]bool
 }
 
+// LabsPlayerChainProgressionMessage updates only the native player's completed
+// campaign index. Navigation uses this field to gate first-pass Helix narration.
+type LabsPlayerChainProgressionMessage struct {
+	PlayerSlot       uint8
+	ChainProgression uint32
+}
+
+func (LabsPlayerChainProgressionMessage) PacketID() PacketID { return LabsPlayerUpdate }
+func (m LabsPlayerChainProgressionMessage) EncodePayload() []byte {
+	// Outer bit 12 selects the player reflection; tagged field 17 is
+	// mChainProgression (build 103 offset 4700). No roster/status reset.
+	payload := []byte{m.PlayerSlot, 0, 0x10, 17}
+	payload = binary.LittleEndian.AppendUint32(payload, m.ChainProgression)
+	return append(payload, 0xff)
+}
+
 func (LabsPlayerCrystalInventoryMessage) PacketID() PacketID { return LabsPlayerUpdate }
 func (m LabsPlayerCrystalInventoryMessage) EncodePayload() []byte {
 	// Player field 13 copies the nine fixed crystal records, then outer fields

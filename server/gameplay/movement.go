@@ -557,7 +557,16 @@ func (e campaignActionAuthority) interruptMovement(
 		e.registry.sessions[sessionKey] = peerSession
 		return interruption
 	}
-	if peerSession.basicAttack != nil || !peerSession.isAbilityReleaseReady(now) {
+	if peerSession.basicAttack != nil {
+		interruption := campaignMovementInterruption{
+			basicSyncStamp: peerSession.basicAttackSyncStamp,
+			playerPosition: peerSession.playerPosition,
+		}
+		interruption.basicAttack = peerSession.resetSharedActionAdmission()
+		e.registry.sessions[sessionKey] = peerSession
+		return interruption
+	}
+	if !peerSession.isAbilityReleaseReady(now) {
 		attackPose := peerSession.attackPose
 		if peerSession.basicAttack == nil && !attackPose.isActiveAt(now) {
 			attackPose = retainedAttackPose{}
@@ -753,6 +762,20 @@ func (r campaignMovementCommandRuntime) handle(
 		interruption.basicAttack.Stop()
 	}
 	drainStopPackets := make([][]byte, 0, 3)
+	if interruption.basicAttack != nil {
+		cancelPacket, cancelErr := raknet.MarshalApplication(raknet.ActionCommandResponseMessage{
+			SyncStamp: interruption.basicSyncStamp, ResponseType: raknet.ActionResponseRejected,
+			ObjectID: command.Common.ObjectID, UserData: 0xffffffff,
+		})
+		if cancelErr != nil {
+			return nil, fmt.Errorf("moveAttackCancel: %w", cancelErr)
+		}
+		resetPacket, resetErr := abilityraknet.AnimationReset(command.Common.ObjectID, packet.SourceTime)
+		if resetErr != nil {
+			return nil, fmt.Errorf("moveAttackReset: %w", resetErr)
+		}
+		drainStopPackets = append(drainStopPackets, cancelPacket, resetPacket)
+	}
 	if interruption.heroDrain != nil {
 		var drainErr error
 		drainStopPackets, drainErr = interruption.heroDrain.interruptionPacketsAt(

@@ -1206,6 +1206,24 @@ func (r campaignResultRuntime) votingData(
 	if remaining <= 0 {
 		return r.consumeVote(ctx, packet, peerSession, snapshot)
 	}
+	if peerSession.binding.Slot > 255 {
+		return nil, errors.New("campaign vote player slot invalid")
+	}
+	// Build 103 sub_448F70 plays the offered level's Helix voice only when
+	// local mChainProgression equals its index minus one. Continue/cash-out
+	// persists completion later; publish the earned index before navigation
+	// now, without changing the reward transaction or replaying roster state.
+	progressionPacket, err := raknet.MarshalApplication(
+		raknet.LabsPlayerChainProgressionMessage{
+			PlayerSlot: uint8(peerSession.binding.Slot),
+			ChainProgression: max(
+				peerSession.binding.ChainProgression, snapshot.CompletedIndex,
+			),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("campaignVoteProgression: %w", err)
+	}
 	seconds := float32(remaining.Seconds())
 	votePacket, err := resultraknet.VoteWithCountdown(snapshot, seconds)
 	if err != nil {
@@ -1219,7 +1237,7 @@ func (r campaignResultRuntime) votingData(
 		"RakNet campaign compatibility voting data sent to %s result=%d",
 		packet.Address, snapshot.ResultID,
 	)
-	return [][]byte{votePacket, countdownPacket}, nil
+	return [][]byte{progressionPacket, votePacket, countdownPacket}, nil
 }
 
 func (s gameplayPeerSession) deployedResourceMaximum() (float32, float32, error) {

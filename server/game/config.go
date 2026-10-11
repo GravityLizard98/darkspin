@@ -55,7 +55,7 @@ var defaultConfigValues = map[ConfigKey]string{
 	ConfigAuthJWTIssuer:                 "darkspin-web",
 	ConfigAuthJWTAudience:               "darkspin",
 	ConfigSnapshotMode:                  "auto",
-	ConfigSnapshotBufferSecond:          "30",
+	ConfigSnapshotBufferSecond:          "60",
 	ConfigSnapshotDelaySecond:           "30",
 }
 

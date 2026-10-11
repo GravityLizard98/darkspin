@@ -220,8 +220,9 @@ func PlanControlWithProfile(
 	if err != nil {
 		return AttackPlan{}, fmt.Errorf("npcControlRange: %w", err)
 	}
-	profile.Range = stopDistance
-	if zonegeometry.Distance(npc.Plan.Position, targetPosition) >= profile.Range {
+	// Keep the authored range in the plan. Impact-time validation reuses this
+	// profile and must not adjust the range or add actor footprints twice.
+	if zonegeometry.Distance(npc.Plan.Position, targetPosition) >= stopDistance {
 		return AttackPlan{}, ErrControlTargetOutOfRange
 	}
 	return AttackPlan{
