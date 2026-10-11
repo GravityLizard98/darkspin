@@ -201,6 +201,9 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 		}, "projectilePursuit")
 	}
 	goal := pursuitGoal(source, target, plan.Profile.Range)
+	// Native 539810 writes both the final and intermediate path point. A
+	// following 0x95 would replace the client's corridor waypoint with this
+	// straight-line goal. Let 0x91 install the pursuit and build its own path.
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
 			ObjectID: plan.ObjectID, GoalFlags: 0x41, GoalPosition: goal,
@@ -208,9 +211,6 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 			AllowedStopDistance: plan.Profile.Range,
 			DesiredStopDistance: plan.Profile.Range,
 			TargetPosition:      target, TargetObjectID: plan.TargetObjectID,
-		},
-		raknet.LocomotionUnreliableMessage{
-			ObjectID: plan.ObjectID, GoalPosition: goal,
 		},
 	}, "pursuit")
 }
@@ -393,9 +393,6 @@ func pursuitRedirect(
 			DesiredStopDistance: stopDistance,
 			TargetPosition:      target, TargetObjectID: targetObjectID,
 		},
-		raknet.LocomotionUnreliableMessage{
-			ObjectID: objectID, GoalPosition: goal,
-		},
 	}, "pursuitRedirect")
 }
 
@@ -449,9 +446,6 @@ func PursuitProgress(
 				DesiredStopDistance: step.StopDistance,
 				TargetPosition:      target,
 				TargetObjectID:      targetObjectID,
-			},
-			raknet.LocomotionUnreliableMessage{
-				ObjectID: step.ObjectID, GoalPosition: goal,
 			},
 		}, "pursuitProgress")
 		if err != nil {

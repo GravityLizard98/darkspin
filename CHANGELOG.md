@@ -1,9 +1,16 @@
 # Changelog
 
+### 2026-10-11
+
+- Fix attacks sticking immediately after a hero switch by replying to attacks blocked during deployment so the client clears their pending action state.
+- Prevent queued damage feedback from restoring a defeated enemy's earlier health, fixing exploding enemies appearing to return after death for players and co-op allies.
+- Fix blue and green obelisk hover effects surviving interaction by attaching them to the client object so the authored effect-removal request can stop them.
+- Change NPC pursuit redirects from goal-only updates to complete movement commands, preserving client path waypoints and refreshing movement state and stopping distances to address enemies stalling and snapping during combat.
+
 ### 2026-10-07
 
 - #58 Add a Wine Runtime option to the launcher Config tab that detects the system Wine, Lutris, Heroic and Bottles Wine builds, Steam Proton and Proton-GE, and starts the game with the selected build in its own launcher-owned prefix.
-- Fix Wine Runtime scans skipping Wine and Proton installations linked through directory symlinks.
+- #58 Fix Wine Runtime scans skipping Wine and Proton installations linked through directory symlinks.
 
 ### 2026-10-06
 

@@ -493,10 +493,10 @@ func (r campaignNPCPursuitRuntime) produceStep(
 
 	nextTimestamp := timestamp +
 		uint64(elapsed/time.Millisecond)
-	// The client owns interpolation after the pursuit generation's complete
-	// locomotion command. Later moving-target changes update only its goal;
-	// replaying the command resets transient locomotion state, while publishing
-	// authoritative current positions creates a second competing destination.
+	// Retarget with a complete locomotion command. Native 539810 only replaces
+	// the goal and intermediate path point; it does not refresh stop distances
+	// or reset the movement state as 5393D0 does. Do not send a pose correction
+	// here: the client continues interpolating from its current rendered root.
 	stepPackets := make([][]byte, 0, 4)
 	if isMovementPaused && !step.IsInRange {
 		// A goal-only update cannot restart the stopped native mover. Reissue
@@ -542,22 +542,24 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		)
 	}
 	if isRedirectDue {
-		var goalPacket []byte
-		var goalErr error
+		var redirectPackets [][]byte
+		var redirectErr error
 		if profile.Family == zonenpc.ActionProjectile {
-			goalPacket, goalErr = npcraknet.ProjectileGoalUpdate(
-				objectID, step.Position, targetPosition, profile.Range,
+			redirectPackets, redirectErr = npcraknet.ProjectilePursuitRedirect(
+				objectID, step.Position, resolvedTargetObjectID, targetPosition,
+				profile.Range,
 			)
 		} else {
-			goalPacket, goalErr = npcraknet.MovementGoalUpdate(
-				objectID, targetPosition,
+			redirectPackets, redirectErr = npcraknet.PursuitRedirect(
+				objectID, step.Position, resolvedTargetObjectID, targetPosition,
+				profile.Range,
 			)
 		}
-		if goalErr != nil {
+		if redirectErr != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyPursuitGoal: %w", goalErr)
+			return nil, fmt.Errorf("enemyPursuitRedirect: %w", redirectErr)
 		}
-		stepPackets = append(stepPackets, goalPacket)
+		stepPackets = append(stepPackets, redirectPackets...)
 		publishedGoal = targetPosition
 		lastPublicationTimestamp = timestamp
 	}

@@ -26,6 +26,10 @@ func obeliskEffects(objectID uint32, abilityName string, isActive, isRampDown bo
 	hoverPacket, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
 		Slot: 16, ObjectID: objectID,
 		Asset: util.HashID(hoverName), IsRemovalRequested: !isActive,
+		// Native 506D90 only stores effect instances on the object when field 4
+		// is set (or the asset itself requests attachment). World-spawned hover
+		// instances otherwise survive the later slot-removal request.
+		IsForceAttached: isActive,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("hoverMarshal: %w", err)

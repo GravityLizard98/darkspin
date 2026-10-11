@@ -269,17 +269,7 @@ func (r gameplayActionRuntime) handleCommand(
 		command.Common.Type == raknet.ActionStopMovement) {
 		r.registry.cancelPlayerAI(packet.Address.String(), peerSession.transportGeneration)
 	}
-	inputLockRemaining := peerSession.heroInputLockRemaining(startedAt)
 	if isSessionFound && peerSession.isOperativeCaged(startedAt) {
-		return nil, nil
-	}
-	if isSessionFound && inputLockRemaining > 0 &&
-		command.Common.ObjectID == peerSession.heroInputLockedObjectID {
-		r.logger.Printf(
-			"RakNet campaign action quarantined during hero deployment type=%d source=%d locked=%d remaining=%s",
-			command.Common.Type, command.Common.ObjectID,
-			peerSession.heroInputLockedObjectID, inputLockRemaining,
-		)
 		return nil, nil
 	}
 	key := gameplayActionLeaseKey{}
@@ -306,6 +296,23 @@ func (r gameplayActionRuntime) handleCommand(
 			)
 		}
 		peerSession = currentSession
+		inputLockRemaining := peerSession.heroInputLockRemaining(r.now())
+		if inputLockRemaining > 0 &&
+			command.Common.ObjectID == peerSession.heroInputLockedObjectID {
+			r.logger.Printf(
+				"RakNet campaign action quarantined during hero deployment type=%d source=%d locked=%d remaining=%s",
+				command.Common.Type, command.Common.ObjectID,
+				peerSession.heroInputLockedObjectID, inputLockRemaining,
+			)
+			if isActionTerminalResponseRequired(command.Common.Type) {
+				// The client must receive a terminal response to clear its pending attack.
+				return r.reject(
+					packet, command, r.now().Sub(startedAt),
+					errors.New("hero deployment in progress"),
+				)
+			}
+			return nil, nil
+		}
 		if peerSession.isScarabDazed() && command.Common.Type != raknet.ActionMovement &&
 			command.Common.Type != raknet.ActionStopMovement {
 			return r.reject(packet, command, r.now().Sub(startedAt), errors.New("hero dazed"))
@@ -4049,22 +4056,25 @@ func marshalCampaignProjection(event zoneprojection.Event) ([][]byte, error) {
 			}
 			return [][]byte{packet}, nil
 		case zonenpc.ActionEventPursuitRedirect:
-			var packet []byte
+			var packets [][]byte
 			var err error
 			if action.Plan.Profile.Family == zonenpc.ActionProjectile {
-				packet, err = npcraknet.ProjectileGoalUpdate(
+				packets, err = npcraknet.ProjectilePursuitRedirect(
 					action.Plan.ObjectID, action.Plan.SourcePosition,
-					action.Plan.TargetPosition, action.Plan.Profile.Range,
+					action.Plan.TargetObjectID, action.Plan.TargetPosition,
+					action.Plan.Profile.Range,
 				)
 			} else {
-				packet, err = npcraknet.MovementGoalUpdate(
-					action.Plan.ObjectID, action.Plan.TargetPosition,
+				packets, err = npcraknet.PursuitRedirect(
+					action.Plan.ObjectID, action.Plan.SourcePosition,
+					action.Plan.TargetObjectID, action.Plan.TargetPosition,
+					action.Plan.Profile.Range,
 				)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("npcActionPursuitRedirect: %w", err)
 			}
-			return [][]byte{packet}, nil
+			return packets, nil
 		case zonenpc.ActionEventAttack:
 			if action.Plan.Profile.Family == zonenpc.ActionProjectile &&
 				action.Plan.Profile.AnimationName == "" {

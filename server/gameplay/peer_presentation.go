@@ -111,6 +111,20 @@ func (e *gameplayPeerSession) queueCampaignPresentation(packets [][]byte) error 
 	queuedPackets := make([][]byte, 0, len(packets)+len(events))
 	projectedPacketCounts := make(map[string]int)
 	for _, event := range events {
+		if event.Kind == zoneprojection.EventNPCDamage && !event.Damage.IsDamageImmune {
+			// Damage publication can finish after a later projectile has killed
+			// the target. Native 5399D0 applies combatant snapshots without a
+			// revision check: replaying the earlier hit's health revives its
+			// client state. Keep the hit feedback, but publish current health.
+			enemy, isFound := e.zone.NPCs().NPC(event.Damage.TargetObjectID)
+			if !isFound {
+				continue
+			}
+			event.Damage.HitPoint = enemy.HitPoint
+			if enemy.IsDefeated {
+				event.Damage.HitPoint = 0
+			}
+		}
 		projectedPackets, err := marshalCampaignProjection(event)
 		if err != nil {
 			// Preserve the presentation for retry and request a state baseline
