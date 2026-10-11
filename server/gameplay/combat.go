@@ -2197,7 +2197,7 @@ func (r campaignDamageRuntime) publishTransition(
 		}
 	}
 	if len(transition.bossPlans) != 0 {
-		delay := zoneboss.InitialSecondWaveDelay
+		delay := transition.bossFollowupDelay
 		step := campaignBossFollowupStep{
 			runtime: r, packet: packet, sessionKey: sessionKey,
 			generation: generation, plans: transition.bossPlans,
@@ -2421,6 +2421,7 @@ func (r *campaignShieldTransitionRun) producers() []raknet.ScheduledPacketProduc
 }
 
 type campaignDamageTransition struct {
+	bossFollowupDelay               time.Duration
 	immediatePlans                  []zonenpc.SpawnPlan
 	immediatePackets                [][]byte
 	nashiraSplit                    *campaignNashiraSplitPlan
@@ -3049,6 +3050,7 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 			return campaignDamageTransition{}, fmt.Errorf("bossFollowup: %w", err)
 		}
 		transition.bossPlans = plans
+		transition.bossFollowupDelay = time.Duration(s.zone.DirectorDefinition().BossSpawnRules.Resolved().CaptainDelayMillisecond) * time.Millisecond
 		transition.bossPackets = packets
 		warningPacket, err := bossraknet.AddPhase()
 		if err != nil {

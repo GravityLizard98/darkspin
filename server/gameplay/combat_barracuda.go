@@ -3,7 +3,6 @@ package gameplay
 import (
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
@@ -48,36 +47,6 @@ func planCampaignNPCZelemBlink(
 		ActionGeneration: enemy.ActionGeneration,
 		SourcePosition:   enemy.Plan.Position, TargetPosition: targetPosition,
 		Profile: profile,
-	}, nil
-}
-
-func campaignNPCZelemBlinkDestination(
-	plan zonenpc.AttackPlan, targetDirection game.Vec3,
-) (game.Vec3, error) {
-	if plan.SourceObjectID == 0 || plan.TargetObjectID == 0 ||
-		!isFiniteCampaignPopulationPosition(plan.SourcePosition) ||
-		!isFiniteCampaignPopulationPosition(plan.TargetPosition) ||
-		!isFiniteCampaignPopulationPosition(targetDirection) ||
-		plan.Profile.TeleportMinimumDistance <= 0 ||
-		plan.Profile.TeleportNormalDistance <
-			plan.Profile.TeleportMinimumDistance ||
-		plan.Profile.TeleportNormalDistance >
-			plan.Profile.TeleportMaximumDistance {
-		return game.Vec3{}, errors.New("enemy blink destination invalid")
-	}
-	// Prefer the target's rear while it moves; otherwise flank past it from
-	// the incoming attack direction. Spread a pack across the rear arc.
-	if targetDirection.X == 0 && targetDirection.Y == 0 {
-		targetDirection = plan.SourcePosition.Sub(plan.TargetPosition)
-	}
-	angleStep := uint64(plan.SourceObjectID)*137 + plan.ActionGeneration*83
-	angle := math.Atan2(float64(-targetDirection.Y), float64(-targetDirection.X)) +
-		(float64(angleStep%61)-30)*math.Pi/180
-	distance := float64(plan.Profile.TeleportNormalDistance)
-	return game.Vec3{
-		X: plan.TargetPosition.X + float32(math.Cos(angle)*distance),
-		Y: plan.TargetPosition.Y + float32(math.Sin(angle)*distance),
-		Z: plan.TargetPosition.Z,
 	}, nil
 }
 
@@ -166,36 +135,19 @@ func (e campaignZelemBlinkSchedule) hit() ([][]byte, error) {
 		e.runtime.registry.mutex.Unlock()
 		return e.shot()
 	}
-	desired, err := campaignNPCZelemBlinkDestination(plan, target.LinearVelocity)
-	if err != nil {
-		e.runtime.registry.mutex.Unlock()
-		return e.fail("barracudaDesired", err)
-	}
-	destination, isDestinationFound, err := zonenavigation.ReachableTeleportDestination(
-		current.zone.Navigation(), target.Position, desired,
-		currentNPC.Plan.NPCProfile.FootprintRadius,
+	destination, isDestinationFound, err := zonenavigation.RandomTargetTeleportDestination(
+		current.zone.Navigation(), current.zone.NPCRandom(), currentNPC.Plan.Position,
+		zonenavigation.RandomTeleportRequest{
+			SourcePosition:  target.Position,
+			FootprintRadius: currentNPC.Plan.NPCProfile.FootprintRadius,
+			MinimumDistance: plan.Profile.TeleportMinimumDistance,
+			NormalDistance:  plan.Profile.TeleportNormalDistance,
+			MaximumDistance: plan.Profile.TeleportMaximumDistance,
+		},
 	)
 	if err != nil {
 		e.runtime.registry.mutex.Unlock()
 		return e.fail("barracudaLanding", err)
-	}
-	distance := zoneability.Distance(destination, target.Position)
-	if !isDestinationFound || distance < plan.Profile.TeleportMinimumDistance ||
-		distance > plan.Profile.TeleportMaximumDistance {
-		destination, isDestinationFound, err = zonenavigation.RandomTeleportDestination(
-			current.zone.Navigation(), current.zone.NPCRandom(),
-			zonenavigation.RandomTeleportRequest{
-				SourcePosition:  target.Position,
-				FootprintRadius: currentNPC.Plan.NPCProfile.FootprintRadius,
-				MinimumDistance: plan.Profile.TeleportMinimumDistance,
-				NormalDistance:  plan.Profile.TeleportNormalDistance,
-				MaximumDistance: plan.Profile.TeleportMaximumDistance,
-			},
-		)
-		if err != nil {
-			e.runtime.registry.mutex.Unlock()
-			return e.fail("barracudaFallback", err)
-		}
 	}
 	if !isDestinationFound {
 		e.runtime.registry.mutex.Unlock()

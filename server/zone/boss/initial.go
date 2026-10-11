@@ -70,10 +70,14 @@ func PlanInitialEncounter(
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("bossMarkers: %w", err)
 	}
+	addMarker = expandOpeningMarkers(addMarker, director.BossSpawnRules.Resolved().OpeningAddsPerAnchor)
+	if uint32(len(addMarker)+1) > zoneobject.ProjectileIDStart-firstObjectID {
+		return nil, firstObjectID, errors.New("boss plan: object IDs exhausted")
+	}
 	// Named captains belong to the boss roster, not the lieutenant pool used
 	// for ordinary population. Use the same prepared roster as admission audit.
 	leaderEntries := NamedBossEntries(director, chainLevelIndex)
-	agentEntry := eligibleInitialAgents(director)
+	agentEntry := bossAddEntries(director)
 	if len(agentEntry) == 0 {
 		return nil, firstObjectID, errors.New("boss plan: empty pool")
 	}
@@ -132,13 +136,22 @@ func PlanInitialSecondWave(
 	if err != nil {
 		return nil, firstObjectID, fmt.Errorf("bossSecondMarkers: %w", err)
 	}
-	agentEntry := eligibleInitialAgents(director)
+	agentEntry := bossAddEntries(director)
 	if len(agentEntry) == 0 {
 		return nil, firstObjectID, errors.New("boss second plan: empty pool")
 	}
 	random := initialAddRandom(director, gameID, publication.TriggerMarkerID, 2)
-	plans := make([]zonenpc.SpawnPlan, 0, 2)
-	for index := 0; index < 2; index++ {
+	addCount := int(director.BossSpawnRules.Resolved().InitialBossAddCount)
+	if uint32(addCount) > zoneobject.ProjectileIDStart-firstObjectID {
+		return nil, firstObjectID, errors.New("boss second plan: object IDs exhausted")
+	}
+	plans := make([]zonenpc.SpawnPlan, 0, addCount)
+	for index := 0; index < addCount; index++ {
+		marker := addMarker[index%len(addMarker)]
+		positions := zonepopulation.GroupPositions(
+			[]game.Vec3{marker.Position}, (addCount+len(addMarker)-1)/len(addMarker),
+		)
+		marker.Position = positions[index/len(addMarker)]
 		entryIndex, choiceErr := random.Index(uint32(len(agentEntry)))
 		if choiceErr != nil {
 			return nil, firstObjectID, fmt.Errorf("bossSecondChoice[%d]: %w", index, choiceErr)
@@ -146,8 +159,8 @@ func PlanInitialSecondWave(
 		entry := agentEntry[entryIndex]
 		plans = append(plans, zonenpc.SpawnPlan{
 			ObjectID: firstObjectID + uint32(index),
-			NounName: entry.NounName, Position: addMarker[index].Position,
-			Rotation:      addMarker[index].Rotation,
+			NounName: entry.NounName, Position: marker.Position,
+			Rotation:      marker.Rotation,
 			LocusID:       publication.TriggerMarkerID,
 			Kind:          sim.DirectorLocusBoss,
 			MarkerSetName: publication.MarkerSetName,
@@ -303,21 +316,6 @@ func initialAddMarkers(
 		},
 	)
 	return addMarker, nil
-}
-
-func eligibleInitialAgents(
-	director game.CampaignDirector,
-) []game.CampaignDirectorEntry {
-	authoredEntry := zonepopulation.HordeEntries(director)
-	eligibleEntry := make([]game.CampaignDirectorEntry, 0, len(authoredEntry))
-	for _, entry := range authoredEntry {
-		if !entry.IsHordeLegal || entry.NounName == "" ||
-			!entry.NPCProfile.IsKnown {
-			continue
-		}
-		eligibleEntry = append(eligibleEntry, entry)
-	}
-	return eligibleEntry
 }
 
 func isInitialAddMarker(marker game.CampaignDirectorMarker) bool {

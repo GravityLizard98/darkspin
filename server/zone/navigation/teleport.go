@@ -2,6 +2,7 @@ package navigation
 
 import (
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/darkspinnet/darkspin/server/game"
@@ -120,6 +121,50 @@ func RandomTeleportDestination(
 		}, true, nil
 	}
 	return req.SourcePosition, false, nil
+}
+
+// RandomTargetTeleportDestination mirrors NavigationUtils.GetRandomReachablePosition:
+// sample around the target, but require a landing reachable by the casting actor.
+func RandomTargetTeleportDestination(
+	mesh *basenavigation.Mesh, random *sim.SimulatorRandom,
+	source game.Vec3, req RandomTeleportRequest,
+) (game.Vec3, bool, error) {
+	if random == nil || req.FootprintRadius < 0 || req.MinimumDistance <= 0 ||
+		req.NormalDistance < req.MinimumDistance ||
+		req.NormalDistance > req.MaximumDistance {
+		return game.Vec3{}, false, errors.New("target teleport input invalid")
+	}
+	if mesh == nil {
+		return source, false, nil
+	}
+	for range 20 {
+		angle := random.Float64() * 2 * math.Pi
+		desired := game.Vec3{
+			X: req.SourcePosition.X + float32(math.Cos(angle))*req.NormalDistance,
+			Y: req.SourcePosition.Y + float32(math.Sin(angle))*req.NormalDistance,
+			Z: req.SourcePosition.Z,
+		}
+		destination, isFound, err := ReachableTeleportDestination(
+			mesh, source, desired, req.FootprintRadius,
+		)
+		if err != nil {
+			return game.Vec3{}, false, fmt.Errorf("targetLanding: %w", err)
+		}
+		if !isFound {
+			continue
+		}
+		delta := destination.Sub(desired)
+		// Native IsPositionReachable allows 0.01 squared horizontal error and
+		// five units of vertical projection error; do not snap across an edge.
+		if delta.X*delta.X+delta.Y*delta.Y >= 0.01 || math.Abs(float64(delta.Z)) > 5 {
+			continue
+		}
+		if destination.Sub(req.SourcePosition).Length() <= req.MinimumDistance {
+			continue
+		}
+		return destination, true, nil
+	}
+	return source, false, nil
 }
 
 func ConnectedTeleportDestination(

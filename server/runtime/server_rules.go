@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+	"github.com/darkspinnet/darkspin/server/game"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
@@ -18,7 +19,25 @@ const allyAlertSectionVersion uint32 = 1
 
 // ServerRulesConfiguration is the explicit launcher and persistence DTO.
 type ServerRulesConfiguration struct {
-	AllyAlert AllyAlertConfiguration `json:"allyAlert" toml:"ally_alert"`
+	AllyAlert    AllyAlertConfiguration    `json:"allyAlert" toml:"ally_alert"`
+	BossSpawning BossSpawningConfiguration `json:"bossSpawning" toml:"boss_spawning"`
+}
+
+type BossSpawningConfiguration struct {
+	Version                 uint32 `json:"version" toml:"version"`
+	OpeningAddsPerAnchor    uint32 `json:"openingAddsPerAnchor" toml:"opening_adds_per_anchor"`
+	InitialBossAddCount     uint32 `json:"initialBossAddCount" toml:"initial_boss_add_count"`
+	CaptainDelayMillisecond uint32 `json:"captainDelayMillisecond" toml:"captain_delay_millisecond"`
+}
+
+func (e BossSpawningConfiguration) rules() game.BossSpawnRules {
+	return game.BossSpawnRules{OpeningAddsPerAnchor: e.OpeningAddsPerAnchor,
+		InitialBossAddCount: e.InitialBossAddCount, CaptainDelayMillisecond: e.CaptainDelayMillisecond}
+}
+
+func bossSpawningConfiguration(rules game.BossSpawnRules) BossSpawningConfiguration {
+	return BossSpawningConfiguration{Version: 1, OpeningAddsPerAnchor: rules.OpeningAddsPerAnchor,
+		InitialBossAddCount: rules.InitialBossAddCount, CaptainDelayMillisecond: rules.CaptainDelayMillisecond}
 }
 
 type AllyAlertConfiguration struct {
@@ -38,7 +57,7 @@ func (e AllyAlertConfiguration) rules() zonenpc.AllyAlertRules {
 }
 
 func serverRulesConfiguration(rules zonenpc.AllyAlertRules) ServerRulesConfiguration {
-	return ServerRulesConfiguration{AllyAlert: AllyAlertConfiguration{
+	return ServerRulesConfiguration{BossSpawning: bossSpawningConfiguration(game.DefaultBossSpawnRules()), AllyAlert: AllyAlertConfiguration{
 		Version:   allyAlertSectionVersion,
 		IsEnabled: rules.IsEnabled, RangePercent: rules.RangePercent, RangeOwner: rules.RangeOwner,
 		MaxHops: rules.MaxHops, IsDiagnosticLoggingEnabled: rules.IsDiagnosticLoggingEnabled,
@@ -48,10 +67,17 @@ func serverRulesConfiguration(rules zonenpc.AllyAlertRules) ServerRulesConfigura
 // A single store is shared by every gameplay runtime copy and existing zone.
 // Readers snapshot a whole policy; a failed save never changes live rules.
 type serverRuleStore struct {
-	mu       sync.RWMutex
-	path     string
-	rules    zonenpc.AllyAlertRules
-	sections map[string]any
+	mu         sync.RWMutex
+	path       string
+	rules      zonenpc.AllyAlertRules
+	spawnRules game.BossSpawnRules
+	sections   map[string]any
+}
+
+func (e *serverRuleStore) BossSpawnRules() game.BossSpawnRules {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.spawnRules
 }
 
 func (e *serverRuleStore) AllyAlertRules() zonenpc.AllyAlertRules {
@@ -100,10 +126,14 @@ func loadServerRuleStore(ctx context.Context, configPath string) (*serverRuleSto
 			return nil, fmt.Errorf("rulesCreate: %w", err)
 		}
 	}
-	return &serverRuleStore{path: path, rules: rules, sections: sections}, nil
+	err = document.BossSpawning.rules().Validate()
+	if err != nil {
+		return nil, fmt.Errorf("spawnValidate: %w", err)
+	}
+	return &serverRuleStore{path: path, rules: rules, spawnRules: document.BossSpawning.rules(), sections: sections}, nil
 }
 
-func decodeServerRules(payload []byte, isLegacy bool) (ServerRulesConfiguration, bool, error) {
+func decodeAllyAlertRules(payload []byte, isLegacy bool) (ServerRulesConfiguration, bool, error) {
 	document := serverRulesConfiguration(zonenpc.DefaultAllyAlertRules())
 	if isLegacy {
 		metadata, err := toml.Decode(string(payload), &document)
@@ -149,6 +179,46 @@ func decodeServerRules(payload []byte, isLegacy bool) (ServerRulesConfiguration,
 	return document, false, nil
 }
 
+func decodeServerRules(payload []byte, isLegacy bool) (ServerRulesConfiguration, bool, error) {
+	document, isReplaced, err := decodeAllyAlertRules(payload, isLegacy)
+	if err != nil {
+		return ServerRulesConfiguration{}, false, fmt.Errorf("alertDecode: %w", err)
+	}
+	var raw struct {
+		BossSpawning toml.Primitive `toml:"boss_spawning"`
+	}
+	metadata, err := toml.Decode(string(payload), &raw)
+	if err != nil {
+		return ServerRulesConfiguration{}, false, fmt.Errorf("spawnDecode: %w", err)
+	}
+	document.BossSpawning = bossSpawningConfiguration(game.DefaultBossSpawnRules())
+	if !metadata.IsDefined("boss_spawning") {
+		return document, true, nil
+	}
+	var header struct {
+		Version uint32 `toml:"version"`
+	}
+	err = metadata.PrimitiveDecode(raw.BossSpawning, &header)
+	if err != nil {
+		return ServerRulesConfiguration{}, false, fmt.Errorf("spawnVersion: %w", err)
+	}
+	if header.Version > 1 {
+		return ServerRulesConfiguration{}, false, errors.New("boss spawning settings require a newer server")
+	}
+	if header.Version < 1 {
+		return document, true, nil
+	}
+	err = metadata.PrimitiveDecode(raw.BossSpawning, &document.BossSpawning)
+	if err != nil {
+		return ServerRulesConfiguration{}, false, fmt.Errorf("spawnFields: %w", err)
+	}
+	err = document.BossSpawning.rules().Validate()
+	if err != nil {
+		return ServerRulesConfiguration{}, false, fmt.Errorf("spawnValidate: %w", err)
+	}
+	return document, isReplaced, nil
+}
+
 func writeServerRules(ctx context.Context, path string, document ServerRulesConfiguration, sections map[string]any) (err error) {
 	err = ctx.Err()
 	if err != nil {
@@ -160,6 +230,7 @@ func writeServerRules(ctx context.Context, path string, document ServerRulesConf
 		mergedSections[name] = section
 	}
 	mergedSections["ally_alert"] = document.AllyAlert
+	mergedSections["boss_spawning"] = document.BossSpawning
 	var payload bytes.Buffer
 	err = toml.NewEncoder(&payload).Encode(mergedSections)
 	if err != nil {
@@ -207,21 +278,30 @@ func (e *Server) ServerRulesConfiguration() (ServerRulesConfiguration, error) {
 	if e == nil || e.serverRuleStore == nil {
 		return ServerRulesConfiguration{}, errors.New("server rules unavailable")
 	}
-	return serverRulesConfiguration(e.serverRuleStore.AllyAlertRules()), nil
+	store := e.serverRuleStore
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	document := serverRulesConfiguration(store.rules)
+	document.BossSpawning = bossSpawningConfiguration(store.spawnRules)
+	return document, nil
 }
 
 // SetServerRulesConfiguration persists before publishing the new policy. It
-// takes effect on the next alert operation, including in already-running zones.
+// Alerts update immediately; boss spawn policy is captured when a zone is created.
 func (e *Server) SetServerRulesConfiguration(
 	ctx context.Context, req ServerRulesConfiguration,
 ) (ServerRulesConfiguration, error) {
 	if e == nil || e.serverRuleStore == nil {
 		return ServerRulesConfiguration{}, errors.New("server rules unavailable")
 	}
-	if req.AllyAlert.Version != allyAlertSectionVersion {
+	if req.AllyAlert.Version != allyAlertSectionVersion || req.BossSpawning.Version != 1 {
 		return ServerRulesConfiguration{}, errors.New("server settings version changed; reload before saving")
 	}
 	rules := req.AllyAlert.rules()
+	spawnErr := req.BossSpawning.rules().Validate()
+	if spawnErr != nil {
+		return ServerRulesConfiguration{}, fmt.Errorf("spawnValidate: %w", spawnErr)
+	}
 	err := rules.Validate()
 	if err != nil {
 		return ServerRulesConfiguration{}, fmt.Errorf("rulesValidate: %w", err)
@@ -238,7 +318,11 @@ func (e *Server) SetServerRulesConfiguration(
 		return ServerRulesConfiguration{}, fmt.Errorf("rulesSave: %w", err)
 	}
 	store.rules = rules
+	store.spawnRules = req.BossSpawning.rules()
+	e.logger.Printf("Boss spawn policy saved for new missions opening_adds_per_anchor=%d initial_boss_add_count=%d captain_delay_ms=%d",
+		store.spawnRules.OpeningAddsPerAnchor, store.spawnRules.InitialBossAddCount,
+		store.spawnRules.CaptainDelayMillisecond)
 	e.logger.Printf("NPC ally alert policy applied enabled=%t range_percent=%d range_owner=%s max_hops=%d diagnostics=%t",
 		rules.IsEnabled, rules.RangePercent, rules.RangeOwner, rules.MaxHops, rules.IsDiagnosticLoggingEnabled)
-	return serverRulesConfiguration(rules), nil
+	return req, nil
 }

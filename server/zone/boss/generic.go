@@ -100,9 +100,7 @@ func PlanNamedEncounter(
 			directorPoolEntries(director, "special"), false,
 		)
 	}
-	addEntries := CompleteEntries(
-		zonepopulation.HordeEntries(director), true,
-	)
+	addEntries := bossAddEntries(director)
 	if len(leaderEntry) == 0 {
 		if isNamedBoss {
 			return game.CampaignDirectorPublication{}, nil, firstObjectID,
@@ -121,6 +119,16 @@ func PlanNamedEncounter(
 			fmt.Errorf("bossAddRoster: level %q has %d anchors but no eligible horde minions",
 				director.Level, len(addListener))
 	}
+	expandedListeners := make([]game.CampaignDirectorListenerPublication, 0)
+	for _, listener := range addListener {
+		positions := zonepopulation.GroupPositions([]game.Vec3{listener.Position}, int(director.BossSpawnRules.Resolved().OpeningAddsPerAnchor))
+		for _, position := range positions {
+			copyListener := listener
+			copyListener.Position = position
+			expandedListeners = append(expandedListeners, copyListener)
+		}
+	}
+	addListener = expandedListeners
 	actorCount := 1 + len(addListener)
 	if actorCount > int(zoneobject.ProjectileIDStart-firstObjectID) {
 		return game.CampaignDirectorPublication{}, nil, firstObjectID,

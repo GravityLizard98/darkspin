@@ -17,9 +17,13 @@ const message = ref('')
 const isError = ref(false)
 const isValid = computed(() => {
   const rules = configuration.value?.allyAlert
+  const spawn = configuration.value?.bossSpawning
   return rules && Number.isInteger(rules.rangePercent) && rules.rangePercent >= 1 && rules.rangePercent <= 1000 &&
     Number.isInteger(rules.maxHops) && rules.maxHops >= 1 && rules.maxHops <= 16 &&
-    ['source', 'recipient'].includes(rules.rangeOwner)
+    ['source', 'recipient'].includes(rules.rangeOwner) && spawn &&
+    Number.isInteger(spawn.openingAddsPerAnchor) && spawn.openingAddsPerAnchor >= 1 && spawn.openingAddsPerAnchor <= 4 &&
+    Number.isInteger(spawn.initialBossAddCount) && spawn.initialBossAddCount >= 1 && spawn.initialBossAddCount <= 12 &&
+    Number.isInteger(spawn.captainDelayMillisecond) && spawn.captainDelayMillisecond >= 0 && spawn.captainDelayMillisecond <= 30000
 })
 
 async function reload() {
@@ -38,8 +42,8 @@ async function save() {
   message.value = 'Applying server rules…'
   try {
     // Include the backend section version so stale views cannot restore old overrides.
-    configuration.value = await SetServerRulesConfiguration({ allyAlert: { ...configuration.value.allyAlert } })
-    message.value = 'Saved and applied. New alerts use these rules immediately.'
+    configuration.value = await SetServerRulesConfiguration({ allyAlert: { ...configuration.value.allyAlert }, bossSpawning: { ...configuration.value.bossSpawning } })
+    message.value = 'Saved. Alert changes apply immediately; boss spawning changes apply to new missions.'
   }
   catch (error) { isError.value = true; message.value = String(error?.message || error) }
   finally { isBusy.value = false }
@@ -48,6 +52,7 @@ async function save() {
 function shareToGitHub() {
   if (isBusy.value || !isValid.value) return
   const rules = configuration.value.allyAlert
+  const spawn = configuration.value.bossSpawning
   // Explicitly export every editable rule and its section version. Never
   // include unrelated launcher configuration or authentication settings.
   const toml = [
@@ -58,6 +63,12 @@ function shareToGitHub() {
     `range_owner = ${JSON.stringify(rules.rangeOwner)}`,
     `max_hops = ${rules.maxHops}`,
     `is_diagnostic_logging_enabled = ${rules.isDiagnosticLoggingEnabled}`,
+    '',
+    '[boss_spawning]',
+    `version = ${spawn.version}`,
+    `opening_adds_per_anchor = ${spawn.openingAddsPerAnchor}`,
+    `initial_boss_add_count = ${spawn.initialBossAddCount}`,
+    `captain_delay_millisecond = ${spawn.captainDelayMillisecond}`,
   ].join('\n')
   const body = [
     '### Server rules',
@@ -95,8 +106,23 @@ onMounted(reload)
       <DialogTitle as="h2">SERVER RULES</DialogTitle>
       <Button variant="outline" type="button" :disabled="isBusy || !isValid" @click="shareToGitHub">Share to GitHub</Button>
     </header>
-    <p class="rules-description">Tune the local server while playing. Changes apply to new alerts without restarting.</p>
+    <p class="rules-description">Tune the local server. Alerts update immediately; boss spawning settings apply to new missions.</p>
     <div v-if="configuration" class="rules-sections">
+      <details class="rules-group">
+        <summary class="rules-group-heading">
+          <span>BOSS SPAWNING</span><span class="rules-group-status">Experimental</span><span class="rules-chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="rules-group-content">
+          <p class="rules-description">Reconstructed wave sizes and pacing. These defaults are server estimates; exact original wave counts and timing are not recovered. Authored enemy eligibility and spawn anchors still apply.</p>
+          <fieldset :disabled="isBusy" class="rules-fields">
+            <div class="rules-numbers">
+              <label for="boss-opening-count"><strong>OPENING ADDS PER ANCHOR</strong><Input id="boss-opening-count" v-model.number="configuration.bossSpawning.openingAddsPerAnchor" type="number" min="1" max="4" step="1" inputmode="numeric" /><small>1–4 enemies per authored anchor in captain arenas. Default: 1; Illust has four anchors.</small></label>
+              <label for="boss-followup-count"><strong>ADDS ALONGSIDE ILLUST</strong><Input id="boss-followup-count" v-model.number="configuration.bossSpawning.initialBossAddCount" type="number" min="1" max="12" step="1" inputmode="numeric" /><small>1–12 enemies in the follow-up wave of mission 1-1. Default: 2.</small></label>
+              <label for="boss-captain-delay"><strong>CAPTAIN DELAY (MS)</strong><Input id="boss-captain-delay" v-model.number="configuration.bossSpawning.captainDelayMillisecond" type="number" min="0" max="30000" step="100" inputmode="numeric" /><small>Delay after clearing the opening wave before the captain enters. Default: 2000; allowed: 0–30000.</small></label>
+            </div>
+          </fieldset>
+        </div>
+      </details>
       <details class="rules-group">
         <summary class="rules-group-heading">
           <span>ALLY ALERT</span>
@@ -130,7 +156,7 @@ onMounted(reload)
       <Button variant="outline" type="button" :disabled="isBusy" @click="reload">RELOAD</Button>
       <Button variant="outline" class="rules-close" type="button" :disabled="isBusy" @click="emit('close')">CLOSE</Button>
     </div>
-    <p class="rules-description rules-footnote">Validated updates may reset this section to new defaults.</p>
+    <p class="rules-description rules-footnote">Validated updates may reset changed sections to new defaults.</p>
     </section>
   </LauncherDialog>
 </template>

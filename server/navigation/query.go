@@ -21,6 +21,8 @@ type Projection struct {
 	Distance    float32
 }
 
+var ErrProjectionObstructed = errors.New("navigation projection obstructed")
+
 type PathOptions struct {
 	ProjectionOptions
 	MaxVisitedPolygon int
@@ -47,7 +49,7 @@ func (m *Mesh) Project(point Vec3, options ProjectionOptions) (Projection, error
 		return Projection{}, fmt.Errorf("projectPolygon: %w", err)
 	}
 	if m.isObstructed(projection.Position, options.PlanLayer) {
-		return Projection{}, errors.New("navigation projection obstructed")
+		return Projection{}, ErrProjectionObstructed
 	}
 	return projection, nil
 }

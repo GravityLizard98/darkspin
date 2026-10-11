@@ -198,7 +198,7 @@ func (e *Zone) PlanBossFollowup(
 		}
 		return plans, nil
 	}
-	if actorCount != 3 {
+	if actorCount != 1+int(directorDefinition.BossSpawnRules.Resolved().InitialBossAddCount) {
 		return nil, errors.New("boss followup actor count unsupported")
 	}
 	publication, isFound := boss.Publication()

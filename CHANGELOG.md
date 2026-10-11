@@ -2,6 +2,14 @@
 
 ### 2026-10-11
 
+- #63 Add a Boss Spawning accordion to launcher Server Settings with saved controls for opening adds per anchor, adds alongside Illust and captain-entry delay; changes apply to new missions and are included when sharing settings to GitHub.
+- #63 Include difficulty-eligible, horde-legal special enemies alongside minions in captain-arena waves across campaign maps, restoring candidates such as Hasters, Decelerators and Invincitrons that were excluded from boss adds.
+- #63 Resolve hero movement destinations inside static blockers to nearby walkable contact points instead of repeatedly stopping and snapping the hero back, while retaining collision and navigation limits.
+- #63 Initialize the native remote-NPC partial movement goal for pursuit, retreat and other movement commands, preventing enemies from remaining at spawn on the client while their server hitboxes advance and then snapping forward when attacking.
+- #63 Align Chrono Striker retreat stopping distance with the client Flee script and native footprint calculation, and send fixed-point retreat stopping distances so enemies do not overshoot their server position before attacking.
+- #63 Restore Space Barracuda blink landing selection from a preferred rear flank to client-authored random points around the target, checking terrain reachability from the Barracuda and rejecting excessive edge projection.
+- #63 Reconcile predicted movement from the incoming hero during deployment instead of silently discarding it, preventing client/server position drift while switching heroes.
+- #63 Align NPC object pursuit and redirects with the native target-center goal and separate stopping distance, correcting premature client stops that can lead to drift and visible position corrections for Reparatrons and other enemies.
 - #57 Preserve both Exploder Scarabs and Robo-Bombers in Uranium Heights' authored first-run roster instead of replacing Scarabs after the mission preview is selected.
 - #57 Change campaign enemy previews from the hard-coded 1-1 list and mixed configuration pools to the selected gameplay minion/special roster, preserving authored first-run enemies and excluding captain equivalents.
 - #59 Correct rejected hero movement through the native local-player physics and locomotion receivers, preventing persistent position drift reported alongside tutorial camera-follow failures and keeping co-op peers aligned.

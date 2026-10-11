@@ -49,6 +49,7 @@ type Snapshot struct {
 }
 
 type Session struct {
+	spawnRules            game.BossSpawnRules
 	mu                    sync.RWMutex
 	phase                 Phase
 	isInitialChain        bool
@@ -65,8 +66,12 @@ type Session struct {
 	isBeamOutCommitted    bool
 }
 
-func NewSession() *Session {
-	return &Session{}
+func NewSession(rules ...game.BossSpawnRules) *Session {
+	spawnRules := game.DefaultBossSpawnRules()
+	if len(rules) != 0 {
+		spawnRules = rules[0].Resolved()
+	}
+	return &Session{spawnRules: spawnRules}
 }
 
 func (s *Session) Arm(
@@ -123,7 +128,7 @@ func (s *Session) canArm(
 		return errors.New("boss arm: unsupported publication")
 	}
 	if isInitialChain {
-		if len(plans) != 5 ||
+		if len(plans) != 1+4*int(s.spawnRules.Resolved().OpeningAddsPerAnchor) ||
 			!zonenpc.IsBossIdentityValid(plans[0].BossIdentity) {
 			return errors.New("boss arm: invalid Illust identity")
 		}
@@ -237,7 +242,7 @@ func (s *Session) ObserveDamage(
 		s.phase = PhaseArming
 		transition.NextWaveActorCount = 1
 		if s.isInitialChain {
-			transition.NextWaveActorCount = 3
+			transition.NextWaveActorCount = 1 + int(s.spawnRules.Resolved().InitialBossAddCount)
 		}
 		return transition, nil
 	}
@@ -274,7 +279,7 @@ func (s *Session) canAdmitSecondWave(plans []zonenpc.SpawnPlan) error {
 	}
 	expectedActorCount := 1
 	if s.isInitialChain {
-		expectedActorCount = 3
+		expectedActorCount = 1 + int(s.spawnRules.Resolved().InitialBossAddCount)
 	}
 	if len(plans) != expectedActorCount {
 		return errors.New("boss second wave: actor count invalid")

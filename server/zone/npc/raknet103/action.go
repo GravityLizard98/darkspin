@@ -172,7 +172,7 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 	source := vector(plan.SourcePosition)
 	target := vector(plan.TargetPosition)
 	if plan.Profile.AbilityName == "Flee" {
-		return fleeMovement(plan.ObjectID, source, target)
+		return fleeMovement(plan.ObjectID, source, target, plan.Profile.Range)
 	}
 	if plan.Profile.AbilityName == "StealthAttack" ||
 		plan.Profile.AbilityName == "NocturnaSpecialDriftCharge" ||
@@ -200,13 +200,12 @@ func Pursuit(plan zonenpc.FirstActionPlan) ([][]byte, error) {
 			},
 		}, "projectilePursuit")
 	}
-	goal := pursuitGoal(source, target, plan.Profile.Range)
-	// Native 539810 writes both the final and intermediate path point. A
-	// following 0x95 would replace the client's corridor waypoint with this
-	// straight-line goal. Let 0x91 install the pursuit and build its own path.
+	// Native A149C0 installs the target center and a separate stopping distance.
+	// Shortening the goal here applies that distance twice in client movement.
+	// Let 0x91 build its own path; 0x95 would overwrite its corridor waypoint.
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
-			ObjectID: plan.ObjectID, GoalFlags: 0x41, GoalPosition: goal,
+			ObjectID: plan.ObjectID, GoalFlags: 0x41, GoalPosition: target,
 			Facing:              direction(source, target),
 			AllowedStopDistance: plan.Profile.Range,
 			DesiredStopDistance: plan.Profile.Range,
@@ -294,20 +293,21 @@ func FleeRedirect(
 		return nil, errors.New("npc flee redirect invalid")
 	}
 	return fleeMovement(
-		objectID, vector(sourcePosition), vector(targetPosition),
+		objectID, vector(sourcePosition), vector(targetPosition), 0,
 	)
 }
 
 func fleeMovement(
 	objectID uint32, source raknet.Vector3, target raknet.Vector3,
+	stopDistance float32,
 ) ([][]byte, error) {
+	// MoveToPointWithinRange installs a fixed goal and separate stop distances
+	// (103 A148C0). A goal-only 0x95 would replace its corridor waypoint.
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
 			ObjectID: objectID, GoalFlags: 0x01, GoalPosition: target,
-			Facing: direction(source, target),
-		},
-		raknet.LocomotionUnreliableMessage{
-			ObjectID: objectID, GoalPosition: target,
+			Facing:              direction(source, target),
+			AllowedStopDistance: stopDistance, DesiredStopDistance: stopDistance,
 		},
 	}, "flee")
 }
@@ -384,10 +384,9 @@ func pursuitRedirect(
 			},
 		}, "projectilePursuitRedirect")
 	}
-	goal := pursuitGoal(source, target, stopDistance)
 	return marshalMessages([]raknet.ApplicationMessage{
 		raknet.ObjectPlayerMoveMessage{
-			ObjectID: objectID, GoalFlags: 0x41, GoalPosition: goal,
+			ObjectID: objectID, GoalFlags: 0x41, GoalPosition: target,
 			Facing:              direction(source, target),
 			AllowedStopDistance: stopDistance,
 			DesiredStopDistance: stopDistance,
@@ -1456,15 +1455,19 @@ func marshalMessages(
 	packets := make([][]byte, 0, len(messages))
 	for index, message := range messages {
 		move, isMove := message.(raknet.ObjectPlayerMoveMessage)
-		if isMove && (move.GoalFlags == 0x42 || move.GoalFlags == 0x102 || move.GoalFlags == 0x06) {
-			// Remote NPC movement consumes the partial goal even for turns.
-			// 0x91 leaves it untouched; initialize it before enabling the turn.
+		isPartialGoalNeeded := isMove && (move.GoalFlags&0x01 != 0 ||
+			move.GoalFlags == 0x42 || move.GoalFlags == 0x102 || move.GoalFlags == 0x06)
+		if isPartialGoalNeeded {
+			// Remote movement in native 103 consumes component+340, while
+			// 5393D0 (0x91) updates only the ultimate goal at component+328.
+			// Initialize the partial goal before movement or a turn starts.
+			// Reflection preserves the ultimate goal, unlike goal-only 0x95.
 			goalPacket, err := raknet.MarshalApplication(raknet.LocomotionUpdateContractMessage{
 				ObjectID:   move.ObjectID,
 				Locomotion: raknet.LocomotionReflection{PartialGoalPosition: &move.GoalPosition},
 			})
 			if err != nil {
-				return nil, fmt.Errorf("%sTurnGoal[%d]: %w", operation, index, err)
+				return nil, fmt.Errorf("%sPartialGoal[%d]: %w", operation, index, err)
 			}
 			packets = append(packets, goalPacket)
 		}

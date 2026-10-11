@@ -684,6 +684,7 @@ func (r campaignMovementCommandRuntime) handle(
 		return response, nil
 	}
 	goal := command.Movement.GoalPosition
+	requestedGoal := goal
 	footprintRadius := commandSession.deployedCampaignNavigationRadius()
 	navigationActor := commandSession.playerMotion.NavigationSettings()
 	navigationActor.Mode = uint8(commandSession.binding.Mode)
@@ -720,6 +721,7 @@ func (r campaignMovementCommandRuntime) handle(
 		// as correcting the controlling client's predicted physics position.
 		return nil, fmt.Errorf("moveCampaignNavigation: %w", admissionErr)
 	}
+	goal = raknet.Vector3{X: admission.Goal.X, Y: admission.Goal.Y, Z: admission.Goal.Z}
 	sessionKey := packet.Address.String()
 	interruption := r.action.interruptMovement(
 		sessionKey, commandSession.generation, command.Common.ObjectID,
@@ -1452,7 +1454,7 @@ func (r campaignMovementCommandRuntime) handle(
 		command.Common.ObjectID, peerSession.playerPosition.X, peerSession.playerPosition.Y,
 		peerSession.playerPosition.Z, publishedGoal.X, publishedGoal.Y, publishedGoal.Z,
 		command.Common.Position.X, command.Common.Position.Y, command.Common.Position.Z,
-		goal.X, goal.Y, goal.Z,
+		requestedGoal.X, requestedGoal.Y, requestedGoal.Z,
 		command.Movement.GoalFlags)
 	return response, nil
 

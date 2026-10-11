@@ -337,7 +337,9 @@ func (r campaignNPCActionRuntime) produceChronoStrikerFlee(
 	}
 	profile := zonenpc.ActionProfile{
 		Family: zonenpc.ActionMelee, AbilityName: "Flee", MovementSpeed: 7,
-		Range: 1.5 * enemy.Plan.NPCProfile.FootprintRadius,
+		// Flee passes 1.5 footprints to MoveToPointWithinRange, whose native
+		// A148C0 receiver adds the casting actor's footprint once more.
+		Range: 2.5 * enemy.Plan.ActorFootprintRadius(),
 	}
 	destination := target.Position
 	centerDistance := zonegeometry.Distance(enemy.Plan.Position, target.Position)

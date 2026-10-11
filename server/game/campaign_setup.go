@@ -258,6 +258,7 @@ type CampaignScriptObject struct {
 
 // CampaignDirector is the immutable level input accepted by campaign setup.
 type CampaignDirector struct {
+	BossSpawnRules                BossSpawnRules
 	selectedDefinitionsByMarkerID map[uint32]CampaignMarkerDefinition
 	IsEquipmentDropEnabled        bool
 	PickupTuning                  CampaignPickupTuning

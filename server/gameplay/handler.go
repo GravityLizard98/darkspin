@@ -304,8 +304,14 @@ func (r gameplayActionRuntime) handleCommand(
 				command.Common.Type, command.Common.ObjectID,
 				peerSession.heroInputLockedObjectID, inputLockRemaining,
 			)
-			if isActionTerminalResponseRequired(command.Common.Type) {
+			isPredictedMovement := command.Common.ObjectID == peerSession.deployedObjectID &&
+				(command.Common.Type == raknet.ActionMovement ||
+					command.Common.Type == raknet.ActionStopMovement)
+			if isActionTerminalResponseRequired(command.Common.Type) || isPredictedMovement {
 				// The client must receive a terminal response to clear its pending attack.
+				// The incoming hero can also predict movement during the deployment
+				// lock. Reconcile that pose instead of silently discarding its input;
+				// outgoing-hero movement must not relocate the incoming hero.
 				return r.reject(
 					packet, command, r.now().Sub(startedAt),
 					errors.New("hero deployment in progress"),
@@ -1273,7 +1279,8 @@ func newGameplayHandlerWithDependencies(
 		})
 	}
 	campaignPrepare := campaignPreparation{
-		setup: dependency.campaignSetup, difficulty: program.Difficulty, session: sessionRegistry,
+		spawnRuleSource: dependency.allyAlertRuleSource,
+		setup:           dependency.campaignSetup, difficulty: program.Difficulty, session: sessionRegistry,
 		zone:       zoneRegistry,
 		navigation: dependency.campaignNavigation, program: program,
 		timer:        dependency.zoneTimer,
@@ -5629,16 +5636,17 @@ func (r gameplaySetupRuntime) publishVote(
 // by campaign levels. Level-specific differences stay in prepared director
 // data instead of branching in the gameplay transport.
 type campaignPreparation struct {
-	setup        *game.CampaignSetup
-	difficulty   sim.DifficultyCombatTuning
-	session      *gameplaySessionRegistry
-	zone         *zone.Registry
-	navigation   NavigationSource
-	program      Programs
-	timer        zone.Timer
-	checkpoint   zonecheckpoint.Repository
-	gameplayJoin *game.GameplayJoin
-	logger       *log.Logger
+	spawnRuleSource AllyAlertRuleSource
+	setup           *game.CampaignSetup
+	difficulty      sim.DifficultyCombatTuning
+	session         *gameplaySessionRegistry
+	zone            *zone.Registry
+	navigation      NavigationSource
+	program         Programs
+	timer           zone.Timer
+	checkpoint      zonecheckpoint.Repository
+	gameplayJoin    *game.GameplayJoin
+	logger          *log.Logger
 }
 
 const campaignPopulationAggroRadius = float32(12)
@@ -5696,6 +5704,11 @@ func (p campaignPreparation) loadDirector(
 	director, err := p.setup.Execute(ctx, binding)
 	if err != nil {
 		return game.CampaignDirector{}, fmt.Errorf("directorLoad: %w", err)
+	}
+	director.BossSpawnRules = game.DefaultBossSpawnRules()
+	spawnRuleSource, isSpawnRuleSource := p.spawnRuleSource.(interface{ BossSpawnRules() game.BossSpawnRules })
+	if isSpawnRuleSource {
+		director.BossSpawnRules = spawnRuleSource.BossSpawnRules()
 	}
 	director, err = p.selectInitialMapLayout(director, binding)
 	if err != nil {
@@ -6158,7 +6171,7 @@ func (p campaignPreparation) initialize(
 			Script:                  scriptRegistry,
 			Encounter:               zoneencounter.NewStageSession(),
 			Horde:                   zonehorde.NewCampaignSession(binding.ChainLevelIndex),
-			Boss:                    zoneboss.NewSession(),
+			Boss:                    zoneboss.NewSession(director.BossSpawnRules),
 			Death:                   zonedeath.NewSession(),
 			Objective:               objectiveSession,
 			ObjectiveProgress:       objectiveProgress,

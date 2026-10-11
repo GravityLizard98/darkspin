@@ -439,8 +439,27 @@ export namespace runtime {
 	        this.isDiagnosticLoggingEnabled = source["isDiagnosticLoggingEnabled"];
 	    }
 	}
+	export class BossSpawningConfiguration {
+	    version: number;
+	    openingAddsPerAnchor: number;
+	    initialBossAddCount: number;
+	    captainDelayMillisecond: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BossSpawningConfiguration(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.openingAddsPerAnchor = source["openingAddsPerAnchor"];
+	        this.initialBossAddCount = source["initialBossAddCount"];
+	        this.captainDelayMillisecond = source["captainDelayMillisecond"];
+	    }
+	}
 	export class ServerRulesConfiguration {
 	    allyAlert: AllyAlertConfiguration;
+	    bossSpawning: BossSpawningConfiguration;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServerRulesConfiguration(source);
@@ -449,6 +468,7 @@ export namespace runtime {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.allyAlert = this.convertValues(source["allyAlert"], AllyAlertConfiguration);
+	        this.bossSpawning = this.convertValues(source["bossSpawning"], BossSpawningConfiguration);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
