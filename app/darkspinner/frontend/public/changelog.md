@@ -2,6 +2,11 @@
 
 ### 2026-10-11
 
+- Preserve both Exploder Scarabs and Robo-Bombers in Uranium Heights' authored first-run roster instead of replacing Scarabs after the mission preview is selected.
+- Change campaign enemy previews from the hard-coded 1-1 list and mixed configuration pools to the selected gameplay minion/special roster, preserving authored first-run enemies and excluding captain equivalents.
+- [#59](https://github.com/darkspinnet/darkspin/issues/59) Correct rejected hero movement through the native local-player physics and locomotion receivers, preventing persistent position drift reported alongside tutorial camera-follow failures and keeping co-op peers aligned.
+- [#59](https://github.com/darkspinnet/darkspin/issues/59) Initialize Blitz Alpha and Sage Alpha before authentication so completing the tutorial, including with `/victory`, leaves them available in the Arsenal; repair missing starters on existing profiles at login.
+- [#59](https://github.com/darkspinnet/darkspin/issues/59) Improve static-obstacle detours on narrow walkways by searching connected navigation-edge points when box-corner routes fail, addressing movement rejection before the tutorial boss teleporter.
 - [#60](https://github.com/darkspinnet/darkspin/issues/60) Extend Sync Snapshot packet history from 30 to 60 seconds for snapshots and attached bug-report diagnostics while retaining the 30-second automatic capture interval.
 - [#60](https://github.com/darkspinnet/darkspin/issues/60) Restore Helix's first-campaign planet-reinfection narration during Continue navigation by publishing completed progression before the client checks the offered planet's voice cue.
 - [#60](https://github.com/darkspinnet/darkspin/issues/60) Fix equipped heroes entering missions with base health and energy by applying the client-authored Strength and Mind resource bonuses for Sage Alpha and all other heroes.

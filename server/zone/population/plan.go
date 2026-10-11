@@ -220,6 +220,12 @@ func replaceInitialInfinityExploderScarabs(
 	director game.CampaignDirector, plans []zonenpc.SpawnPlan,
 	chainLevelIndex uint32,
 ) ([]zonenpc.SpawnPlan, error) {
+	// First-time population must retain the authored roster shown in the
+	// mission preview. Stage 13 explicitly includes both Scarabs and Robo-Bombers;
+	// the legacy server replacement must not collapse those two archetypes.
+	if director.IsFirstTimeRosterSelected {
+		return plans, nil
+	}
 	if chainLevelIndex != initialInfinityChainLevelIndex ||
 		!strings.EqualFold(director.Level, "infinity_2") {
 		return plans, nil

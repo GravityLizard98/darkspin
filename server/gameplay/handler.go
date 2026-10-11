@@ -5754,8 +5754,7 @@ func (p campaignPreparation) loadDirector(
 func (p campaignPreparation) loadPreview(
 	ctx context.Context, binding game.GameplayBinding,
 ) (game.CampaignDirector, error) {
-	if binding.Mode == game.ModeTutorial ||
-		strings.EqualFold(binding.Level, game.InitialChainLevel) {
+	if binding.Mode == game.ModeTutorial {
 		return game.CampaignDirector{}, nil
 	}
 	director, err := p.loadDirector(ctx, binding)
