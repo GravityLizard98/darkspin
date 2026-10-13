@@ -112,6 +112,11 @@ func (e *heroChannelAreaRun) retireLocked() error {
 		}
 		packets = append(packets, packet)
 	}
+	targetPackets, err := e.targetRetirementPacketsLocked()
+	if err != nil {
+		return fmt.Errorf("areaRetireTarget: %w", err)
+	}
+	packets = append(packets, targetPackets...)
 	e.registry.queueChannelRemovalsLocked(e.zone, packets)
 	e.isCleaned = true
 	if e.cancel != nil {
@@ -119,6 +124,7 @@ func (e *heroChannelAreaRun) retireLocked() error {
 		e.cancel = nil
 	}
 	e.ReleaseTargets(e.targets)
+	e.finishInterruptedTargetsLocked()
 	e.targets = nil
 	if e.isEffectBound {
 		e.effectPool.Release(e.effectObjectID, e.effectSlot)

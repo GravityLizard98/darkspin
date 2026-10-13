@@ -45,6 +45,8 @@ type heroAuraAreaRun struct {
 	isTimeBubble      bool
 	isStopping        bool
 	isObjectPublished bool
+	isSleepingCloud   bool
+	expiresAt         time.Time
 	runtime           campaignAbilityCommandRuntime
 	originalZone      *zone.Zone
 	stopContext       func() bool
@@ -304,6 +306,13 @@ func (e heroAuraAreaSchedule) tick(
 		}
 		packets = append(packets, damagePackets...)
 	}
+	if isFinal && e.run.isSleepingCloud {
+		releasePackets, err := e.release()
+		if err != nil {
+			return nil, fmt.Errorf("sleepFinalRelease: %w", err)
+		}
+		packets = append(packets, releasePackets...)
+	}
 	return packets, nil
 }
 
@@ -418,12 +427,25 @@ func (e heroAuraAreaSchedule) statusRemaining(
 func (e heroAuraAreaSchedule) release() ([][]byte, error) {
 	e.runtime.registry.mutex.RLock()
 	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
-	isCurrent := isFound && peerSession.generation == e.generation
+	isCurrent := isFound && peerSession.generation == e.generation &&
+		peerSession.deployedObjectID == e.sourceObjectID
 	e.runtime.registry.mutex.RUnlock()
 	if !isCurrent {
 		return nil, nil
 	}
-	return [][]byte{e.releasePacket}, nil
+	packets := [][]byte{e.releasePacket}
+	if e.run.isSleepingCloud && e.definition.OutAnimationName != "" {
+		packet, err := raknet.MarshalApplication(raknet.SetAnimationStateMessage{
+			ObjectID: e.sourceObjectID, State: util.HashID(e.definition.OutAnimationName),
+			Timestamp: e.packet.SourceTime + uint64(e.definition.ReleaseDelay/time.Millisecond),
+			Scale:     1,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sleepRelax: %w", err)
+		}
+		packets = append(packets, packet)
+	}
+	return packets, nil
 }
 
 func (e heroAuraAreaSchedule) fail(scheduleErr error) {
@@ -585,13 +607,23 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 			return nil, fmt.Errorf("auraAreaObjectID: %w", err)
 		}
 	}
+	isSleepingCloud := projected.Name == "SleepingCloud"
+	channelDuration := time.Duration(0)
+	startHitDelay := projected.HitDelay
+	if isSleepingCloud {
+		// Packaged Lua waits until timetoendanimation from activation, not
+		// from the first trigger scan. Its channel bar spans that entire cast.
+		channelDuration = projected.ReleaseDelay
+		startHitDelay = 0
+		projected.Duration = projected.ReleaseDelay - projected.HitDelay
+	}
 	start, err := abilityraknet.StartAreaBasic(abilityraknet.AreaBasicStartRequest{
 		SyncStamp: req.command.Common.Unknown[0], SourceID: req.command.Common.ObjectID,
 		AbilityID: activeAbilityID, AbilityIndex: req.command.Ability.Index,
 		SourceTime: req.packet.SourceTime, AnimationName: projected.AnimationName,
 		MuzzleEffectName: projected.MuzzleEffectName,
-		HitDelay:         projected.HitDelay, ReleaseDelay: projected.ReleaseDelay,
-		Cooldown: projected.Cooldown,
+		HitDelay:         startHitDelay, ReleaseDelay: projected.ReleaseDelay,
+		Cooldown: projected.Cooldown, ChannelDuration: channelDuration,
 	})
 	if err != nil {
 		r.registry.mutex.Unlock()
@@ -619,7 +651,11 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		return req.reject("aura area release unavailable")
 	}
 	cast := r.registry.reserveChannelCastLocked(peerSession, req.command.Common.ObjectID, cooldownReservation, releaseReservation)
+	movementPackets := make([][]byte, 0)
 	err = peerSession.stopPlayerMovement(abilityStartTime)
+	if err == nil && isSleepingCloud {
+		movementPackets, err = marshalZonePlayerStop(req.command.Common.ObjectID, peerSession.playerPosition)
+	}
 	if err == nil {
 		err = cast.debitLocked(&peerSession, manaCost)
 	}
@@ -636,7 +672,8 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		return nil, fmt.Errorf("auraAreaCommit: %w", err)
 	}
 	run := &heroAuraAreaRun{
-		cast:    cast,
+		cast:            cast,
+		isSleepingCloud: isSleepingCloud, expiresAt: abilityStartTime.Add(projected.ReleaseDelay),
 		runtime: r, originalZone: peerSession.zone,
 		isTimeBubble: definition.Name == timeBubbleAbilityName,
 		npc:          peerSession.zone.NPCs(), modifierPool: r.modifierPool,
@@ -668,6 +705,9 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 	producers := make([]raknet.ScheduledPacketProducer, 0, stepCount+1)
 	for index := uint32(0); index < stepCount; index++ {
 		deadline := projected.HitDelay + time.Duration(index)*heroAuraAreaScanInterval
+		if isSleepingCloud && index+1 == stepCount {
+			deadline = projected.ReleaseDelay
+		}
 		step := heroAuraAreaStep{
 			schedule: schedule, deadline: deadline, index: index,
 			isFinal: index+1 == stepCount,
@@ -676,9 +716,11 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 			Delay: deadline, Produce: step.produce,
 		})
 	}
-	producers = append(producers, raknet.ScheduledPacketProducer{
-		Delay: projected.ReleaseDelay, Produce: schedule.release,
-	})
+	if !isSleepingCloud {
+		producers = append(producers, raknet.ScheduledPacketProducer{
+			Delay: projected.ReleaseDelay, Produce: schedule.release,
+		})
+	}
 	sortScheduledPacketProducersByDelay(producers)
 	producers = r.registry.producerGuard.scheduledProducers(sessionKey, producers)
 	var cancel raknet.CancelSchedule
@@ -719,7 +761,8 @@ func (r campaignAbilityCommandRuntime) handleHeroAuraArea(
 		projected.Name, req.command.Common.ObjectID, objectID, projected.SpawnNoun,
 		projected.ActivationEffectName, center.X, center.Y, center.Z,
 	)
-	packets := append([][]byte{start.Acknowledge, manaPacket}, start.Presentation...)
+	packets := append([][]byte{start.Acknowledge, manaPacket}, movementPackets...)
+	packets = append(packets, start.Presentation...)
 	return packets, nil
 }
 

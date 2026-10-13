@@ -16,6 +16,8 @@ const minimumNavigationFootprintRadius = 0.1
 
 type PursuitStep struct {
 	Position                 game.Vec3
+	Waypoint                 game.Vec3
+	IsWaypointKnown          bool
 	IsInRange                bool
 	IsBlocked                bool
 	IsNavigationFallback     bool
@@ -115,15 +117,17 @@ func (s *Session) AdvancePursuit(
 	// instead of spending that entire interval moving into the target's center.
 	travel = min(travel, max(float32(0.0001), distance-stopDistance+0.0001))
 	if mesh != nil {
-		destination, pathErr := zoneaction.AdvancePursuitPath(
+		pathStep, pathErr := zoneaction.AdvancePursuitPathStep(
 			mesh, source, targetPosition, max(npc.NavigationRadius(), minimumNavigationFootprintRadius), travel, npc.Navigation,
 		)
+		destination := pathStep.Position
 		if pathErr == nil && destination != source {
 			npc.Facing = directionTo(source, destination)
 			npc.Plan.Position = destination
 			s.npcs[objectID] = npc
 			return PursuitStep{
-				Position:  destination,
+				Position: destination,
+				Waypoint: pathStep.Waypoint, IsWaypointKnown: true,
 				IsInRange: zonegeometry.Distance(destination, targetPosition) < stopDistance,
 			}, nil
 		}

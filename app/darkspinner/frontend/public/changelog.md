@@ -1,12 +1,27 @@
 # Changelog
 
+### 2026-10-13
+
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Send NPC pursuit and strafing along the server's navigation waypoints and reconcile their physical pose at movement stops, addressing enemies stuck behind obstacles while their server hitboxes advance.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Restore Caustic Stingers' Homing Swarm attack range from 22 to the client-authored 35 and projectile travel from 28 to 40 across campaign variants.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Improve Sync Snapshot identity recovery from retained movement samples in the same session and zone, and distinguish removed trigger objects from missing identity mappings.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Restore Gravity Storm's enemy lift, slam, get-up and interrupted-drop animations, synchronize its channel bar and storm effect position, and preserve damage at landing with control ending after the authored recovery.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Restore Healing Sprite's sting animation and healing impact with the client-authored three-second cadence, replace snapping with smooth pet following, and synchronize its health and effects with co-op players while retaining the existing heal amount.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Restore Sleeping Cloud's six-second channel bar, keep its caster stationary throughout the cast, and finish with the authored relax animation and sleep-field cleanup.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Stop replaying Sporogenesis's activation cloud on every healing tick by emitting one caster-bound effect, preserving the existing healing amounts and timing.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Restore Tork's Toxic Spores projectiles and poison pools when aiming at empty ground within attack range, and let their poison affect hostile enemies regardless of which co-op hero they target.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Keep Shielded Grenadiers stationary during shield setup, active stance and teardown; use grenades as their normal attack and reserve shield bash for nearby frontal targets across all ranks and captain variants.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Fix mission 5-3 Return disconnecting gameplay while preparing the 5-4 preview by excluding unresolved marker-set references from layout selection across campaign maps, while preserving valid empty variants.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Fix Overdrive activation crashes by sending its ability identity and authored cast timing instead of the hero object ID, and synchronize its active meter through expiration.
+- [#65](https://github.com/darkspinnet/darkspin/issues/65) Start campaign missions with empty Overdrive and replace XP-scaled charging with 5 energy per minion and 20 per non-minion, filling the meter after 84 ordinary kills before equipment bonuses.
+
 ### 2026-10-11
 
-- Restore Pyro's client-authored fire-breath damage, reach, cone angle, area descriptor and rank cooldowns across all missions instead of the inflated server profile.
-- Correct Overdrive capacity from 100 to the packaged 420 so the client can reach charged state, and restore the packaged 70-per-second drain for activation duration and tutorial unlocks.
-- Protect heroes from damage during switching and deployment, and move nearby-enemy knockback from arrival start to the client-authored landing time with its authored radius.
-- Restore revived enemies to their boss-wave roster so subsequent hits publish their death correctly and the mission waits for them to be defeated; prevent delayed resurrection from reopening a completed arena.
-- Restore omitted server-owned tree scenery at its authored placements across campaign maps, including Spectral Forest's yellow trees, while preserving client-owned trees and sharing the restored scenery with co-op and reconnecting players.
+- [#64](https://github.com/darkspinnet/darkspin/issues/64) Restore Pyro's client-authored fire-breath damage, reach, cone angle, area descriptor and rank cooldowns across all missions instead of the inflated server profile.
+- [#64](https://github.com/darkspinnet/darkspin/issues/64) Correct Overdrive capacity from 100 to the packaged 420 so the client can reach charged state, and restore the packaged 70-per-second drain for activation duration and tutorial unlocks.
+- [#64](https://github.com/darkspinnet/darkspin/issues/64) Protect heroes from damage during switching and deployment, and move nearby-enemy knockback from arrival start to the client-authored landing time with its authored radius.
+- [#64](https://github.com/darkspinnet/darkspin/issues/64) Restore revived enemies to their boss-wave roster so subsequent hits publish their death correctly and the mission waits for them to be defeated; prevent delayed resurrection from reopening a completed arena.
+- [#64](https://github.com/darkspinnet/darkspin/issues/64) Restore omitted server-owned tree scenery at its authored placements across campaign maps, including Spectral Forest's yellow trees, while preserving client-owned trees and sharing the restored scenery with co-op and reconnecting players.
 - [#63](https://github.com/darkspinnet/darkspin/issues/63) Add a Boss Spawning accordion to launcher Server Settings with saved controls for opening adds per anchor, adds alongside Illust and captain-entry delay; changes apply to new missions and are included when sharing settings to GitHub.
 - [#63](https://github.com/darkspinnet/darkspin/issues/63) Include difficulty-eligible, horde-legal special enemies alongside minions in captain-arena waves across campaign maps, restoring candidates such as Hasters, Decelerators and Invincitrons that were excluded from boss adds.
 - [#63](https://github.com/darkspinnet/darkspin/issues/63) Resolve hero movement destinations inside static blockers to nearby walkable contact points instead of repeatedly stopping and snapping the hero back, while retaining collision and navigation limits.

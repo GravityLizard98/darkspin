@@ -44,6 +44,9 @@ type heroChannelAreaRun struct {
 	isCleaned             bool
 	isEffectPublished     bool
 	isAdmitted            bool
+	isGettingUp           bool
+	sourceTime            uint64
+	startedAt             time.Time
 	registry              *gameplaySessionRegistry
 	zone                  *zone.Zone
 	timer                 zone.Timer
@@ -174,6 +177,13 @@ func (e heroChannelAreaSchedule) lift() ([][]byte, error) {
 			e.runtime.registry.mutex.Unlock()
 			return nil, fmt.Errorf("channelAreaStun[%d]: %w", index, err)
 		}
+		if peerSession.zone.NPCs().StunRemaining(target.Plan.ObjectID, e.runtime.now()) == 0 {
+			releaseErr := e.runtime.modifierPool.Release(instance)
+			if releaseErr != nil {
+				e.runtime.logger.Printf("RakNet blocked gravity lift modifier release failed: %v", releaseErr)
+			}
+			continue
+		}
 		targets = append(targets, heroChannelAreaTarget{
 			snapshot: target, instanceID: instance, expiresAt: expiresAt,
 		})
@@ -199,6 +209,21 @@ func (e heroChannelAreaSchedule) lift() ([][]byte, error) {
 			return nil, fmt.Errorf("channelAreaLiftMarshal[%d]: %w", index, err)
 		}
 		packets = append(packets, packet)
+	}
+	for _, target := range targets {
+		stopPackets, err := npcraknet.StopAtPose(target.snapshot.Plan.ObjectID, target.snapshot.Plan.Position, target.snapshot.Facing)
+		if err != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("gravityLiftStop: %w", err)
+		}
+		animationPacket, err := npcraknet.AnimationState(target.snapshot.Plan.ObjectID,
+			"gravitystorm_target_lift", e.packet.SourceTime+uint64(e.definition.HitDelay/time.Millisecond))
+		if err != nil {
+			e.runtime.registry.mutex.Unlock()
+			return nil, fmt.Errorf("gravityLiftAnimation: %w", err)
+		}
+		packets = append(packets, stopPackets...)
+		packets = append(packets, animationPacket)
 	}
 	e.run.mutex.Lock()
 	for index := range e.run.targets {
@@ -227,6 +252,10 @@ func (e heroChannelAreaSchedule) startSlam() ([][]byte, error) {
 		return nil, fmt.Errorf("channelAreaSlamAnimation: %w", err)
 	}
 	e.runtime.registry.queueChannelPresentationLocked(e.run.zone, [][]byte{packet})
+	err = e.animateTargetsLocked("gravitystorm_target_slam", e.slamStart)
+	if err != nil {
+		return nil, fmt.Errorf("gravitySlamTargets: %w", err)
+	}
 	return nil, nil
 }
 
@@ -461,6 +490,15 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelArea(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("channelAreaEffectCreate: %w", err)
 	}
+	positionPacket, err := raknet.MarshalApplication(raknet.ObjectUpdateMessage{
+		ObjectID: effectObjectID, PositionX: center.X, PositionY: center.Y,
+		PositionZ: center.Z, IsVisible: true,
+	})
+	if err != nil {
+		r.effectPool.Release(effectObjectID, effectSlot)
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("gravityEffectPosition: %w", err)
+	}
 	effectPacket, err := raknet.MarshalApplication(raknet.AttachedEffectMessage{
 		Slot: effectSlot + 1, IsForceAttached: true,
 		Asset: util.HashID(definition.ActivationEffectName), ObjectID: effectObjectID,
@@ -505,6 +543,7 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelArea(
 		AbilityID: activeAbilityID, AbilityIndex: req.command.Ability.Index,
 		SourceTime: req.packet.SourceTime, AnimationName: definition.AnimationName,
 		HitDelay: definition.HitDelay, ReleaseDelay: releaseAt, Cooldown: cooldown,
+		ChannelDuration: timeToSlam,
 	})
 	if err != nil {
 		r.effectPool.Release(effectObjectID, effectSlot)
@@ -556,7 +595,8 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelArea(
 		return nil, fmt.Errorf("channelAreaCommit: %w", err)
 	}
 	run := &heroChannelAreaRun{
-		cast:     cast,
+		cast:       cast,
+		sourceTime: req.packet.SourceTime, startedAt: abilityStartTime,
 		registry: r.registry, zone: peerSession.zone, timer: r.npc.timer,
 		npc: peerSession.zone.NPCs(), modifierPool: r.modifierPool,
 		effectPool: r.effectPool, effectObjectID: effectObjectID,
@@ -583,6 +623,7 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelArea(
 				gravityStormEffectDeleteDelay, Produce: schedule.deleteEffectObject},
 			{Delay: slamStart, Produce: schedule.startSlam},
 			{Delay: slamHit, Produce: schedule.slam},
+			{Delay: releaseAt, Produce: schedule.getUp},
 			{Delay: releaseAt, Produce: schedule.release},
 			{Delay: cleanupAt, Produce: schedule.cleanup},
 		},
@@ -611,7 +652,7 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelArea(
 		definition.Name, req.command.Common.ObjectID, center.X, center.Y, center.Z,
 	)
 	packets := append([][]byte{start.Acknowledge, manaPacket}, start.Presentation...)
-	admission := channelAreaAdmission{run: run, packets: [][]byte{createPacket, effectPacket}}
+	admission := channelAreaAdmission{run: run, packets: [][]byte{createPacket, positionPacket, effectPacket}}
 	err = req.packet.AfterResponseCommit(admission.commit)
 	if err != nil {
 		schedule.fail(err)

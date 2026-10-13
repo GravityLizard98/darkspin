@@ -109,7 +109,7 @@ func (e campaignLeapSchedule) launch() ([][]byte, error) {
 	var pursuitPackets [][]byte
 	if e.plan.Profile.AbilityName == "NomadBioSpecialTwoJumpAttack" {
 		// This leap is server-driven; ordinary pursuit cannot move its jump root.
-		pursuitPackets, err = npcraknet.MovementStop(e.objectID, enemy.Plan.Position)
+		pursuitPackets, err = npcraknet.StopAtPose(e.objectID, enemy.Plan.Position, enemy.Facing)
 	} else {
 		pursuitPackets, err = npcraknet.Pursuit(action)
 	}

@@ -96,8 +96,19 @@ func InspectBundle(ctx context.Context, req InspectRequest) (BundleInspection, e
 		boundaryAt = *metadata.ClientBoundaryAt
 	}
 	requestName := metadata.ID + "_" + metadata.CreatedAt.UTC().Format("20060102T150405.000000000Z")
+	movements := make([]movementSample, 0)
+	for _, artifact := range metadata.Files {
+		if artifact.Name != "movement.json" {
+			continue
+		}
+		err = readJSONFile(filepath.Join(directory, artifact.Name), &movements)
+		if err != nil {
+			return BundleInspection{}, fmt.Errorf("inspectBindings: %w", err)
+		}
+	}
 	timeline := buildReplayTimeline(
 		events, clientLines, clientFile, requestName, boundaryAt,
+		retainedMovementBindings(movements, state),
 	)
 	capture := clientCapture{
 		IsCaptured: metadata.IsClientMemoryCaptured, Status: metadata.ClientCaptureStatus,
@@ -111,6 +122,7 @@ func InspectBundle(ctx context.Context, req InspectRequest) (BundleInspection, e
 	analysisRequest := dumpRequest{
 		Actor: metadata.Actor, Trigger: metadata.Trigger, Context: metadata.Context,
 		Fingerprint: metadata.Fingerprint, ObjectID: metadata.ObjectID,
+		Movements: movements,
 	}
 	if metadata.TriggerObservedAt != nil {
 		analysisRequest.TriggeredAt = *metadata.TriggerObservedAt
@@ -131,11 +143,6 @@ func InspectBundle(ctx context.Context, req InspectRequest) (BundleInspection, e
 				return BundleInspection{}, fmt.Errorf("inspectTrigger: %w", err)
 			}
 			analysisRequest.TriggerState = &triggerState
-		case "movement.json":
-			err = readJSONFile(filepath.Join(directory, artifact.Name), &analysisRequest.Movements)
-			if err != nil {
-				return BundleInspection{}, fmt.Errorf("inspectMovement: %w", err)
-			}
 		}
 	}
 	analysis := analyzeSnapshot(

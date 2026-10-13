@@ -83,7 +83,7 @@ func (e campaignNPCActionRuntime) produceArcturusLaunch(packet raknet.Packet, se
 		run.abort()
 		return nil, true, fmt.Errorf("arcturusLaunchAnimation: %w", err)
 	}
-	startPackets, err := npcraknet.MovementStop(objectID, boss.Plan.Position)
+	startPackets, err := npcraknet.StopAtPose(objectID, boss.Plan.Position, boss.Facing)
 	if err != nil {
 		run.abort()
 		return nil, true, fmt.Errorf("arcturusLaunchStop: %w", err)

@@ -162,6 +162,7 @@ type splitAssembly struct {
 func buildReplayTimeline(
 	events []trafficEvent, clientLines [][]byte, clientFile string,
 	request string, boundaryAt time.Time,
+	bindingSets ...map[uint32]uint32,
 ) replayTimeline {
 	timeline := replayTimeline{}
 	timeline.Events = appendServerReplayEvents(timeline.Events, events, boundaryAt)
@@ -190,6 +191,12 @@ func buildReplayTimeline(
 	objectMapper := clientObjectMapper{
 		networkObjectIDsByHandle: make(map[uint32]uint32),
 		provenanceByHandle:       make(map[uint32]string),
+	}
+	for _, bindings := range bindingSets {
+		for handle, objectID := range bindings {
+			objectMapper.networkObjectIDsByHandle[handle] = objectID
+			objectMapper.provenanceByHandle[handle] = "retained_movement"
+		}
 	}
 	clientEventStart := len(timeline.Events)
 	for index, record := range clientRecords {

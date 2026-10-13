@@ -1779,9 +1779,6 @@ func marshalCampaignPlayer(
 }
 
 func campaignInitialOverdriveEnergy(binding game.GameplayBinding) float32 {
-	if binding.IsOverdriveUnlocked {
-		return float32(campaignOverdriveMaximumEnergy)
-	}
 	return 0
 }
 
@@ -2804,9 +2801,6 @@ func (r gameplayPendingRuntime) persistOverdriveUnlock(
 	currentSession, isCurrent := r.registry.sessions[sessionKey]
 	if isCurrent && currentSession.generation == peerSession.generation {
 		currentSession.binding.IsOverdriveUnlocked = true
-		if !currentSession.isOverdriveSpent && currentSession.overdriveEnergy == 0 {
-			currentSession.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
-		}
 		currentSession.isOverdrivePersistencePending = false
 		r.registry.sessions[sessionKey] = currentSession
 	}
@@ -3114,7 +3108,6 @@ func (r gameplayPendingRuntime) consumePlayerEventCommand(
 			return nil, false, fmt.Errorf("eventVictoryOverdrive: %w", unlockErr)
 		}
 		queuedSession.binding.IsOverdriveUnlocked = true
-		queuedSession.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
 	}
 	r.registry.mutex.Lock()
 	currentSession, isCurrentFound := r.registry.sessions[packet.Address.String()]

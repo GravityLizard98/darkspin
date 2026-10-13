@@ -351,11 +351,14 @@ type controlledHeroState struct {
 	isOverdrivePersistencePending bool
 	isOverdriveSpent              bool
 	overdriveEnergy               float32
+	overdriveStartsAt             time.Time
 	overdriveExpiresAt            time.Time
+	overdriveActivation           uint64
 }
 
 func (e gameplayPeerSession) isOverdriveActiveAt(now time.Time) bool {
 	return e.binding.IsOverdriveUnlocked && !now.IsZero() &&
+		!now.Before(e.overdriveStartsAt) &&
 		now.Before(e.overdriveExpiresAt)
 }
 
@@ -1319,7 +1322,7 @@ func (e *gameplayPeerSession) advancePlayerMovementMode(
 func (e *gameplayPeerSession) advancePlayerPosition(
 	now time.Time, reportedPosition raknet.Vector3,
 ) error {
-	if e.isEnemyRootActive(now) {
+	if e.isEnemyRootActive(now) || e.isSleepingCloudActive(now) {
 		// Attacks also report a predicted client pose. Rooted heroes keep the
 		// authoritative position captured when their movement was stopped.
 		return nil

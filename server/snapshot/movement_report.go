@@ -65,10 +65,12 @@ func classifyTriggerMovement(report *analysisReport) bool {
 	report.LikelyCause = "trigger_object_unmapped"
 	report.Confidence = "low"
 	report.Summary = fmt.Sprintf("The capture does not compare trigger object %d at the boundary; other object findings do not explain its divergence.", report.TriggerObjectID)
+	isCompared := false
 	for _, comparison := range report.ObjectComparisons {
 		if comparison.ObjectID != report.TriggerObjectID {
 			continue
 		}
+		isCompared = true
 		report.LikelyCause = "trigger_position_divergence"
 		report.Summary = fmt.Sprintf("Trigger object %d still differs by %.3f units (allowance %.3f). The movement mechanism remains unresolved; other object mismatches are separate findings.", comparison.ObjectID, comparison.Distance, comparison.AllowedDistance)
 		if !comparison.IsOutlier {
@@ -80,6 +82,17 @@ func classifyTriggerMovement(report *analysisReport) bool {
 			report.Confidence = "medium"
 		}
 		break
+	}
+	if !isCompared {
+		for _, event := range report.MovementEvents {
+			if event.ObjectID != report.TriggerObjectID || event.PacketName != "ObjectDelete" {
+				continue
+			}
+			report.LikelyCause = "trigger_removed_before_boundary"
+			report.Confidence = "medium"
+			report.Summary = fmt.Sprintf("Trigger object %d was removed before the boundary capture. Its absence is expected; inspect the retained paired movement history for the original divergence.", report.TriggerObjectID)
+			break
+		}
 	}
 	for _, summary := range report.MovementSummaries {
 		if summary.ObjectID != report.TriggerObjectID || summary.Pattern != "stationary_offset" {

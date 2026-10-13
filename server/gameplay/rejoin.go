@@ -863,6 +863,9 @@ func marshalGameplayCompanions(
 			return nil, fmt.Errorf("create[%d]: %w", index, err)
 		}
 		movementSpeed := float32(zonecompanion.CompatibilityMovementSpeed)
+		if companion.MovementSpeed > 0 {
+			movementSpeed = companion.MovementSpeed
+		}
 		if motion.IsFollowing {
 			movementSpeed = motion.MovementSpeed
 			if movementSpeed <= 0 || math.IsNaN(float64(movementSpeed)) || math.IsInf(float64(movementSpeed), 0) {

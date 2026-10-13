@@ -725,6 +725,9 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 	// Placement loading above intentionally filters out unrelated scenery.
 	// Layout selection still needs every authored set, including empty
 	// alternatives, to preserve native random draws.
+	// The importer also retains unresolved level references as placeholder
+	// rows without a resource, group, or payload (infinity_4_plants is one).
+	// Those are not loaded marker sets and must not enter layout selection.
 	loadedSetIndexes := make(map[int]int, len(director.MarkerSets))
 	for index, markerSet := range director.MarkerSets {
 		loadedSetIndexes[markerSet.Ordinal] = index
@@ -739,6 +742,7 @@ func (s *Store) LevelDirector(ctx context.Context, levelName string) (LevelDirec
 		    SELECT MIN(ordinal) FROM asset_catalog
 		    WHERE content_source_resource_id=level_marker_set.content_source_resource_id)
 		WHERE level_marker_set.level_id=?
+		  AND level_marker_set.content_source_resource_id IS NOT NULL
 		ORDER BY level_marker_set.ordinal`, director.LevelID)
 	if err != nil {
 		return LevelDirector{}, fmt.Errorf("directorLayoutSetQuery: %w", err)

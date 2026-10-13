@@ -3366,7 +3366,7 @@ func (r campaignDamageRuntime) publishExperience(
 	if isKillerFound && killerSession.generation == generation &&
 		killerSession.zone == source.zone {
 		overdriveEnergy, isOverdriveRecharged = killerSession.rechargeOverdrive(
-			baseExperience, time.Now(),
+			killerSession.overdriveKillCharge(objectID), time.Now(),
 		)
 		if isOverdriveRecharged {
 			r.registry.sessions[sessionKey] = killerSession

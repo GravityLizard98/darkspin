@@ -1470,8 +1470,8 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 				if len(freezePacket) > 0 {
 					projectilePackets = append(projectilePackets, freezePacket)
 				}
-				stopPackets, stopErr := npcraknet.MovementStop(
-					result.Damage.ObjectID, result.Snapshot.Plan.Position,
+				stopPackets, stopErr := npcraknet.StopAtPose(
+					result.Damage.ObjectID, result.Snapshot.Plan.Position, result.Snapshot.Facing,
 				)
 				if stopErr != nil {
 					e.runtime.registry.mutex.Unlock()
@@ -3912,14 +3912,12 @@ func (r campaignAbilityCommandRuntime) handleCloudLobBasic(
 	var err error
 	packet := request.packet
 	command := request.command
-	cloudPlan, planErr := zoneability.PlanCloudLob(
-		peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,
-		game.Vec3{
-			X: peerSession.playerPosition.X, Y: peerSession.playerPosition.Y,
-			Z: peerSession.playerPosition.Z,
-		},
-		creature, definition, 0,
-	)
+	cloudReq, planErr := campaignCloudLobAim(peerSession, creature, definition, command)
+	if planErr != nil {
+		r.registry.mutex.Unlock()
+		return request.reject(planErr.Error())
+	}
+	cloudPlan, planErr := zoneability.PlanCloudLobAt(cloudReq)
 	if planErr != nil {
 		r.registry.mutex.Unlock()
 		return request.reject(planErr.Error())

@@ -417,6 +417,8 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	)
 	movementSpeed *= slowMovementScale
 	isMovementDisabled := movementSpeed <= 0 ||
+		peerSession.campaignNPCShielderShieldSetups[objectID] ||
+		peerSession.campaignNPCShielderShields[objectID] != nil ||
 		npcSession.StunRemaining(objectID, advancedAt) > 0 ||
 		npcSession.SleepRemaining(objectID, advancedAt) > 0 ||
 		npcSession.RootRemaining(objectID, advancedAt) > 0
@@ -498,7 +500,21 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	// or reset the movement state as 5393D0 does. Do not send a pose correction
 	// here: the client continues interpolating from its current rendered root.
 	stepPackets := make([][]byte, 0, 4)
-	if isMovementPaused && !step.IsInRange {
+	isCorridorPursuit := step.IsWaypointKnown && !isSecondaryFamily &&
+		profile.Family != zonenpc.ActionCharge && profile.AbilityName != "StealthAttack" &&
+		profile.AbilityName != "Flee"
+	isWaypointChanged := zonegeometry.DistanceSquared(publishedGoal, step.Waypoint) > 0.0001
+	if isCorridorPursuit && !step.IsInRange && (isMovementPaused || isWaypointChanged) {
+		waypointPackets, waypointErr := npcraknet.PursuitWaypoint(objectID, step.Waypoint)
+		if waypointErr != nil {
+			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+			return nil, fmt.Errorf("enemyWaypoint: %w", waypointErr)
+		}
+		stepPackets = append(stepPackets, waypointPackets...)
+		publishedGoal = step.Waypoint
+		lastPublicationTimestamp = timestamp
+	}
+	if !isCorridorPursuit && isMovementPaused && !step.IsInRange {
 		// A goal-only update cannot restart the stopped native mover. Reissue
 		// the complete pursuit command even if the target has not moved.
 		resumePackets, resumeErr := npcraknet.Pursuit(zonenpc.FirstActionPlan{
@@ -531,7 +547,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	isGoalChanged := zonegeometry.DistanceSquared(
 		publishedGoal, targetPosition,
 	) >= campaignPursuitRedirectDistance*campaignPursuitRedirectDistance
-	isRedirectDue := !isStalkerLeap && isGoalChanged && sincePublication >= redirectInterval
+	isRedirectDue := !isCorridorPursuit && !isStalkerLeap && isGoalChanged && sincePublication >= redirectInterval
 	if step.IsNavigationFallback && isRedirectDue && r.logger != nil {
 		r.logger.Printf(
 			"RakNet NPC navigation fallback object=%d target=%d position=(%g,%g,%g) goal=(%g,%g,%g) reason=%q",
@@ -564,7 +580,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		lastPublicationTimestamp = timestamp
 	}
 	if step.IsInRange {
-		stopPackets, stopErr := npcraknet.MovementStop(objectID, step.Position)
+		stopPackets, stopErr := npcraknet.StopAtPose(objectID, step.Position, enemy.Facing)
 		if stopErr != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
 			return nil, fmt.Errorf("enemyPursuitStop: %w", stopErr)

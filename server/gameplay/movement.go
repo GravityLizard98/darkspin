@@ -626,6 +626,15 @@ func (r campaignMovementCommandRuntime) handle(
 	commandSession gameplayPeerSession,
 ) ([][]byte, error) {
 	var err error
+	if commandSession.isSleepingCloudActive(r.now()) {
+		packets, marshalErr := marshalZonePlayerStop(
+			command.Common.ObjectID, commandSession.playerPosition,
+		)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("moveSleepingCloud: %w", marshalErr)
+		}
+		return packets, nil
+	}
 	if commandSession.isKnockbackActive(r.now()) {
 		// The native jump owns the mover until landing. A walk/stop correction
 		// here would cancel its displacement and airborne reaction.

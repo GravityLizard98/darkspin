@@ -380,6 +380,8 @@ func (e campaignNPCStrafeStep) produce() ([][]byte, error) {
 	var packets [][]byte
 	if step.IsBlocked {
 		packets, err = npcraknet.StopAtPose(e.objectID, step.Position, enemy.Facing)
+	} else if step.IsWaypointKnown && !step.IsInRange {
+		packets, err = npcraknet.PursuitWaypoint(e.objectID, step.Waypoint)
 	} else {
 		packets, err = npcraknet.BoundedStrafe(
 			e.objectID, step.Position, e.destination,

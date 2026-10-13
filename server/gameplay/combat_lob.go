@@ -81,6 +81,10 @@ func (r campaignNPCActionRuntime) isNomadShielderGrenadeReady(
 		return false
 	}
 	_, isFamilyFound := zonenpc.NomadShielderGrenadeProfile(enemy.Plan.NounName)
+	target, isTargetFound := peerSession.campaignNPCTarget(generation, enemy.TargetObjectID)
+	if isTargetFound && isNomadShielderBashTarget(enemy, target) {
+		return false
+	}
 	return isFamilyFound && timestamp >= peerSession.campaignNPCShielderNextGrenades[objectID]
 }
 

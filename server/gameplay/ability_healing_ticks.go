@@ -306,6 +306,18 @@ func (e heroHealingTicksSchedule) tick(
 		packets = append(packets, effectPacket)
 	}
 	if isFirst && e.definition.Name == "Sporogenesis" {
+		// Abilities/0x9E4F00F1.lua notifies the caster's Shroom_Cloud
+		// once before applying SporogenesisHot. Its five healing ticks do
+		// not replay the activation effect or animation.
+		assetID := util.HashID(e.definition.HealEffectName)
+		objectID := e.sourceObjectID
+		cloudPacket, err := raknet.MarshalApplication(raknet.ServerEventContractMessage{
+			Asset: &assetID, ObjectID: &objectID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sporogenesisCloud: %w", err)
+		}
+		packets = append(packets, cloudPacket)
 		purgePackets, err := e.runtime.purgeHeroDebuffs(
 			e.sessionKey, e.generation, e.sourceObjectID,
 		)
@@ -318,6 +330,9 @@ func (e heroHealingTicksSchedule) tick(
 		return packets, nil
 	}
 	healingDefinition := e.definition
+	if healingDefinition.Name == "Sporogenesis" {
+		healingDefinition.HealEffectName = ""
+	}
 	if healingDefinition.Name == "FieldMedicSupport" {
 		// Reconstruct's target effect is a looping attached effect owned by the
 		// run. Re-emitting it as a positioned effect on every tick creates

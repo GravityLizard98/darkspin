@@ -697,7 +697,9 @@ func (o *enemyDeathOutbox) ApplyDeathState(
 	case sim.DeathWaitingForRevival:
 		return nil
 	case sim.DeathMarkedForDeletion:
-		o.isMarkedForDeletion = true
+		if o.isMarkedForDeletion {
+			return nil
+		}
 	default:
 		return fmt.Errorf("deathAction: %s", intent.Action)
 	}
@@ -707,6 +709,7 @@ func (o *enemyDeathOutbox) ApplyDeathState(
 	if err != nil {
 		return fmt.Errorf("deleteMarshal: %w", err)
 	}
+	o.isMarkedForDeletion = true
 	o.packets = append(o.packets, packet)
 	o.projections = append(o.projections, zonenpc.DeathEvent{
 		Kind: zonenpc.DeathDelete, TargetObjectID: o.target.ObjectID,

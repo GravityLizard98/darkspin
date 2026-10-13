@@ -42,6 +42,8 @@ type Actor struct {
 	AttackSpeed       float32
 	CooldownReduction float32
 	MovementSpeedBuff float32
+	MovementSpeed     float32
+	FollowDistance    float32
 	FollowRevision    uint64
 	IsFollowing       bool
 	followPlan        Follow
@@ -306,6 +308,34 @@ func (e *Session) FollowOwner(
 	ownerPosition game.Vec3, targets []zonenpc.Snapshot,
 	desiredStopDistance float32, movementSpeed float32, capturedTimes ...time.Time,
 ) ([]Follow, error) {
+	plans, err := e.followActors(userID, peerGeneration, ownerObjectID, 0, ownerPosition,
+		targets, desiredStopDistance, movementSpeed, capturedTimes...)
+	if err != nil {
+		return nil, fmt.Errorf("followOwner: %w", err)
+	}
+	return plans, nil
+}
+
+func (e *Session) FollowActor(
+	userID uint64, peerGeneration uint64, ownerObjectID uint32, objectID uint32,
+	ownerPosition game.Vec3, desiredStopDistance float32, movementSpeed float32, at time.Time,
+) ([]Follow, error) {
+	if objectID == 0 {
+		return nil, errors.New("companion follow actor invalid")
+	}
+	plans, err := e.followActors(userID, peerGeneration, ownerObjectID, objectID,
+		ownerPosition, nil, desiredStopDistance, movementSpeed, at)
+	if err != nil {
+		return nil, fmt.Errorf("followActor: %w", err)
+	}
+	return plans, nil
+}
+
+func (e *Session) followActors(
+	userID uint64, peerGeneration uint64, ownerObjectID uint32, selectedObjectID uint32,
+	ownerPosition game.Vec3, targets []zonenpc.Snapshot,
+	desiredStopDistance float32, movementSpeed float32, capturedTimes ...time.Time,
+) ([]Follow, error) {
 	if e == nil {
 		return nil, errors.New("nil companion session")
 	}
@@ -326,6 +356,9 @@ func (e *Session) FollowOwner(
 	defer e.mu.Unlock()
 	follows := make([]Follow, 0)
 	for objectID, actor := range e.actors {
+		if selectedObjectID != 0 && objectID != selectedObjectID {
+			continue
+		}
 		if actor.UserID != userID ||
 			actor.PeerGeneration != peerGeneration ||
 			actor.OwnerObjectID != ownerObjectID ||
@@ -333,9 +366,13 @@ func (e *Session) FollowOwner(
 			continue
 		}
 		actor.Position = actor.followPosition(at)
+		actorStopDistance := desiredStopDistance
+		if actor.FollowDistance > 0 {
+			actorStopDistance = actor.FollowDistance
+		}
 		delta := actor.Position.Sub(ownerPosition)
 		distance := delta.Length()
-		if distance <= desiredStopDistance {
+		if distance <= actorStopDistance {
 			continue
 		}
 		isCombatReserved := actor.TargetObjectID != 0 || actor.PursuitObjectID != 0
@@ -343,10 +380,13 @@ func (e *Session) FollowOwner(
 			hasNearbyCombatTarget(actor, targets, CompatibilityAggroRadius)) {
 			continue
 		}
-		goal := ownerPosition.Add(delta.Scale(desiredStopDistance / distance))
+		goal := ownerPosition.Add(delta.Scale(actorStopDistance / distance))
 		actorMovementSpeed := movementSpeed * max(float32(0.05), 1+actor.MovementSpeedBuff)
+		if actor.MovementSpeed > 0 {
+			actorMovementSpeed = actor.MovementSpeed * max(float32(0.05), 1+actor.MovementSpeedBuff)
+		}
 		travelDuration := time.Duration(
-			float64((distance-desiredStopDistance)/actorMovementSpeed) *
+			float64((distance-actorStopDistance)/actorMovementSpeed) *
 				float64(time.Second),
 		)
 		travelDuration = max(travelDuration, minimumPursuitDuration)
@@ -354,7 +394,7 @@ func (e *Session) FollowOwner(
 		plan := Follow{
 			ObjectID: objectID, OwnerObjectID: ownerObjectID,
 			Position: actor.Position, Goal: ownerPosition,
-			DesiredStopDistance:   desiredStopDistance,
+			DesiredStopDistance:   actorStopDistance,
 			AttackTargetObjectID:  actor.TargetObjectID,
 			PursuitTargetObjectID: actor.PursuitObjectID,
 			Destination:           goal,

@@ -235,6 +235,7 @@ func (e *Service) dump(ctx context.Context, req dumpRequest) (dumpResult, error)
 	}
 	timeline := buildReplayTimeline(
 		events, timelineClientLines, timelineClientFile, directoryName, boundaryAt,
+		retainedMovementBindings(req.Movements, state),
 	)
 	timelinePath := filepath.Join(directory, "timeline.jsonl")
 	err = writeReplayTimeline(timelinePath, timeline.Events)
