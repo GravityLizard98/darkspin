@@ -1245,11 +1245,24 @@ func RootedHealStart(
 			ObjectID: sourceObjectID, State: util.HashID(profile.LoopAnimationName),
 			Timestamp: timestamp, Scale: 1,
 		},
-		raknet.ObjectEffectMessage{
+		raknet.AttachedEffectMessage{
+			Slot: 16, IsForceAttached: true,
 			Asset: util.HashID(profile.TrailEffectName), ObjectID: sourceObjectID,
-			AttackerID: sourceObjectID,
 		},
 	}, "rootedHealStart")
+}
+
+func RootedHealStop(sourceObjectID uint32) ([][]byte, error) {
+	if sourceObjectID == 0 {
+		return nil, errors.New("npc rooted heal stop invalid")
+	}
+	// RootedHeal's client Tick and Deactivate both remove auraEffect.
+	return marshalMessages([]raknet.ApplicationMessage{
+		raknet.AttachedEffectMessage{
+			Slot: 16, ObjectID: sourceObjectID,
+			IsRemovalRequested: true, IsHardStop: true,
+		},
+	}, "rootedHealStop")
 }
 
 func HealDelta(

@@ -304,9 +304,10 @@ func (e *PartCatalog) GenerateCampaignPartFromBag(
 		difficulty, campaignPartChoice(choice, campaignRarityStream),
 		rarityBag,
 	)
+	dropLevel := e.CampaignItemLevel(campaignStage, rarity, isBoss, 0)
 	availableSlotTypes := e.campaignPartSlotTypes(
 		classType, scienceType, creatureName, campaignStage,
-		isCampaignUniqueRarity(rarity),
+		isCampaignUniqueRarity(rarity), dropLevel,
 	)
 	if len(availableSlotTypes) == 0 {
 		return sporenet.Part{}, errors.New("campaign part slot eligibility empty")
@@ -314,13 +315,12 @@ func (e *PartCatalog) GenerateCampaignPartFromBag(
 	slotChoice := campaignPartChoice(choice, campaignSlotStream)
 	slotType := e.campaignPartSlotType(
 		classType, scienceType, creatureName, campaignStage, choice,
-		isCampaignUniqueRarity(rarity),
+		isCampaignUniqueRarity(rarity), dropLevel,
 	)
 	isRefill := false
 	if slotBag != nil {
 		slotType, isRefill = slotBag.selectSlotType(availableSlotTypes, slotChoice)
 	}
-	dropLevel := e.CampaignItemLevel(campaignStage, rarity, isBoss, 0)
 	part, err := e.generateCampaignPart(
 		classType, scienceType, creatureName, dropLevel, campaignStage, choice,
 		rarity, slotType,
@@ -543,7 +543,7 @@ func (c *PartCatalog) generateCampaignPart(
 	isUniqueFamily := isCampaignUniqueRarity(rarity)
 	if slotType == "" {
 		slotType = c.campaignPartSlotType(
-			classType, scienceType, creatureName, campaignStage, choice, isUniqueFamily,
+			classType, scienceType, creatureName, campaignStage, choice, isUniqueFamily, level,
 		)
 		if slotType == "" {
 			return sporenet.Part{}, errors.New("campaign part slot eligibility empty")
@@ -646,10 +646,10 @@ func (e *PartCatalog) ValidateGeneratedCampaignPart(part sporenet.Part) error {
 func (c *PartCatalog) campaignPartSlotType(
 	classType string, scienceType string, creatureName string,
 	campaignStage uint32, choice uint32,
-	isUniqueFamily bool,
+	isUniqueFamily bool, itemLevels ...uint32,
 ) string {
 	availableSlotTypes := c.campaignPartSlotTypes(
-		classType, scienceType, creatureName, campaignStage, isUniqueFamily,
+		classType, scienceType, creatureName, campaignStage, isUniqueFamily, itemLevels...,
 	)
 	if len(availableSlotTypes) == 0 {
 		return ""
@@ -660,21 +660,24 @@ func (c *PartCatalog) campaignPartSlotType(
 
 func (c *PartCatalog) campaignPartSlotTypes(
 	classType string, scienceType string, creatureName string,
-	campaignStage uint32, isUniqueFamily bool,
+	campaignStage uint32, isUniqueFamily bool, itemLevels ...uint32,
 ) []string {
 	availableSlotTypes := make([]string, 0, len(campaignPartSlotTypes))
 	for _, slotType := range campaignPartSlotTypes {
-		if slotType == "weapon" && c.campaignWeaponCompatibility(
-			classType, scienceType, creatureName, campaignStage, isUniqueFamily,
-		) != campaignWeaponIncompatible {
-			availableSlotTypes = append(availableSlotTypes, slotType)
-			continue
-		}
 		for _, definition := range c.partsByRigblock {
 			if definition.MinimumLevel > definition.MaximumLevel || definition.SlotType != slotType ||
 				!isCampaignPartCompatible(definition, classType, scienceType, creatureName) ||
 				definition.IsUniqueFamily != isUniqueFamily ||
 				!c.isPartSlotUnlocked(definition, campaignStage) {
+				continue
+			}
+			// Generation supplies the final rarity-adjusted item level. A
+			// family existing at another level cannot make this slot viable.
+			// Callers inspecting general slot availability may omit the level.
+			if len(itemLevels) > 0 && !isCampaignRigblockEligible(
+				definition, partSlotBit(slotType), partScienceMask(scienceType),
+				itemLevels[0], isUniqueFamily,
+			) {
 				continue
 			}
 			availableSlotTypes = append(availableSlotTypes, slotType)

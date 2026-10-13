@@ -2523,6 +2523,7 @@ func nocturnaBasicStealthMeleeProfile(
 }
 
 func noctFlyerLobProfile(
+	cooldown time.Duration, damage float32, projectileSpeed float32,
 	movementSpeed float32, nonCombatMovementSpeed float32,
 ) ActionProfile {
 	return ActionProfile{
@@ -2530,12 +2531,12 @@ func noctFlyerLobProfile(
 		AnimationName:             "nct_minn_su_05_attack",
 		HitDelay:                  606061 * time.Microsecond,
 		ReleaseDelay:              1600 * time.Millisecond,
-		Cooldown:                  3 * time.Second,
+		Cooldown:                  cooldown,
 		Range:                     15,
 		MovementSpeed:             movementSpeed,
 		NonCombatMovementSpeed:    nonCombatMovementSpeed,
-		MinimumDamage:             1,
-		MaximumDamage:             1,
+		MinimumDamage:             damage,
+		MaximumDamage:             damage,
 		DescriptorMask:            8320,
 		DamageType:                4,
 		DamageSource:              1,
@@ -2548,7 +2549,7 @@ func noctFlyerLobProfile(
 		TrailEffectName:           "shadow_minion_lob_effect.ServerEventDef",
 		ImpactEffectName:          "shadow_minion_lob_explosion.ServerEventDef",
 		MissEffectName:            "ineffective_common_small.ServerEventDef",
-		ProjectileSpeed:           10,
+		ProjectileSpeed:           projectileSpeed,
 		ProjectileDistance:        15,
 		ProjectileHeight:          2,
 		Radius:                    0.005,
@@ -4130,11 +4131,11 @@ func ActionProfileForNoun(nounName string) (ActionProfile, bool) {
 	case "nocturnabasicstealth_3.noun":
 		return nocturnaBasicStealthMeleeProfile(1500*time.Millisecond, 14, 7.5), true
 	case "noctbasicflyer.noun":
-		return noctFlyerLobProfile(6, 4.5), true
+		return noctFlyerLobProfile(3*time.Second, 1, 10, 6, 4.5), true
 	case "noctbasicflyer_2.noun":
-		return noctFlyerLobProfile(9, 5.5), true
+		return noctFlyerLobProfile(2500*time.Millisecond, 2, 15, 9, 5.5), true
 	case "noctbasicflyer_3.noun":
-		return noctFlyerLobProfile(12, 6.5), true
+		return noctFlyerLobProfile(2*time.Second, 3, 20, 12, 6.5), true
 	case "verdanthbasicranged.noun":
 		return verdanthBasicRangedProfile(5*time.Second, 8), true
 	case "verdanthbasicranged_2.noun":

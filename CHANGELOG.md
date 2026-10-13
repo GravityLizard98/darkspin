@@ -2,6 +2,10 @@
 
 ### 2026-10-13
 
+- #66 Remove Menace Weed's healing aura when healing ends or the enemy dies, restoring client-authored effect cleanup across all ranks and captain variants.
+- #66 Prevent equipment pickup failures from selecting categories whose compatible catalog items are outside the rolled item-level range, across hero families and campaign maps.
+- #66 Prevent Pterodyne's interrupted stealth approaches from retaining overlapping modifiers whose delayed expiry reveals a newer cast, across its ranks and captain variants.
+- #66 Restore Necrodactyl's higher-rank attacks from rank-one values to client-authored cooldowns of 2.5/2 seconds, projectile speeds of 15/20 and direct damage of 2/3 across campaign maps.
 - #65 Send NPC pursuit and strafing along the server's navigation waypoints and reconcile their physical pose at movement stops, addressing enemies stuck behind obstacles while their server hitboxes advance.
 - #65 Restore Caustic Stingers' Homing Swarm attack range from 22 to the client-authored 35 and projectile travel from 28 to 40 across campaign variants.
 - #65 Improve Sync Snapshot identity recovery from retained movement samples in the same session and zone, and distinguish removed trigger objects from missing identity mappings.

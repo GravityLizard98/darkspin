@@ -11,6 +11,7 @@ import (
 	"github.com/darkspinnet/darkspin/server/util"
 	zone "github.com/darkspinnet/darkspin/server/zone"
 	abilityraknet "github.com/darkspinnet/darkspin/server/zone/ability/raknet103"
+	zoneeffect "github.com/darkspinnet/darkspin/server/zone/effect"
 	zonenavigation "github.com/darkspinnet/darkspin/server/zone/navigation"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 	npcraknet "github.com/darkspinnet/darkspin/server/zone/npc/raknet103"
@@ -101,8 +102,13 @@ func (r campaignNPCActionRuntime) startStealtherStealth(
 		timestamp: timestamp,
 		plan:      zonenpc.AttackPlan{ActionGeneration: enemy.ActionGeneration, Profile: profile},
 	}
+	previousPackets := schedule.retirePreviousStealth()
 	if !action.IsPursuitNeeded {
-		return schedule.cast(timestamp)
+		castPackets, castErr := schedule.cast(timestamp)
+		if castErr != nil {
+			return nil, fmt.Errorf("stealthImmediateCast: %w", castErr)
+		}
+		return append(previousPackets, castPackets...), nil
 	}
 	packets, err := npcraknet.Pursuit(action)
 	if err != nil {
@@ -125,7 +131,49 @@ func (r campaignNPCActionRuntime) startStealtherStealth(
 		schedule.rollbackStealth(schedule.modifier)
 		return nil, fmt.Errorf("enemyStealthMoveSchedule: %w", err)
 	}
-	return append(stealthPackets, packets...), nil
+	previousPackets = append(previousPackets, stealthPackets...)
+	return append(previousPackets, packets...), nil
+}
+
+// A failed approach releases the action lease before the travel expiry fires.
+// Retire that cast's modifier before the retry, so its delayed cleanup cannot
+// clear the newer cast's shared stealth presentation.
+func (e campaignStealtherSchedule) retirePreviousStealth() [][]byte {
+	e.runtime.registry.mutex.RLock()
+	peerSession, isFound := e.runtime.registry.sessions[e.sessionKey]
+	previousSchedules := make([]campaignStealtherSchedule, 0)
+	if isFound && peerSession.generation == e.generation && peerSession.zone != nil {
+		for sessionKey, member := range e.runtime.registry.sessions {
+			if member.zone != peerSession.zone {
+				continue
+			}
+			for _, run := range member.campaignNPCModifiers {
+				if run == nil || run.record.GUID != stealtherStealthModifierID ||
+					run.record.TargetObjectID != e.objectID {
+					continue
+				}
+				previous := e
+				previous.sessionKey = sessionKey
+				previous.generation = member.generation
+				previous.modifier = run
+				previousSchedules = append(previousSchedules, previous)
+			}
+		}
+	}
+	e.runtime.registry.mutex.RUnlock()
+	packets := make([][]byte, 0)
+	for _, previous := range previousSchedules {
+		packets = append(packets, previous.finishStealth(true, e.timestamp)...)
+	}
+	return packets
+}
+
+func (e campaignStealtherSchedule) ownStealthModifier(modifier *campaignNPCModifierRun) {
+	modifier.record = zoneeffect.Modifier{
+		InstanceID: modifier.instanceID, GUID: stealtherStealthModifierID,
+		SourceObjectID: e.objectID, TargetObjectID: e.objectID,
+		InitiatorObject: e.objectID, Kind: zoneeffect.ModifierKindBuff, Rank: 1,
+	}
 }
 
 func (e *campaignStealtherSchedule) beginTravelStealth(profile zonenpc.ActionProfile) ([][]byte, error) {
@@ -133,6 +181,7 @@ func (e *campaignStealtherSchedule) beginTravelStealth(profile zonenpc.ActionPro
 	if err != nil {
 		return nil, fmt.Errorf("travelModifier: %w", err)
 	}
+	e.ownStealthModifier(modifier)
 	e.modifier = modifier
 	e.plan.Profile = profile
 	e.runtime.registry.mutex.Lock()
@@ -221,6 +270,7 @@ func (e campaignStealtherSchedule) cast(timestamp uint64) ([][]byte, error) {
 			e.runtime.registry.mutex.Unlock()
 			return nil, fmt.Errorf("enemyStealthModifierRun: %w", err)
 		}
+		e.ownStealthModifier(modifier)
 		err = peerSession.zone.NPCs().ApplyStealth(e.objectID)
 		if err != nil {
 			e.runtime.registry.mutex.Unlock()

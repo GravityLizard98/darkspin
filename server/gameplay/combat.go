@@ -2884,8 +2884,12 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 			}
 			transition.immediatePackets = append(transition.immediatePackets, packets...)
 		}
+		rootedHealProfile, isRootedHealer := zonenpc.VerdanthBasicHealerRootedHealProfile(
+			defeatedNPC.Plan.NounName,
+		)
 		if (isProfileFound && profile.PassiveEffectName != "") ||
-			zonenpc.IsGraviticStabilizer(defeatedNPC.Plan) {
+			zonenpc.IsGraviticStabilizer(defeatedNPC.Plan) ||
+			(isRootedHealer && rootedHealProfile.TrailEffectName != "") {
 			passiveEffectRemove, marshalErr := raknet.MarshalApplication(
 				raknet.AttachedEffectMessage{
 					Slot: 16, ObjectID: result.ObjectID,
