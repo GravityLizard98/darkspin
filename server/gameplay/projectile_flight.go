@@ -87,7 +87,7 @@ func (e campaignProjectileStep) produceFlight(
 	}
 	if result.TargetObjectID == 0 {
 		if schedule.definition.Name == "MissileTempestBasic" {
-			impactPackets, impactErr := e.produceMissileExplosion(peerSession, result.Position)
+			impactPackets, impactErr := e.produceMissileExplosion(peerSession, result.Position, 0)
 			if impactErr != nil {
 				return nil, fmt.Errorf("missileExpiry: %w", impactErr)
 			}

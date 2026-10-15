@@ -27,6 +27,7 @@ type App struct {
 	mu                 sync.Mutex
 	serverMu           sync.Mutex
 	remoteRefreshMu    sync.Mutex
+	snapshotCompactMu  sync.Mutex
 	logMu              sync.Mutex
 	timingMu           sync.Mutex
 	cancel             context.CancelFunc

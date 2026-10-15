@@ -17,6 +17,8 @@ export function CloseRunningGame():Promise<void>;
 
 export function CloseRunningProfile(arg1:string):Promise<void>;
 
+export function CompactSnapshots():Promise<main.SnapshotCompactResult>;
+
 export function CreateProfile(arg1:string,arg2:number,arg3:boolean):Promise<void>;
 
 export function DeleteProfile(arg1:string):Promise<void>;

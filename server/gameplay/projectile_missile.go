@@ -69,7 +69,7 @@ func (e campaignProjectileSchedule) trackMissileTarget(
 // Entered with the registry locked. The explosion replaces direct-hit damage,
 // so the struck enemy receives one damage application, just like its neighbors.
 func (e campaignProjectileStep) produceMissileExplosion(
-	member gameplayPeerSession, position sim.Position,
+	member gameplayPeerSession, position sim.Position, struckObjectID uint32,
 ) ([][]byte, error) {
 	schedule := e.schedule
 	radius, err := zoneability.ProjectAreaRadius(schedule.creature, schedule.projectile.Radius)
@@ -80,7 +80,14 @@ func (e campaignProjectileStep) produceMissileExplosion(
 	targets := make([]zonenpc.Snapshot, 0)
 	for _, target := range member.zone.NPCs().LiveSnapshots() {
 		if !target.IsPublished || target.IsDefeated || target.HitPoint <= 0 ||
-			!isSupportHealerBasicImpactTarget(target) ||
+			!isSupportHealerBasicImpactTarget(target) {
+			continue
+		}
+		// MissileTempestBasic's hitAreaCallback queries overlapping spatial
+		// bounds (127 A0AED0 -> 9D9300 -> A162F0), not just object centers.
+		// Preserve the actual collision target: a destructor's surface can be
+		// farther than the three-unit blast radius from its object origin.
+		if target.Plan.ObjectID != struckObjectID &&
 			target.Plan.Position.Sub(game.Vec3(position)).Length() > radius {
 			continue
 		}

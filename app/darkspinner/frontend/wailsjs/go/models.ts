@@ -356,6 +356,26 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SnapshotCompactResult {
+	    names: string[];
+	    directory: string;
+	    snapshotCount: number;
+	    removedCount: number;
+	    warning?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SnapshotCompactResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.names = source["names"];
+	        this.directory = source["directory"];
+	        this.snapshotCount = source["snapshotCount"];
+	        this.removedCount = source["removedCount"];
+	        this.warning = source["warning"];
+	    }
+	}
 	export class WineRunner {
 	    path: string;
 	    kind: string;

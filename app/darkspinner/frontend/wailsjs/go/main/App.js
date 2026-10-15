@@ -30,6 +30,10 @@ export function CloseRunningProfile(arg1) {
   return window['go']['main']['App']['CloseRunningProfile'](arg1);
 }
 
+export function CompactSnapshots() {
+  return window['go']['main']['App']['CompactSnapshots']();
+}
+
 export function CreateProfile(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateProfile'](arg1, arg2, arg3);
 }

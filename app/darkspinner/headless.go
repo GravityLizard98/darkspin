@@ -230,6 +230,7 @@ func launcherMethods(app *App) map[string]any {
 		"ScanRemoteServers":            app.ScanRemoteServers,
 		"ScanWineRunners":              app.ScanWineRunners,
 		"SendReport":                   app.SendReport,
+		"CompactSnapshots":             app.CompactSnapshots,
 		"SetIdentity":                  app.SetIdentity,
 		"SetServerConfiguration":       app.SetServerConfiguration,
 		"SetServerRulesConfiguration":  app.SetServerRulesConfiguration,

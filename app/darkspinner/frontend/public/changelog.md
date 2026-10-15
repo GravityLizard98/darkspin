@@ -2,7 +2,9 @@
 
 ### 2026-10-15
 
-- Allow full, unlocked legacy campaign squads with an unassigned category to enter missions as advertised by the client account response, and identify specific squad validation failures in loading logs.
+- Add Compact snapshots below the GitHub link in Send Report, moving completed snapshot ZIPs into numbered bundles capped at 25 MB in the background, dimming the button while running and showing a checkmark on success, while retaining originals if packing fails or a source changes.
+- [#68](https://github.com/darkspinnet/darkspin/issues/68) Preserve SRS-42's confirmed regular-missile collision target in its explosion damage, fixing direct hits discarded when a destructor or other large enemy's center lies outside the blast radius.
+- [#67](https://github.com/darkspinnet/darkspin/issues/67) Allow full, unlocked legacy campaign squads with an unassigned category to enter missions as advertised by the client account response, and identify specific squad validation failures in loading logs.
 - Name bug and launcher report ZIPs as message-location-version-timestamp using mission levels or client-reported Arsenal, Navigation and Editor locations, retaining known levels during partial diagnostic failures and using unknown-level when unavailable.
 
 ### 2026-10-13

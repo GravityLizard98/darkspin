@@ -203,7 +203,8 @@
 .remote-registration-server { display: flex; gap: 8px; }
 .remote-registration-server button { font-size: 11px; }
 .remote-registration-notice > .profile-select-trigger { width: 100%; margin-top: 8px; }
-.report-composer-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.report-composer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.report-header-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .report-manage-link { color: var(--muted-foreground); font-size: 10px; height: auto; padding: 0; }
 .report-manage-link:hover { color: var(--foreground); }
 .report-archives { padding-left: 18px; list-style: disc; font-size: 11px; color: var(--muted-foreground); overflow-wrap: anywhere; }

@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import LauncherDialog from '@/components/LauncherDialog.vue'
 import ServerRulesConfiguration from '@/components/ServerRulesConfiguration.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { BrowserOpenURL, CancelPatch, ClipboardSetText, CloseDetachedGameInstances, CloseRunningGame, CloseRunningProfile, CreateProfile, DeleteProfile, DeleteRemoteProfile, DiscardInterruptedMission, EventsOn, GetInstallationStatus, GetInterruptedMission, GetLauncherIntegrationStatus, GetProfileAvatars, GetProfiles, GetRemoteProfiles, GetServerConfiguration, GetStatus, GetWineRunnerConfiguration, HasDetachedGameInstances, IsProfileRunning, LaunchRemoteProfile, LoginRemoteProfile, OpenReportFolder, OpenSteamDemoInstall, Patch, Play, Quit, RefreshInstallationStatus, RefreshRemoteProfiles, RegisterRemoteProfile, RelocateToGameRoot, RemoveLauncherIntegration, RepairLauncherIntegration, RestartLauncher, ScanRemoteServers, ScanWineRunners, SendReport, SetIdentity, SetServerConfiguration, SetWineRunner, StartDetachedGameInstance, UninstallDarkspinner } from './platform'
+import { BrowserOpenURL, CancelPatch, ClipboardSetText, CompactSnapshots, CloseDetachedGameInstances, CloseRunningGame, CloseRunningProfile, CreateProfile, DeleteProfile, DeleteRemoteProfile, DiscardInterruptedMission, EventsOn, GetInstallationStatus, GetInterruptedMission, GetLauncherIntegrationStatus, GetProfileAvatars, GetProfiles, GetRemoteProfiles, GetServerConfiguration, GetStatus, GetWineRunnerConfiguration, HasDetachedGameInstances, IsProfileRunning, LaunchRemoteProfile, LoginRemoteProfile, OpenReportFolder, OpenSteamDemoInstall, Patch, Play, Quit, RefreshInstallationStatus, RefreshRemoteProfiles, RegisterRemoteProfile, RelocateToGameRoot, RemoveLauncherIntegration, RepairLauncherIntegration, RestartLauncher, ScanRemoteServers, ScanWineRunners, SendReport, SetIdentity, SetServerConfiguration, SetWineRunner, StartDetachedGameInstance, UninstallDarkspinner } from './platform'
 
 const status = ref({ state:'starting', message:'Starting DarkSpinner', identity:'', auth:'Starting', server:'Starting', patch:'Pending', game:'Checking', avatar:'Preparing', profile:'Starting', content:'Pending', identityError:'', authError:'', serverError:'', patchError:'', gameError:'', avatarError:'', profileError:'', contentError:'', lastRun:'', launcherNotice:'', version:'', buildChannel:'production', progress:0, patchProgress:0, avatarProgress:0, contentProgress:0, isAuthenticated:false, isAuthOnline:false, isServerOnline:false, isPatchComplete:false, isPatchActive:false, isGameReady:false, isAvatarReady:false, isProfileStoreReady:false, isContentReady:false, isPlayReady:false, isCinematicSkipped:false, isLastRunFailure:false, isStartupBlocked:false })
 const retainedProfileName = localStorage.getItem('darkspinner.selectedProfile') || localStorage.getItem('darkspinner.identity') || ''
@@ -78,6 +78,8 @@ const isRemoteServerMenuOpen = ref(false)
 const isProfileListLoaded = ref(false)
 const isProfileCreationBusy = ref(false)
 const isReportBusy = ref(false)
+const isSnapshotCompactBusy = ref(false)
+const isSnapshotCompactComplete = ref(false)
 const isReportComposerOpen = ref(false)
 const reportTitle = ref('')
 const reportResult = ref(null)
@@ -1014,6 +1016,19 @@ async function openReportFolder() {
   catch (error) { recordError(error) }
 }
 
+async function compactSnapshots() {
+  if (isSnapshotCompactBusy.value) return
+  isSnapshotCompactBusy.value = true
+  isSnapshotCompactComplete.value = false
+  try {
+    const result = await CompactSnapshots()
+    isSnapshotCompactComplete.value = !result.warning
+    if (result.warning) console.warn('Snapshot compaction warning', result.warning)
+  }
+  catch (error) { console.warn('Snapshot compaction failed', error) }
+  finally { isSnapshotCompactBusy.value = false }
+}
+
 function openMyReports() {
   BrowserOpenURL(myReportsURL)
 }
@@ -1676,7 +1691,10 @@ async function copyLauncherFailure() {
       <div class="notice-card report-composer">
         <div class="report-composer-header">
           <Button variant="ghost" class="report-manage-link report-open-folder" type="button" @click="openReportFolder">OPEN BUG FOLDER ↗</Button>
-          <a class="report-manage-link" :href="myReportsURL" @click.prevent="openMyReports">MANAGE MY REPORTS ↗</a>
+          <div class="report-header-actions">
+            <a class="report-manage-link" :href="myReportsURL" @click.prevent="openMyReports">MANAGE MY REPORTS ↗</a>
+            <Button variant="ghost" class="report-manage-link" type="button" :disabled="isSnapshotCompactBusy" :aria-busy="isSnapshotCompactBusy" :aria-label="isSnapshotCompactComplete ? 'Compact snapshots completed' : 'Compact snapshots'" @click="compactSnapshots">Compact snapshots <span v-if="isSnapshotCompactComplete" aria-hidden="true">✓</span></Button>
+          </div>
         </div>
         <p class="eyebrow">LOCAL DIAGNOSTIC REPORT</p>
         <DialogTitle as="h2">NAME THIS REPORT</DialogTitle>

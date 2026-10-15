@@ -339,7 +339,7 @@ func (e campaignProjectileStep) produceContact(
 ) ([][]byte, error) {
 	schedule := e.schedule
 	if schedule.definition.Name == "MissileTempestBasic" {
-		return e.produceMissileExplosion(peerSession, collision.Position)
+		return e.produceMissileExplosion(peerSession, collision.Position, liveNPC.Plan.ObjectID)
 	}
 	err := schedule.run.SetImpactTarget(liveNPC.Plan.ObjectID, sim.Position(liveNPC.Plan.Position))
 	if err != nil {
