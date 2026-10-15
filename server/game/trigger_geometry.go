@@ -6,8 +6,11 @@ import "math"
 // the marker orientation to physics. This evaluates hero centers; native
 // physics shape/footprint contact inflation remains a separate parity limit.
 func campaignTriggerContains(trigger CampaignDirectorTrigger, position Vec3) bool {
-	volume := trigger.SpawnTrigger.TriggerVolume
-	local := campaignTriggerLocalPosition(trigger, position)
+	return campaignVolumeContains(trigger.SpawnTrigger.TriggerVolume, trigger.Position, trigger.Rotation, position)
+}
+
+func campaignVolumeContains(volume *CampaignTriggerVolumeDefinition, center Vec3, rotation Vec3, position Vec3) bool {
+	local := campaignVolumeLocalPosition(volume, center, rotation, position)
 	if volume.Shape == uint32(TriggerSphere) {
 		return campaignDistanceSquared(local, Vec3{}) <= volume.SphereRadius*volume.SphereRadius
 	}
@@ -20,20 +23,19 @@ func campaignTriggerContains(trigger CampaignDirectorTrigger, position Vec3) boo
 	return false
 }
 
-func campaignTriggerLocalPosition(trigger CampaignDirectorTrigger, position Vec3) Vec3 {
-	volume := trigger.SpawnTrigger.TriggerVolume
+func campaignVolumeLocalPosition(volume *CampaignTriggerVolumeDefinition, center Vec3, rotation Vec3, position Vec3) Vec3 {
 	local := Vec3{
-		X: position.X - trigger.Position.X - volume.Offset.X,
-		Y: position.Y - trigger.Position.Y - volume.Offset.Y,
-		Z: position.Z - trigger.Position.Z - volume.Offset.Z,
+		X: position.X - center.X - volume.Offset.X,
+		Y: position.Y - center.Y - volume.Offset.Y,
+		Z: position.Z - center.Z - volume.Offset.Z,
 	}
 	if volume.Shape == uint32(TriggerSphere) {
 		return local
 	}
 	// Inverse of the authored degree Euler rotation (Rz * Ry * Rx).
-	sx, cx := math.Sincos(float64(trigger.Rotation.X) * math.Pi / 180)
-	sy, cy := math.Sincos(float64(trigger.Rotation.Y) * math.Pi / 180)
-	sz, cz := math.Sincos(float64(trigger.Rotation.Z) * math.Pi / 180)
+	sx, cx := math.Sincos(float64(rotation.X) * math.Pi / 180)
+	sy, cy := math.Sincos(float64(rotation.Y) * math.Pi / 180)
+	sz, cz := math.Sincos(float64(rotation.Z) * math.Pi / 180)
 	x := float64(local.X)*cz + float64(local.Y)*sz
 	y := -float64(local.X)*sz + float64(local.Y)*cz
 	z := float64(local.Z)
@@ -45,9 +47,21 @@ func campaignTriggerLocalPosition(trigger CampaignDirectorTrigger, position Vec3
 // Preserve zero-delay entry when an accepted movement crosses a thin volume.
 // Positive dwell requires sampled occupancy; a segment alone proves no dwell.
 func campaignTriggerCrossed(trigger CampaignDirectorTrigger, previous Vec3, current Vec3) bool {
-	volume := trigger.SpawnTrigger.TriggerVolume
-	start := campaignTriggerLocalPosition(trigger, previous)
-	end := campaignTriggerLocalPosition(trigger, current)
+	return campaignVolumeCrossed(trigger.SpawnTrigger.TriggerVolume, trigger.Position, trigger.Rotation, previous, current)
+}
+
+// CrossesTrigger uses the authored box/sphere and offset from the teleporter
+// component, matching native A1C3F0 rather than its legacy scalar-radius import.
+func (e CampaignTeleportRoute) CrossesTrigger(previous Vec3, current Vec3) bool {
+	if e.TriggerVolume == nil || !isFiniteCampaignPosition(previous) || !isFiniteCampaignPosition(current) {
+		return false
+	}
+	return campaignVolumeCrossed(e.TriggerVolume, e.Source, e.Rotation, previous, current)
+}
+
+func campaignVolumeCrossed(volume *CampaignTriggerVolumeDefinition, center Vec3, rotation Vec3, previous Vec3, current Vec3) bool {
+	start := campaignVolumeLocalPosition(volume, center, rotation, previous)
+	end := campaignVolumeLocalPosition(volume, center, rotation, current)
 	if volume.Shape == uint32(TriggerSphere) {
 		return campaignSegmentDistanceSquared(start, end, Vec3{}) <= volume.SphereRadius*volume.SphereRadius
 	}

@@ -57,10 +57,7 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 		) {
 			continue
 		}
-		if !isCampaignTunnelContact(
-			previous, current, route.Source, route.TriggerRadius,
-			e.deployedCampaignFootprintRadius(),
-		) {
+		if !isCampaignTeleportRouteContact(previous, current, route, e.deployedCampaignFootprintRadius()) {
 			continue
 		}
 		packets, err := campaignTeleportPackets(
@@ -231,6 +228,15 @@ func isCampaignTunnelContact(
 	triggerRadius float32, footprintRadius float32,
 ) bool {
 	return zonesecurity.IsInsideTrigger(previous, current, source, triggerRadius, footprintRadius)
+}
+
+func isCampaignTeleportRouteContact(
+	previous game.Vec3, current game.Vec3, route game.CampaignTeleportRoute, footprintRadius float32,
+) bool {
+	if !route.IsSecurity && route.TriggerVolume != nil {
+		return route.CrossesTrigger(previous, current)
+	}
+	return isCampaignTunnelContact(previous, current, route.Source, route.TriggerRadius, footprintRadius)
 }
 
 func campaignTunnelExitTrigger(

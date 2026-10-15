@@ -154,6 +154,8 @@ type CampaignTeleportRoute struct {
 	DestinationMarkerID uint32
 	Source              Vec3
 	Destination         Vec3
+	Rotation            Vec3
+	TriggerVolume       *CampaignTriggerVolumeDefinition
 	TriggerRadius       float32
 	IsSecurity          bool
 	IsBoss              bool
@@ -869,6 +871,7 @@ func (e CampaignDirector) TeleportRoutes() []CampaignTeleportRoute {
 			routes = append(routes, CampaignTeleportRoute{
 				MarkerID: marker.MarkerID, DestinationMarkerID: marker.Teleporter.DestinationMarkerID,
 				Source: marker.Position, Destination: destination,
+				Rotation: marker.Rotation, TriggerVolume: marker.Teleporter.TriggerVolume,
 				TriggerRadius: marker.TeleporterTriggerRadius, IsSecurity: isSecurity, IsBoss: isBoss,
 			})
 		}
