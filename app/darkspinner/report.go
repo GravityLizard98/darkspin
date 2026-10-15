@@ -140,8 +140,16 @@ func (a *App) createReportArchive(
 		return "", nil, fmt.Errorf("reportMkdir: %w", err)
 	}
 	createdAt := time.Now().UTC()
+	manifest := a.reportManifest(createdAt, title, nil)
+	level := strings.TrimSpace(manifest.Gameplay.Mission.Label)
+	if level == "" {
+		level = strings.TrimSpace(manifest.Gameplay.LocationLabel)
+	}
+	if level == "" {
+		level = "unknown-level"
+	}
 	reportName := fmt.Sprintf(
-		"%s-darkspin-report-%s-%s.zip", reportSlug(title), Version,
+		"%s-%s-%s-%s.zip", reportSlug(title), reportSlug(level), Version,
 		createdAt.Format("20060102T150405.000000000Z"),
 	)
 	reportPath := filepath.Join(reportDirectory, reportName)
@@ -159,7 +167,6 @@ func (a *App) createReportArchive(
 
 	archive := zip.NewWriter(w)
 	records := make([]reportFileRecord, 0, 5)
-	manifest := a.reportManifest(createdAt, title, nil)
 	err = addReportText(archive, title)
 	if err != nil {
 		_ = archive.Close()
@@ -223,10 +230,11 @@ func (a *App) reportManifest(
 	gameplayError := ""
 	if gameServer != nil {
 		captured, err := gameServer.BugContext(ctx, status.Identity)
+		if !captured.CapturedAt.IsZero() {
+			gameplay = captured
+		}
 		if err != nil {
 			gameplayError = err.Error()
-		} else {
-			gameplay = captured
 		}
 		if gameplay.CapturedAt.IsZero() {
 			gameplay.CapturedAt = createdAt

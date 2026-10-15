@@ -227,6 +227,7 @@ type Server struct {
 	gameplayDiscard       func(uint32)
 	gameplayDiscardMember func(uint32, uint64)
 	bugContext            chat.BugContextProvider
+	reportContext         chat.BugContextProvider
 	httpServers           []*recaphttp.Server
 	httpRouter            *recaphttp.Router
 	userManager           *sporenet.UserManager
@@ -280,11 +281,15 @@ func (s *Server) BugContext(
 			userName = view.DisplayName
 		}
 	}
-	bugContext, err := s.bugContext.BugContext(ctx, chat.BugContextRequest{
+	provider := s.reportContext
+	if provider == nil {
+		provider = s.bugContext
+	}
+	bugContext, err := provider.BugContext(ctx, chat.BugContextRequest{
 		Sender: chat.Participant{ID: userID, Name: userName},
 	})
 	if err != nil {
-		return chat.BugContext{}, fmt.Errorf("bugGameplay: %w", err)
+		return bugContext, fmt.Errorf("bugGameplay: %w", err)
 	}
 	return bugContext, nil
 }
@@ -850,7 +855,8 @@ func New(options Options) (*Server, error) {
 		gameplayJoin, userManager, simulationProgram, logger, campaignSetup, navigationSource,
 		zone.NewSchedulerTimer(taskScheduler), checkpointManager, serverRuleStore,
 	)
-	chatService.UseBugContextProvider(gameplayLifecycle)
+	reportContext := reportContextProvider{gameplay: gameplayLifecycle, presence: presenceRegistry}
+	chatService.UseBugContextProvider(reportContext)
 	chatService.UseHintProvider(gameplayLifecycle)
 	chatService.UseLocationProvider(gameplayLifecycle)
 	chatService.UseResourceStatusProvider(gameplayLifecycle)
@@ -897,6 +903,7 @@ func New(options Options) (*Server, error) {
 		gameplayDiscard:       gameplayLifecycle.DiscardGame,
 		gameplayDiscardMember: gameplayLifecycle.DiscardMember,
 		bugContext:            gameplayLifecycle,
+		reportContext:         reportContext,
 		httpServers:           httpServers,
 		httpRouter:            router,
 		userManager:           userManager,

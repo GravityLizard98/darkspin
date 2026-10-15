@@ -71,8 +71,15 @@ func (e *BugReporter) Report(ctx context.Context, req chat.BugCommand) (string, 
 	if version == "" {
 		version = "unknown"
 	}
+	level := strings.TrimSpace(req.Context.Mission.Label)
+	if level == "" {
+		level = strings.TrimSpace(req.Context.LocationLabel)
+	}
+	if level == "" {
+		level = "unknown-level"
+	}
 	archiveName := fmt.Sprintf(
-		"%s-darkspin-bug-%s-%s.zip", bugSlug(description), version,
+		"%s-%s-%s-%s.zip", bugSlug(description), bugSlug(level), version,
 		createdAt.Format("20060102T150405.000000000Z"),
 	)
 	archivePath := filepath.Join(bugPath, archiveName)

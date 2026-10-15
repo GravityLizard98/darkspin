@@ -1,5 +1,10 @@
 # Changelog
 
+### 2026-10-15
+
+- #67 Allow full, unlocked legacy campaign squads with an unassigned category to enter missions as advertised by the client account response, and identify specific squad validation failures in loading logs.
+- Name bug and launcher report ZIPs as message-location-version-timestamp using mission levels or client-reported Arsenal, Navigation and Editor locations, retaining known levels during partial diagnostic failures and using unknown-level when unavailable.
+
 ### 2026-10-13
 
 - #66 Remove Menace Weed's healing aura when healing ends or the enemy dies, restoring client-authored effect cleanup across all ranks and captain variants.

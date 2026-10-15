@@ -451,7 +451,7 @@ func (o *GameplayJoin) SelectCampaignSquad(
 	binding GameplayBinding, squadID uint32,
 ) (GameplayBinding, error) {
 	if o == nil || o.userFinder == nil || binding.Mode != ModeChain || squadID == 0 {
-		return GameplayBinding{}, ErrGameplaySquadInvalid
+		return GameplayBinding{}, fmt.Errorf("squadRequest: %w", ErrGameplaySquadInvalid)
 	}
 	user := o.userFinder.UserByID(int64(binding.UserID))
 	if user == nil {
@@ -467,16 +467,31 @@ func (o *GameplayJoin) SelectCampaignSquad(
 		selectedSquad = squad
 		break
 	}
-	unlockedSquadCount := max(uint32(1), view.Account.UnlockPVEDecks)
-	if selectedSquad == nil || selectedSquad.IsLocked ||
-		selectedSquad.Slot > unlockedSquadCount ||
-		!strings.EqualFold(selectedSquad.Category, "pve") {
-		return GameplayBinding{}, ErrGameplaySquadInvalid
+	if selectedSquad == nil {
+		return GameplayBinding{}, fmt.Errorf("squadMissing[%d]: %w", squadID, ErrGameplaySquadInvalid)
+	}
+	// Account projection and deck updates both treat an empty legacy category
+	// as PVE. Build 103's PlanetScreen sends the persistent deck ID after its
+	// sub_4E4C40 full-roster/lock check, so rejecting that category here strands
+	// an otherwise selectable squad after the screen has closed.
+	if selectedSquad.Category != "" && !strings.EqualFold(selectedSquad.Category, "pve") {
+		return GameplayBinding{}, fmt.Errorf(
+			"squadCategory[%d:%q]: %w", squadID, selectedSquad.Category, ErrGameplaySquadInvalid,
+		)
+	}
+	if selectedSquad.IsLockedFor(view.Account) {
+		return GameplayBinding{}, fmt.Errorf(
+			"squadLocked[%d:%d:%d]: %w", squadID, selectedSquad.Slot,
+			max(uint32(1), view.Account.UnlockPVEDecks), ErrGameplaySquadInvalid,
+		)
 	}
 	creatures := selectedGameplayCreatures(view, o.partCatalog.forGameplayMode(binding.Mode), squadID)
 	for index := range creatures {
-		if creatures[index].ID == 0 {
-			return GameplayBinding{}, ErrGameplaySquadInvalid
+		if creatures[index].ID == 0 || creatures[index].Noun == 0 {
+			return GameplayBinding{}, fmt.Errorf(
+				"squadCreature[%d:%d:%d]: %w", squadID, index,
+				selectedSquad.CreatureIDs[index], ErrGameplaySquadInvalid,
+			)
 		}
 	}
 	binding.SquadID = squadID
