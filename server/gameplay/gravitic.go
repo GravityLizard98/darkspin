@@ -48,7 +48,12 @@ func (e gameplayPendingRuntime) pollGraviticFields(packet raknet.Packet) ([][]by
 		e.registry.mutex.Unlock()
 		return nil, nil
 	}
-	packets, err := e.updateGraviticContactLocked(&member, e.now())
+	packets, err := e.updateSinkholeContactLocked(&member, e.now())
+	if err != nil {
+		e.registry.mutex.Unlock()
+		return nil, fmt.Errorf("sinkholeContact: %w", err)
+	}
+	graviticPackets, err := e.updateGraviticContactLocked(&member, e.now())
 	if err == nil {
 		e.registry.sessions[sessionKey] = member
 	}
@@ -56,6 +61,7 @@ func (e gameplayPendingRuntime) pollGraviticFields(packet raknet.Packet) ([][]by
 	if err != nil {
 		return nil, fmt.Errorf("graviticContact: %w", err)
 	}
+	packets = append(packets, graviticPackets...)
 	err = publishCampaignPeersAfterCommit(e.registry, packet, packets)
 	if err != nil {
 		return nil, fmt.Errorf("graviticPublish: %w", err)

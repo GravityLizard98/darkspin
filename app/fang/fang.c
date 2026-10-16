@@ -2031,6 +2031,7 @@ static void trace_snapshot_action_state(void) {
     const BYTE* player;
     unsigned int controlled_object_id;
     trace_client_state("action_snapshot_boundary", 1);
+    fang_trace_camera_state();
     state = original_combat_input_state != NULL ?
         (const BYTE*)original_combat_input_state() : NULL;
     if (readable_range(state, 64)) {

@@ -191,6 +191,7 @@ type zoneEffectPresentation struct {
 	campaignNPCPullReadiness            map[uint32]uint64
 	campaignNPCSinkholeReadiness        map[uint32]uint64
 	campaignNPCSinkholeEffectSlots      map[uint32]uint8
+	campaignNPCSinkholeFields           map[uint32]sinkholeField
 	campaignNPCNestleWanderReadiness    map[uint32]uint64
 	campaignNPCCopterRuns               map[uint32]*campaignScaldronCopterRun
 	campaignNPCSuppressionRuns          map[uint32]*campaignSuppressionRun
@@ -235,6 +236,10 @@ type zonePresentationRuntime struct {
 	fireVents              map[uint32]*campaignFireVent
 	fireVentWarnings       map[uint32]uint64
 	fireVentEruptions      map[uint32]uint64
+	warpTotems             map[uint32]*warpTotemCycle
+	warpTotemWarnings      map[uint32]uint64
+	warpTotemDischarges    map[uint32]uint64
+	warpTotemTeleport      warpTotemTeleport
 	cryosPoisonReadyAt     time.Time
 	cryosPoisonExpiresAt   time.Time
 	cryosPoisonSourceID    uint32
@@ -322,6 +327,8 @@ type controlledHeroState struct {
 	enemyFearTargetObjectID       uint32
 	campaignLavaReadyAt           time.Time
 	graviticSlowObjectID          uint32
+	sinkholeWind                  sinkholeWind
+	sinkholeMovementBuff          float32
 	graviticEffectSlot            uint8
 	graviticModifierID            uint32
 	isGraviticEffectAttached      bool
@@ -1126,9 +1133,14 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNPCPullReadiness)
 	clear(s.campaignNPCSinkholeReadiness)
 	clear(s.campaignNPCSinkholeEffectSlots)
+	clear(s.campaignNPCSinkholeFields)
 	clear(s.campaignNPCNestleWanderReadiness)
 	for objectID, run := range s.campaignNPCCopterRuns {
-		run.releaseLinkSlots()
+		cleanupPackets, cleanupErr := run.releaseLinks()
+		if cleanupErr != nil {
+			log.Printf("RakNet Hover Bot beam cleanup failed object=%d: %v", objectID, cleanupErr)
+		}
+		s.queueCampaignPackets(cleanupPackets)
 		delete(s.campaignNPCCopterRuns, objectID)
 	}
 	clear(s.campaignNPCSuppressionRuns)
@@ -1147,6 +1159,10 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.fireVents)
 	clear(s.fireVentWarnings)
 	clear(s.fireVentEruptions)
+	clear(s.warpTotems)
+	clear(s.warpTotemWarnings)
+	clear(s.warpTotemDischarges)
+	s.warpTotemTeleport = warpTotemTeleport{}
 	clear(s.campaignTwinLaserEndpointIDs)
 	clear(s.campaignArcturusStates)
 	s.pickupPursuit = nil

@@ -164,6 +164,10 @@ func (s *Session) planSpawns(
 		}
 		applySpawnIntroductions(plans[firstDecisionPlanIndex:], decision)
 	}
+	plans, nextObjectID, err = pairCopterSpawns(plans, nextObjectID)
+	if err != nil {
+		return nil, firstObjectID, fmt.Errorf("spawnCopterPair: %w", err)
+	}
 	return plans, nextObjectID, nil
 }
 

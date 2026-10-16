@@ -2486,6 +2486,10 @@ func (r gameplayPendingRuntime) poll(
 	if err != nil {
 		return nil, fmt.Errorf("campaignTriggerPoll: %w", err)
 	}
+	warpTotemPackets, err := r.pollWarpTotems(packet)
+	if err != nil {
+		return nil, fmt.Errorf("warpTotemPoll: %w", err)
+	}
 	graviticPackets, err := r.pollGraviticFields(packet)
 	if err != nil {
 		return nil, fmt.Errorf("graviticPoll: %w", err)
@@ -2566,6 +2570,7 @@ func (r gameplayPendingRuntime) poll(
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}
 	rootHazardPackets = append(rootHazardPackets, graviticPackets...)
+	rootHazardPackets = append(rootHazardPackets, warpTotemPackets...)
 	rootHazardPackets = append(rootHazardPackets, landingPackets...)
 	rootHazardPackets = append(rootHazardPackets, pickupPursuitPackets...)
 	rootHazardPackets = append(rootHazardPackets, triggerPackets...)
@@ -4400,6 +4405,23 @@ func stopGameplayPeerRuntime(
 	if peerSession == nil {
 		return
 	}
+	sinkholePackets, sinkholeErr := peerSession.updateSinkholeWind(0, effectPool)
+	if sinkholeErr != nil {
+		log.Printf("Sinkhole wind cleanup user=%d: %v", peerSession.binding.UserID, sinkholeErr)
+	}
+	peerSession.queueCampaignPackets(sinkholePackets)
+	peerSession.sinkholeMovementBuff = 0
+	for objectID := range peerSession.campaignNPCSinkholeEffectSlots {
+		packet, err := peerSession.stopCampaignSinkholeEffect(objectID, effectPool)
+		if err != nil {
+			log.Printf("Sinkhole field cleanup object=%d: %v", objectID, err)
+			continue
+		}
+		if len(packet) > 0 {
+			peerSession.queueCampaignPackets([][]byte{packet})
+		}
+	}
+	clear(peerSession.campaignNPCSinkholeFields)
 	for objectID, projectile := range peerSession.graviticProjectiles {
 		projectile.setSpeed(time.Now(), 1)
 		err := modifierInstancePool.Release(projectile.instanceID)

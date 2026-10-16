@@ -2,15 +2,18 @@
 
 ### 2026-10-16
 
-- Restore Overdrive's initiation animation, 50% damage reduction, 20% attack-speed bonus, client-authored 40% cooldown reduction and status immunity; preserve charge through its windup and prevent switching or transferring its buffs to another hero.
-- Publish Sentry Drone deletion during action recovery and runtime cleanup so retired Meditron drones cannot linger and accumulate across hero switches.
-- Restore Kinetic Mine death-drop sector placement and flight timing, correct the explosion radius from 16 to 2.5 units, and retire owned plasma effects with the client-authored burst after the 5-second armed timeout.
-- Restore Contagion Pustules' client-authored disease burst to poison nearby enemies within 6 units for 6 seconds, using Life/Energy damage instead of a generic explosion hit.
-- Restore Scaldron plants' client-authored destruction bursts instead of generic Zelem explosions, immediately removing small plants and retaining large plants' dead models across campaign maps.
-- Restore security and red boss teleporter glows by replacing null-model effect anchors with their authored teleporter models, including campaign reconnect baselines.
-- Restore client-authored static blockers marked as dynamic walls, including Infinity's machinery collision boxes, using selected-layout footprints instead of oversized visual bounds.
-- Prevent Arcturus's delayed landing from revealing him after death, retire superseded attack callbacks at takeoff, and preserve Twin Laser's client-authored airborne endpoint path instead of snapping it to navigation terrain across all ranks.
-- Anchor Dimensionist's Slow Shield bubble and slowing field to the client-authored stationary object instead of the moving caster, restoring cast timing, rank-one visuals and independent field expiry across campaign maps.
+- Restore Warp Totems' client-authored charge/discharge cycle, nearby random teleports and spatial effect events; replace generic explosions with their collapse effect and retain destroyed models across reconnects.
+- Replace Sinkhole's repeated hero teleports with directional movement influence, restore client-authored well timing and effect cleanup across co-op peers, and preserve NPC projectile speed changes under gravity.
+- Restore Hover Bots' client-authored circling, idle wandering and linked-beam damage, remove links when either bot dies without duplicate hits, and spawn selected campaign Hover Bots with at least one partner as a server encounter rule.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore Overdrive's initiation animation, 50% damage reduction, 20% attack-speed bonus, client-authored 40% cooldown reduction and status immunity; preserve charge through its windup and prevent switching or transferring its buffs to another hero.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Publish Sentry Drone deletion during action recovery and runtime cleanup so retired Meditron drones cannot linger and accumulate across hero switches.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore Kinetic Mine death-drop sector placement and flight timing, correct the explosion radius from 16 to 2.5 units, and retire owned plasma effects with the client-authored burst after the 5-second armed timeout.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore Contagion Pustules' client-authored disease burst to poison nearby enemies within 6 units for 6 seconds, using Life/Energy damage instead of a generic explosion hit.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore Scaldron plants' client-authored destruction bursts instead of generic Zelem explosions, immediately removing small plants and retaining large plants' dead models across campaign maps.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore security and red boss teleporter glows by replacing null-model effect anchors with their authored teleporter models, including campaign reconnect baselines.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Restore client-authored static blockers marked as dynamic walls, including Infinity's machinery collision boxes, using selected-layout footprints instead of oversized visual bounds.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Prevent Arcturus's delayed landing from revealing him after death, retire superseded attack callbacks at takeoff, and preserve Twin Laser's client-authored airborne endpoint path instead of snapping it to navigation terrain across all ranks.
+- [#70](https://github.com/darkspinnet/darkspin/issues/70) Anchor Dimensionist's Slow Shield bubble and slowing field to the client-authored stationary object instead of the moving caster, restoring cast timing, rank-one visuals and independent field expiry across campaign maps.
 
 ### 2026-10-15
 

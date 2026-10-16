@@ -2,6 +2,9 @@
 
 ### 2026-10-16
 
+- #72 Restore Warp Totems' client-authored charge/discharge cycle, nearby random teleports and spatial effect events; replace generic explosions with their collapse effect and retain destroyed models across reconnects.
+- #72 Replace Sinkhole's repeated hero teleports with directional movement influence, restore client-authored well timing and effect cleanup across co-op peers, and preserve NPC projectile speed changes under gravity.
+- #72 Restore Hover Bots' client-authored circling, idle wandering and linked-beam damage, remove links when either bot dies without duplicate hits, and spawn selected campaign Hover Bots with at least one partner as a server encounter rule.
 - #70 Restore Overdrive's initiation animation, 50% damage reduction, 20% attack-speed bonus, client-authored 40% cooldown reduction and status immunity; preserve charge through its windup and prevent switching or transferring its buffs to another hero.
 - #70 Publish Sentry Drone deletion during action recovery and runtime cleanup so retired Meditron drones cannot linger and accumulate across hero switches.
 - #70 Restore Kinetic Mine death-drop sector placement and flight timing, correct the explosion radius from 16 to 2.5 units, and retire owned plasma effects with the client-authored burst after the 5-second armed timeout.

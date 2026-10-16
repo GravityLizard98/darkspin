@@ -13,6 +13,10 @@ const GraviticFieldRadius = float32(12.5)
 const GraviticMovementSpeedBuff = float32(-0.4)
 const GraviticFieldEffectName = "effect_zelem_instrument_slow_aura.ServerEventDef"
 
+func IsWarpTotem(plan SpawnPlan) bool {
+	return plan.IsFixture && strings.EqualFold(plan.NounName, "DEST_prefab_scaldron_tem_column_statue.Noun")
+}
+
 func IsGraviticStabilizer(plan SpawnPlan) bool {
 	return plan.IsFixture && game.IsGraviticStabilizerNoun(plan.NounName)
 }

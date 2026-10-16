@@ -40,6 +40,33 @@ static int is_follow_camera(BYTE* camera) {
         *(unsigned int*)(camera + camera_follow_mode) == 4;
 }
 
+/* Snapshot-only observation. Never refresh, retarget or override a scripted
+ * camera while collecting evidence of a lost follow target. */
+void fang_trace_camera_state(void) {
+    BYTE* camera;
+    unsigned int distance_bits;
+    unsigned int target_bits;
+    if (native_camera == NULL || camera_client_base == NULL) {
+        trace_client_state("camera_snapshot_unavailable", 1);
+        return;
+    }
+    camera = (BYTE*)native_camera();
+    if (!readable_range(camera, camera_read_size) ||
+        *(void**)camera != camera_client_base + 0xBE1968) {
+        trace_client_state("camera_snapshot_unsupported", 1);
+        return;
+    }
+    trace_client_state("camera_follow_target", *(unsigned int*)(camera + camera_target));
+    trace_client_state("camera_override", camera[camera_override]);
+    trace_client_state("camera_mode", *(unsigned int*)(camera + camera_mode));
+    trace_client_state("camera_follow_mode", *(unsigned int*)(camera + camera_follow_mode));
+    trace_client_state("camera_zoom_mode", *(unsigned int*)(camera + camera_zoom_mode));
+    memcpy(&distance_bits, camera + camera_distance, sizeof(distance_bits));
+    memcpy(&target_bits, camera + camera_distance_target, sizeof(target_bits));
+    trace_client_state("camera_distance_bits", distance_bits);
+    trace_client_state("camera_distance_target_bits", target_bits);
+}
+
 static float camera_clamp(float distance, float minimum, float maximum) {
     if (distance < minimum) {
         return minimum;

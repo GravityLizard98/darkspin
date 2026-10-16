@@ -245,6 +245,9 @@ func destructibleDeathPresentation(
 		// model is retained by campaignNPCDeathDefinition below.
 		return scaldronDeath.effectName, time.Millisecond
 	}
+	if zonenpc.IsWarpTotem(snapshot.Plan) {
+		return "scaldron_instrument_destruction_effect.ServerEventDef", time.Millisecond
+	}
 	if zonenpc.IsVerdanthTotem(snapshot.Plan) {
 		// HeadstatueDeath emits the authored destruction event before leaving
 		// the dead graphics state in place; the event owns its breaking sound.
@@ -339,6 +342,7 @@ func campaignNPCDeathDefinition(
 	isNightmareVine := strings.EqualFold(snapshot.Plan.NounName, nightmareVineNounName)
 	isGraviticRemnant := zonenpc.IsGraviticRemnant(snapshot.Plan)
 	isVerdanthTotem := zonenpc.IsVerdanthTotem(snapshot.Plan)
+	isWarpTotem := zonenpc.IsWarpTotem(snapshot.Plan)
 	isCryosGeyser := zonenpc.IsCryosGeyser(snapshot.Plan)
 	isPipe := isFactoryPipe(snapshot.Plan.NounName)
 	if isCryosGeyser {
@@ -395,10 +399,10 @@ func campaignNPCDeathDefinition(
 		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
 		isFixture:           isFixture,
 		isBoss:              snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser || isPipe || isScaldronRemnantRetained,
+		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isWarpTotem || isCryosGeyser || isPipe || isScaldronRemnantRetained,
 		isCollisionRetained: isGraviticRemnant,
 		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRemnant ||
-			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant || isPipe || isScaldronPlant,
+			isVerdanthTotem || isWarpTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant || isPipe || isScaldronPlant,
 		ordinaryDeathAnimation: ordinaryDeathAnimation,
 		corpseFadeDelay:        deathPresentation.PresentationDuration,
 		graphicsState:          graphicsState,
@@ -1706,21 +1710,10 @@ func (r campaignDamageRuntime) publishTransition(
 		}
 		healingCleanupPackets = healingPackets
 	}
-	var sinkholeCleanupPacket []byte
+	var sinkholeCleanupPackets [][]byte
 	if transition.sinkholeCleanupObjectID != 0 {
-		r.registry.mutex.Lock()
-		peerSession, isFound := r.registry.sessions[sessionKey]
-		isCurrent := isFound && peerSession.generation == generation
 		var err error
-		if isCurrent {
-			sinkholeCleanupPacket, err = peerSession.stopCampaignSinkholeEffect(
-				transition.sinkholeCleanupObjectID, r.effectPool,
-			)
-			if err == nil {
-				r.registry.sessions[sessionKey] = peerSession
-			}
-		}
-		r.registry.mutex.Unlock()
+		sinkholeCleanupPackets, err = r.stopSinkholeFields(sessionKey, generation, transition.sinkholeCleanupObjectID)
 		if err != nil {
 			return nil, fmt.Errorf("transitionSinkholeCleanup: %w", err)
 		}
@@ -1821,9 +1814,7 @@ func (r campaignDamageRuntime) publishTransition(
 			packets = append(packets, animationPacket)
 		}
 	}
-	if sinkholeCleanupPacket != nil {
-		packets = append(packets, sinkholeCleanupPacket)
-	}
+	packets = append(packets, sinkholeCleanupPackets...)
 	// Publish the modifier deletion after the death state. The native corpse
 	// transition snapshots attached status presentation, so deleting Terrified
 	// first can leave its visual copied onto the defeated actor.
@@ -1979,6 +1970,13 @@ func (r campaignDamageRuntime) publishTransition(
 	}
 	packets = append(packets, experiencePackets...)
 	if transition.defeatedObjectID != 0 {
+		copterPackets, copterErr := r.npc.stopCopterLinks(
+			sessionKey, generation, transition.defeatedObjectID,
+		)
+		if copterErr != nil {
+			return nil, fmt.Errorf("transitionCopter: %w", copterErr)
+		}
+		packets = append(packets, copterPackets...)
 		fearPackets, err := r.npc.stopCampaignNPCFearSource(
 			sessionKey, generation, transition.defeatedObjectID,
 		)
@@ -6057,7 +6055,11 @@ func (r campaignNPCActionRuntime) scheduleFirstActionsWithIntroductions(
 	if err != nil {
 		return nil, fmt.Errorf("firstActionMerak: %w", err)
 	}
-	immediatePackets := make([][]byte, 0, len(plans)*4)
+	copterPackets, copterErr := r.startCopterControllers(packet, sessionKey, generation, plans, timestamp)
+	if copterErr != nil {
+		return nil, fmt.Errorf("firstActionCopter: %w", copterErr)
+	}
+	immediatePackets := append(make([][]byte, 0, len(plans)*4), copterPackets...)
 	producers := make([]raknet.ScheduledPacketProducer, 0, len(plans)*2)
 	aggroEvents := make([]zonenpc.ActionEvent, 0, len(plans))
 	owner := zonenpc.ActionOwner{UserID: userID, PeerGeneration: generation}
@@ -6551,7 +6553,7 @@ func (s *gameplayPeerSession) enemyMovementSpeedBuff() float32 {
 		}
 		movementSpeedBuff += run.record.MovementSpeedBuff
 	}
-	return min(float32(0), movementSpeedBuff)
+	return max(float32(-0.9), min(float32(0), movementSpeedBuff)+s.sinkholeMovementBuff)
 }
 
 func (s *gameplayPeerSession) enemyAttackSpeed() float32 {

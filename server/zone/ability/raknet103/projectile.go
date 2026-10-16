@@ -651,9 +651,9 @@ func (r *ProjectileRun) ApplyGravity(
 	r.motionUpdated = now
 	r.motionRemaining = remainingDistance
 	r.isGravityDeflected = true
-	// The replacement native locomotion has a constant speed. Preserve that
-	// same speed after changing direction instead of continuing acceleration
-	// which is absent from the packet below.
+	// Retain the integrated velocity in both simulations. Keeping the old
+	// speed here discarded acceleration towards/away from the gravity source.
+	r.speed = velocityLength / r.effectiveSpeedScaleLocked()
 	r.acceleration = 0
 	r.gravityPosition = snapshot.Position
 	r.gravityDirection = direction
@@ -671,7 +671,7 @@ func (r *ProjectileRun) ApplyGravity(
 		ObjectID: r.objectID,
 		Locomotion: raknet.LocomotionReflection{
 			Projectile: &raknet.ProjectileParameter{
-				Speed: snapshot.Speed, Range: remainingDistance,
+				Speed: velocityLength, Range: remainingDistance,
 				Direction:                initialDirection,
 				IsGroundCollisionIgnored: true, IsCreatureCollisionIgnored: true,
 			},
