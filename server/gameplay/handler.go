@@ -4521,7 +4521,11 @@ func stopGameplayPeerRuntime(
 		_, _ = peerSession.sagePassive.Stop()
 	}
 	stopSummonCompanionAttacks(peerSession.sagePassiveActivations)
-	_, _ = peerSession.stopFieldMedicDrone()
+	dronePackets, droneErr := peerSession.stopFieldMedicDrone()
+	if droneErr != nil {
+		log.Printf("RakNet Field Medic runtime cleanup failed user=%d: %v", peerSession.binding.UserID, droneErr)
+	}
+	peerSession.queueCampaignPackets(dronePackets)
 	_, _ = peerSession.stopBeastPet()
 	_, _ = peerSession.stopHeroSummons()
 	_, _ = peerSession.stopFireTempestActive()
@@ -5063,6 +5067,11 @@ func (r gameplaySetupRuntime) publishCampaign(
 	if err != nil {
 		return nil, false, fmt.Errorf("pingCampaignSetup: %w", err)
 	}
+	shieldPackets, err := r.registry.nomadDragShieldPackets(peerSession.zone, r.now())
+	if err != nil {
+		return nil, false, fmt.Errorf("pingDragShield: %w", err)
+	}
+	response = append(response, shieldPackets...)
 	for index, use := range peerSession.zone.Script().SnapshotUses() {
 		usePackets, marshalErr := objectraknet.ScriptUseSnapshot(use)
 		if marshalErr != nil {

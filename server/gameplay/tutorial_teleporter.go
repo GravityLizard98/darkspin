@@ -29,7 +29,7 @@ func (e *gameplayPeerSession) tutorialTeleporterInitialState() ([][]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("tutorialAnchorOwner: %w", err)
 	}
-	anchorPacket, err := securityraknet.Anchor(objectID, tutorialBossTeleport.Source)
+	anchorPacket, err := securityraknet.Anchor(objectID, tutorialBossTeleport)
 	if err != nil {
 		return nil, fmt.Errorf("tutorialAnchor: %w", err)
 	}

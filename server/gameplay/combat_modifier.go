@@ -123,7 +123,7 @@ func (r campaignNPCActionRuntime) applyCampaignNPCTimedModifier(
 			generation, plan.TargetObjectID,
 		)
 	}
-	if isCurrent && r.isTargetDebuffImmuneLocked(&peerSession, plan.TargetObjectID) {
+	if isCurrent && r.isTargetStatusImmuneLocked(&peerSession, plan.TargetObjectID) {
 		isCurrent = false
 	}
 	if isCurrent && profile.ModifierName == "CitadelMinionSuicide_Daze" && peerSession.isScarabDazed() {

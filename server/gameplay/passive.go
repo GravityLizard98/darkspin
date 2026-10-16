@@ -473,6 +473,9 @@ func (s gameplayPeerSession) projectPassiveCreature(
 			healthRatio * creature.PassiveHealthMovementMax
 	}
 	if s.isOverdriveActiveAt(now) {
+		// Modifiers/0x1EF02FF9.lua (OverdriveModifier): additive attributes.
+		creature.TimingProfile.AttackSpeed += 0.20
+		creature.TimingProfile.CooldownReduction += 0.40
 		switch creature.PassiveAbility {
 		case util.HashID("QuantumPositioning"):
 			creature.EnergyDamageReduction += 0.50

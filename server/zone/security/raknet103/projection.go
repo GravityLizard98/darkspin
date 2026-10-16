@@ -28,7 +28,11 @@ func InitialState(objectID [zonesecurity.RouteCount]uint32) ([][]byte, error) {
 	}
 	packets := make([][]byte, 0, len(publications))
 	for index, publication := range publications {
-		anchorPacket, err := Anchor(publication.ObjectID, publication.Position)
+		teleport, isFound := zonesecurity.Route(index)
+		if !isFound {
+			return nil, fmt.Errorf("initialRoute[%d]: unavailable", index)
+		}
+		anchorPacket, err := Anchor(publication.ObjectID, teleport)
 		if err != nil {
 			return nil, fmt.Errorf("initialAnchor[%d]: %w", index, err)
 		}
@@ -54,7 +58,7 @@ func SnapshotState(
 		if !isFound {
 			return nil, fmt.Errorf("snapshotRoute[%d]: unavailable", index)
 		}
-		anchorPacket, err := Anchor(objectID, teleport.Source)
+		anchorPacket, err := Anchor(objectID, teleport)
 		if err != nil {
 			return nil, fmt.Errorf("snapshotAnchor[%d]: %w", index, err)
 		}

@@ -51,6 +51,8 @@ func (r campaignOverdriveRuntime) handle(
 		peerSession.binding.IsOverdriveUnlocked &&
 		command.Common.ObjectID == peerSession.deployedObjectID &&
 		peerSession.deployedHitPoint() > 0 &&
+		peerSession.isAbilityReleaseReady(now) &&
+		!peerSession.isHeroArrivalProtected(now) &&
 		!peerSession.isOverdriveSpent &&
 		peerSession.overdriveEnergy >= float32(campaignOverdriveMaximumEnergy) &&
 		!peerSession.isOverdriveActiveAt(now)
@@ -73,16 +75,41 @@ func (r campaignOverdriveRuntime) handle(
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("overdriveAcknowledge: %w", err)
 	}
+	animationPacket, err := raknet.MarshalApplication(raknet.SetAnimationStateMessage{
+		ObjectID: peerSession.deployedObjectID, State: util.HashID("overdrive_initiate"),
+		Timestamp: packet.SourceTime, Scale: 1,
+	})
+	if err != nil {
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("overdriveAnimation: %w", err)
+	}
+	stopPackets, err := marshalZonePlayerStop(peerSession.deployedObjectID, peerSession.playerPosition)
+	if err != nil {
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("overdriveStop: %w", err)
+	}
+	err = peerSession.stopPlayerMovement(now)
+	if err != nil {
+		r.registry.mutex.Unlock()
+		return nil, fmt.Errorf("overdriveMovement: %w", err)
+	}
+	releaseReservation, isReserved := peerSession.abilityReleaseSession().Reserve(now, 400*time.Millisecond)
+	if !isReserved {
+		r.registry.mutex.Unlock()
+		return nil, errors.New("overdrive release unavailable")
+	}
 	peerSession.isOverdriveSpent = true
 	peerSession.overdriveEnergy = 0
 	peerSession.overdriveStartsAt = now.Add(300 * time.Millisecond)
 	peerSession.overdriveExpiresAt = peerSession.overdriveStartsAt.Add(duration)
 	peerSession.overdriveActivation++
+	peerSession.overdriveObjectID = peerSession.deployedObjectID
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()
 	step := campaignOverdriveMeterStep{
 		runtime: r, packet: packet.Autonomous(), sessionKey: sessionKey,
 		generation: peerSession.generation, activation: peerSession.overdriveActivation,
+		objectID: peerSession.deployedObjectID, creatureIndex: peerSession.deployedCreatureIndex,
 	}
 	scheduleErr := errors.New("overdrive scheduler unavailable")
 	if step.packet.ScheduleFunc != nil {
@@ -97,6 +124,11 @@ func (r campaignOverdriveRuntime) handle(
 			current.overdriveEnergy = float32(campaignOverdriveMaximumEnergy)
 			current.overdriveExpiresAt = time.Time{}
 			current.overdriveStartsAt = time.Time{}
+			current.overdriveObjectID = 0
+			isRolledBack := current.abilityReleaseSession().Rollback(releaseReservation)
+			if !isRolledBack && r.logger != nil {
+				r.logger.Printf("RakNet Overdrive release rollback superseded user=%d", current.binding.UserID)
+			}
 			r.registry.sessions[sessionKey] = current
 		}
 		r.registry.mutex.Unlock()
@@ -108,15 +140,19 @@ func (r campaignOverdriveRuntime) handle(
 			peerSession.binding.GameID, peerSession.binding.UserID, duration,
 		)
 	}
-	return [][]byte{ackPacket}, nil
+	packets := append([][]byte{ackPacket}, stopPackets...)
+	return append(packets, animationPacket), nil
 }
 
 type campaignOverdriveMeterStep struct {
-	runtime    campaignOverdriveRuntime
-	packet     raknet.Packet
-	sessionKey string
-	generation uint64
-	activation uint64
+	runtime       campaignOverdriveRuntime
+	packet        raknet.Packet
+	sessionKey    string
+	generation    uint64
+	activation    uint64
+	objectID      uint32
+	creatureIndex uint32
+	isPresented   bool
 }
 
 func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
@@ -128,17 +164,40 @@ func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
 		e.runtime.registry.mutex.RUnlock()
 		return nil, nil
 	}
-	isActive := member.isOverdriveActiveAt(now)
+	isActive := member.deployedObjectID == e.objectID && member.isOverdriveActiveAt(now)
 	remaining := member.overdriveExpiresAt.Sub(now)
 	duration := campaignOverdriveDuration(member)
 	energy := member.presentedOverdriveEnergy(now)
 	e.runtime.registry.mutex.RUnlock()
+	if now.Before(member.overdriveStartsAt) && remaining > 0 {
+		err := e.packet.ScheduleFunc(member.overdriveStartsAt.Sub(now), e.produce)
+		if err != nil {
+			return nil, fmt.Errorf("overdriveCommitSchedule: %w", err)
+		}
+		return nil, nil
+	}
 	statePacket, err := raknet.MarshalApplication(raknet.LabsPlayerOverdriveStateMessage{
 		Slot: uint8(member.binding.Slot), Energy: energy, IsActive: isActive,
 		DrainPerSecond: float32(campaignOverdriveMaximumEnergy / duration.Seconds()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("overdriveMeter: %w", err)
+	}
+	packets := [][]byte{statePacket}
+	if isActive != e.isPresented {
+		creature := member.projectPassiveCreature(e.creatureIndex, now)
+		attributePacket, attributeErr := raknet.MarshalApplication(raknet.AttributeDataUpdateMessage{
+			ObjectID: e.objectID,
+			Value: map[uint8]float32{
+				23: creature.TimingProfile.AttackSpeed,
+				24: creature.TimingProfile.CooldownReduction,
+			},
+		})
+		if attributeErr != nil {
+			return nil, fmt.Errorf("overdriveAttribute: %w", attributeErr)
+		}
+		packets = append(packets, attributePacket)
+		e.isPresented = isActive
 	}
 	if isActive {
 		delay := min(500*time.Millisecond, remaining)
@@ -147,7 +206,7 @@ func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
 			return nil, fmt.Errorf("overdriveMeterSchedule: %w", err)
 		}
 	}
-	return [][]byte{statePacket}, nil
+	return packets, nil
 }
 
 func (e *gameplayPeerSession) rechargeOverdrive(
@@ -156,11 +215,18 @@ func (e *gameplayPeerSession) rechargeOverdrive(
 	if e == nil || baseEnergy == 0 || !e.binding.IsOverdriveUnlocked {
 		return 0, false
 	}
+	if now.Before(e.overdriveStartsAt) && now.Before(e.overdriveExpiresAt) {
+		return 0, false
+	}
 	creatureIndex := e.deployedCreatureIndex
 	if creatureIndex >= uint32(len(e.binding.Creatures)) {
 		return 0, false
 	}
 	bonus := max(float32(-1), e.binding.Creatures[creatureIndex].OverdriveBuildupIncrease)
+	if e.isOverdriveActiveAt(now) {
+		// OverdriveModifier adds 1.5 to OverdriveBuildup while active.
+		bonus += 1.5
+	}
 	// Base charge is independent of difficulty-scaled experience rewards.
 	recharge := float32(baseEnergy) * (1 + bonus)
 	if recharge <= 0 {
@@ -193,6 +259,11 @@ func (e gameplayPeerSession) presentedOverdriveEnergy(now time.Time) float32 {
 		return 0
 	}
 	if !e.isOverdriveActiveAt(now) {
+		// Do not publish an empty meter between accepting the command and its
+		// authored 0.3-second StartOverdrive commit.
+		if now.Before(e.overdriveStartsAt) && now.Before(e.overdriveExpiresAt) {
+			return float32(campaignOverdriveMaximumEnergy)
+		}
 		return e.overdriveEnergy
 	}
 	duration := campaignOverdriveDuration(e)

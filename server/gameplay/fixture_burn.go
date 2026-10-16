@@ -29,6 +29,11 @@ func (e campaignFixtureBlastStep) startBurn(targetID uint32, profile zonenpc.Act
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}
+	if profile.ModifierName == "LifePlagueSpread" &&
+		e.timestamp < member.campaignNPCDiseaseImmunityEnds[targetID] {
+		r.registry.mutex.Unlock()
+		return nil, nil
+	}
 	target, isTargetFound := member.zone.NPCs().LiveNPC(targetID)
 	if !isTargetFound || !target.IsPublished {
 		r.registry.mutex.Unlock()
@@ -112,6 +117,13 @@ func (e campaignFixtureBurnStep) stop() ([][]byte, error) {
 	member, isFound := r.registry.sessions[e.blast.sessionKey]
 	if isFound && member.generation == e.blast.generation && member.campaignNPCModifiers[e.run.instanceID] == e.run {
 		member.untrackCampaignNPCModifier(e.run)
+		if e.profile.ModifierName == "LifePlagueSpread" && e.remainingTickCount == 0 {
+			if member.campaignNPCDiseaseImmunityEnds == nil {
+				member.campaignNPCDiseaseImmunityEnds = make(map[uint32]uint64)
+			}
+			member.campaignNPCDiseaseImmunityEnds[e.targetID] =
+				e.blast.timestamp + uint64(campaignNPCDiseaseImmunityPeriod/time.Millisecond)
+		}
 		r.registry.sessions[e.blast.sessionKey] = member
 	}
 	r.registry.mutex.Unlock()
@@ -140,6 +152,11 @@ func (e campaignFixtureBurnStep) produce() ([][]byte, error) {
 	profile.DamageType = 3
 	profile.DamageSource = 1
 	profile.DescriptorMask = 1 << 2
+	if profile.IsModifierDamageProfileKnown {
+		profile.DamageType = profile.ModifierDamageType
+		profile.DamageSource = profile.ModifierDamageSource
+		profile.DescriptorMask = profile.ModifierDescriptorMask
+	}
 	e.blast.timestamp += 1000
 	packets, isSurviving, err := e.blast.damage(e.targetID, profile, true)
 	if err != nil {

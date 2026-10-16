@@ -38,6 +38,9 @@ func (e gameplayPeerSession) equipmentDefense() combat.DefenseProfile {
 		PhysicalArmor: attributes[102], EnergyArmor: attributes[103],
 	}
 	copy(profile.ScienceResistances[:], attributes[43:48])
+	if e.isOverdriveActiveAt(time.Now()) {
+		profile.DamageReduction += 0.50
+	}
 	return profile
 }
 
@@ -63,6 +66,23 @@ func (e campaignNPCActionRuntime) isTargetDebuffImmuneLocked(
 	}
 	_ = targetSessionKey
 	return targetSession.isHeroDebuffImmune(targetObjectID)
+}
+
+// Overdrive protects against disables and authored DoT categories, not every
+// debuff (for example, incoming-damage vulnerability is still allowed).
+func (e campaignNPCActionRuntime) isTargetStatusImmuneLocked(
+	session *gameplayPeerSession, targetObjectID uint32,
+) bool {
+	if e.isTargetDebuffImmuneLocked(session, targetObjectID) {
+		return true
+	}
+	target, isFound := session.campaignNPCTarget(session.generation, targetObjectID)
+	if !isFound || !target.IsHero {
+		return false
+	}
+	targetSession, targetSessionKey := e.heroTargetSession(session, target)
+	_ = targetSessionKey
+	return targetSession != nil && targetSession.isOverdriveActiveAt(time.Now())
 }
 
 func enemyDefenseRequest(profile zonenpc.ActionProfile, damage float32, isArea, isPeriodic bool) combat.DefenseRequest {

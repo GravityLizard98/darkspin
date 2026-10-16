@@ -592,7 +592,7 @@ func (r campaignNPCActionRuntime) applyCampaignNPCFear(
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}
-	if r.isTargetDebuffImmuneLocked(&peerSession, target.ObjectID) {
+	if r.isTargetStatusImmuneLocked(&peerSession, target.ObjectID) {
 		r.registry.mutex.Unlock()
 		return nil, nil
 	}

@@ -473,7 +473,7 @@ func (r campaignAbilityCommandRuntime) handleHeroSelfModifier(
 	}
 
 	creatureIndex := peerSession.deployedCreatureIndex
-	creature := peerSession.binding.Creatures[creatureIndex]
+	creature := r.registry.projectPassiveCreature(peerSession, creatureIndex, req.startTime)
 	abilityRank := req.command.Ability.Rank
 	if abilityRank <= 0 {
 		abilityRank = 1

@@ -4669,7 +4669,7 @@ func scaldronBasicMinesMeleeProfile() ActionProfile {
 func ScaldronBasicMinesDeathProfile(nounName string) (ActionProfile, bool) {
 	switch strings.ToLower(strings.TrimSpace(nounName)) {
 	case "scaldronbasicmines.noun":
-		return scaldronBasicMinesDeathProfile(4, 2*time.Second), true
+		return scaldronBasicMinesDeathProfile(4, time.Second), true
 	case "scaldronbasicmines_2.noun":
 		return scaldronBasicMinesDeathProfile(6, time.Second), true
 	case "scaldronbasicmines_3.noun":
@@ -4701,7 +4701,7 @@ func scaldronBasicMinesDeathProfile(
 		RetainedObjectNoun:       "Ability_Fireball.Noun",
 		RetainedEffectName:       "ScaldronBasicMines_MineExplosion.ServerEventDef",
 		MinimumRange:             1,
-		Radius:                   16,
+		Radius:                   2.5,
 		ProjectileHeight:         2,
 		IsDamageProfileKnown:     true,
 	}

@@ -66,35 +66,31 @@ func (e gameplayPendingRuntime) pollGraviticFields(packet raknet.Packet) ([][]by
 func (e gameplayPendingRuntime) updateGraviticContactLocked(
 	member *gameplayPeerSession, now time.Time,
 ) ([][]byte, error) {
-	stabilizers := make([]zonenpc.Snapshot, 0)
+	fields := make([]graviticField, 0)
 	for _, plan := range member.zone.FixturePlans() {
 		if !zonenpc.IsGraviticStabilizer(plan) {
 			continue
 		}
 		stabilizer, isFound := member.zone.NPCs().NPC(plan.ObjectID)
 		if isFound && !stabilizer.IsDefeated && stabilizer.HitPoint > 0 {
-			stabilizers = append(stabilizers, stabilizer)
+			fields = append(fields, graviticField{objectID: plan.ObjectID, position: stabilizer.Plan.Position, radius: zonenpc.GraviticFieldRadius})
 		}
 	}
 	for _, sourceMember := range e.registry.sessions {
 		if sourceMember.zone != member.zone {
 			continue
 		}
-		for objectID, expiresAt := range sourceMember.campaignNPCDragShieldExpirations {
-			if !now.Before(expiresAt) {
-				continue
-			}
-			shield, isFound := member.zone.NPCs().NPC(objectID)
-			if isFound && !shield.IsDefeated && shield.HitPoint > 0 {
-				stabilizers = append(stabilizers, shield)
+		for _, shield := range sourceMember.campaignNPCDragShields {
+			if now.Before(shield.expiresAt) {
+				fields = append(fields, graviticField{objectID: shield.objectID, position: shield.position, radius: shield.radius})
 			}
 		}
 	}
-	packets, err := e.updateGraviticProjectilesLocked(member, stabilizers, now)
+	packets, err := e.updateGraviticProjectilesLocked(member, fields, now)
 	if err != nil {
 		return nil, fmt.Errorf("graviticProjectiles: %w", err)
 	}
-	if len(stabilizers) == 0 && member.graviticSlowObjectID == 0 {
+	if len(fields) == 0 && member.graviticSlowObjectID == 0 {
 		return packets, nil
 	}
 	position := game.Vec3(member.playerPosition)
@@ -108,8 +104,8 @@ func (e gameplayPendingRuntime) updateGraviticContactLocked(
 	nextObjectID := uint32(0)
 	if member.deployedObjectID != 0 && member.deployedHitPoint() > 0 &&
 		!member.isHeroSelectionPending &&
-		!e.damage.npc.isTargetDebuffImmuneLocked(member, member.deployedObjectID) {
-		if graviticFieldSource(stabilizers, position) != 0 {
+		!e.damage.npc.isTargetStatusImmuneLocked(member, member.deployedObjectID) {
+		if graviticFieldSource(fields, position) != 0 {
 			nextObjectID = member.deployedObjectID
 		}
 	}

@@ -699,6 +699,26 @@ func (s *Session) StartAction(
 	return npc, true, isFirstAction, nil
 }
 
+// SupersedeAction preserves the current owner and target while retiring delayed
+// callbacks from the previous ability. Exclusive phases start a new generation.
+func (e *Session) SupersedeAction(objectID uint32, actionGeneration uint64) (Snapshot, bool) {
+	if e == nil || objectID == 0 || actionGeneration == 0 {
+		return Snapshot{}, false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	npc, isFound := e.npcs[objectID]
+	if !isFound || npc.IsDefeated || !npc.IsActionStarted || npc.ActionGeneration != actionGeneration {
+		return Snapshot{}, false
+	}
+	npc.ActionGeneration++
+	if npc.ActionGeneration == 0 {
+		npc.ActionGeneration = 1
+	}
+	e.npcs[objectID] = npc
+	return npc, true
+}
+
 func (s *Session) ResetAction(objectID uint32) bool {
 	if s == nil || objectID == 0 {
 		return false

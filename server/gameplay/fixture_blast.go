@@ -16,6 +16,10 @@ func isFactoryPipe(nounName string) bool {
 }
 
 func fixtureBlastProfile(nounName string) (zonenpc.ActionProfile, bool) {
+	pustuleProfile, isPustule := scaldronPustuleProfile(nounName)
+	if isPustule {
+		return pustuleProfile, true
+	}
 	profile := zonenpc.ActionProfile{
 		MinimumDamage: 6, MaximumDamage: 12, Radius: 5,
 		DamageType: 0, DamageSource: 1, DescriptorMask: 1<<3 | 1<<7,
@@ -73,6 +77,19 @@ func (e campaignFixtureBlastStep) produce() ([][]byte, error) {
 		if target.Plan.ObjectID == e.source.Plan.ObjectID || !target.IsPublished ||
 			target.Faction != e.source.Faction ||
 			target.Plan.Position.Sub(e.source.Plan.Position).Length() > profile.Radius {
+			continue
+		}
+		if profile.ModifierName == "LifePlagueSpread" {
+			// The authored kType_Creature query excludes other scenery. The
+			// pustule requests disease without an initial explosion damage hit.
+			if target.Plan.IsFixture {
+				continue
+			}
+			poisonPackets, poisonErr := e.startBurn(target.Plan.ObjectID, profile)
+			if poisonErr != nil {
+				return nil, fmt.Errorf("pustulePoison: %w", poisonErr)
+			}
+			packets = append(packets, poisonPackets...)
 			continue
 		}
 		hitPackets, isSurviving, err := e.damage(target.Plan.ObjectID, profile, false)

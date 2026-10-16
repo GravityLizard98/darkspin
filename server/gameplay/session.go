@@ -215,7 +215,7 @@ type zoneEffectPresentation struct {
 	campaignCorruptorStates             map[uint32]campaignCorruptorState
 	campaignNPCRuptionNextMagmas        map[uint32]uint64
 	campaignNPCDragSlowShieldReadiness  map[uint32]uint64
-	campaignNPCDragShieldExpirations    map[uint32]time.Time
+	campaignNPCDragShields              map[uint32]nomadDragShield
 	campaignNPCShielderNextGrenades     map[uint32]uint64
 	campaignNPCNextSleepMushrooms       map[uint32]uint64
 	campaignNPCShielderShieldSetups     map[uint32]bool
@@ -354,10 +354,13 @@ type controlledHeroState struct {
 	overdriveStartsAt             time.Time
 	overdriveExpiresAt            time.Time
 	overdriveActivation           uint64
+	overdriveObjectID             uint32
 }
 
 func (e gameplayPeerSession) isOverdriveActiveAt(now time.Time) bool {
 	return e.binding.IsOverdriveUnlocked && !now.IsZero() &&
+		e.overdriveObjectID == e.deployedObjectID &&
+		e.deployedHitPoint() > 0 &&
 		!now.Before(e.overdriveStartsAt) &&
 		now.Before(e.overdriveExpiresAt)
 }
@@ -1119,7 +1122,7 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.campaignNPCDiseaseImmunityEnds)
 	clear(s.campaignNPCFleeDeathCounts)
 	clear(s.campaignNPCDragSlowShieldReadiness)
-	clear(s.campaignNPCDragShieldExpirations)
+	clear(s.campaignNPCDragShields)
 	clear(s.campaignNPCPullReadiness)
 	clear(s.campaignNPCSinkholeReadiness)
 	clear(s.campaignNPCSinkholeEffectSlots)
@@ -1817,7 +1820,13 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 	}
 	_, _ = e.stopFireTempestActive()
 	_, _ = e.stopPlasmaSentinelActive()
-	_, _ = e.stopFieldMedicDrone()
+	dronePackets, droneErr := e.stopFieldMedicDrone()
+	if droneErr != nil {
+		log.Printf("RakNet Field Medic action reset cleanup failed user=%d: %v", e.binding.UserID, droneErr)
+	}
+	// Removing authority must also retire the client object; otherwise the next
+	// Meditron deployment creates a second drone beside the orphaned one.
+	e.queueCampaignPackets(dronePackets)
 	_, _ = e.stopBeastPet()
 	_, _ = e.stopHeroSummons()
 	treePackets, treeErr := e.stopCampaignTreeOfLife()
@@ -3964,6 +3973,9 @@ func (r gameplaySwitchRuntime) handle(
 		deathSelectionDelay = commandSession.heroSelectionReadyAt.Sub(switchStartTime)
 	}
 	switchPresentationTime := switchStartTime.Add(deathSelectionDelay)
+	if !isDeathSelection && commandSession.isOverdriveActiveAt(switchStartTime) {
+		return r.reject(command, commandSession, switchStartTime, "overdrive swap disabled")
+	}
 	isVoluntarySwitch := !isDeathSelection &&
 		command.Common.ObjectID == sourceObjectID &&
 		commandSession.squad.IsDeployReady(switchStartTime)

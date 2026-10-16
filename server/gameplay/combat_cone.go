@@ -276,11 +276,7 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 	}
 	if isTwinLaser {
 		beamPlan := e.plan
-		endpoints, endpointErr := e.twinLaserEndpoints(peerSession.zone)
-		if endpointErr != nil {
-			e.runtime.registry.mutex.Unlock()
-			return nil, fmt.Errorf("laserEndpoints: %w", endpointErr)
-		}
+		endpoints := e.twinLaserEndpoints()
 		e.laserEndpoints = endpoints[:]
 		if e.hitDelay == e.plan.Profile.HitDelay {
 			beamPackets, err := npcraknet.TwinLaserPairStart(

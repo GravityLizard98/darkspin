@@ -84,6 +84,11 @@ func (r gameplaySetupRuntime) publishRejoin(
 	// The baseline's final deployment can reset the native action bar. Restore
 	// remaining cooldowns afterward, only in this owner's reconnect response.
 	baseline = append(baseline, cooldownPackets...)
+	shieldPackets, err := r.registry.nomadDragShieldPackets(peerSession.zone, r.now())
+	if err != nil {
+		return nil, fmt.Errorf("rejoinDragShield: %w", err)
+	}
+	baseline = append(baseline, shieldPackets...)
 	if peerSession.zone.TreeOfLife() != nil && peerSession.zone.TreeOfLife().Revision() != treeRevision {
 		return nil, fmt.Errorf("rejoinTreeCapture: %w", errRejoinSnapshotActive)
 	}

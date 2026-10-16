@@ -1,8 +1,20 @@
 # Changelog
 
+### 2026-10-16
+
+- Restore Overdrive's initiation animation, 50% damage reduction, 20% attack-speed bonus, client-authored 40% cooldown reduction and status immunity; preserve charge through its windup and prevent switching or transferring its buffs to another hero.
+- Publish Sentry Drone deletion during action recovery and runtime cleanup so retired Meditron drones cannot linger and accumulate across hero switches.
+- Restore Kinetic Mine death-drop sector placement and flight timing, correct the explosion radius from 16 to 2.5 units, and retire owned plasma effects with the client-authored burst after the 5-second armed timeout.
+- Restore Contagion Pustules' client-authored disease burst to poison nearby enemies within 6 units for 6 seconds, using Life/Energy damage instead of a generic explosion hit.
+- Restore Scaldron plants' client-authored destruction bursts instead of generic Zelem explosions, immediately removing small plants and retaining large plants' dead models across campaign maps.
+- Restore security and red boss teleporter glows by replacing null-model effect anchors with their authored teleporter models, including campaign reconnect baselines.
+- Restore client-authored static blockers marked as dynamic walls, including Infinity's machinery collision boxes, using selected-layout footprints instead of oversized visual bounds.
+- Prevent Arcturus's delayed landing from revealing him after death, retire superseded attack callbacks at takeoff, and preserve Twin Laser's client-authored airborne endpoint path instead of snapping it to navigation terrain across all ranks.
+- Anchor Dimensionist's Slow Shield bubble and slowing field to the client-authored stationary object instead of the moving caster, restoring cast timing, rank-one visuals and independent field expiry across campaign maps.
+
 ### 2026-10-15
 
-- Retire opened obelisks' server collision at the client-authored physics-removal step and preserve that state across Continue and reconnects, preventing lingering blockers in the tutorial and campaign.
+- [#71](https://github.com/darkspinnet/darkspin/issues/71) Retire opened obelisks' server collision at the client-authored physics-removal step and preserve that state across Continue and reconnects, preventing lingering blockers in the tutorial and campaign.
 - [#69](https://github.com/darkspinnet/darkspin/issues/69) Restore ordinary campaign portals' authored box and sphere trigger geometry, including height, orientation and offsets, fixing narrow portals such as mission 6-4 that failed to transport heroes.
 - Add Compact snapshots below the GitHub link in Send Report, moving completed snapshot ZIPs into numbered bundles capped at 25 MB in the background, dimming the button while running and showing a checkmark on success, while retaining originals if packing fails or a source changes.
 - [#68](https://github.com/darkspinnet/darkspin/issues/68) Preserve SRS-42's confirmed regular-missile collision target in its explosion damage, fixing direct hits discarded when a destructor or other large enemy's center lies outside the blast radius.

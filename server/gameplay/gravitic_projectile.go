@@ -29,24 +29,25 @@ func (e graviticProjectile) setSpeed(now time.Time, scale float32) bool {
 	return e.run.SetSpeedScale(now, scale)
 }
 
-func graviticFieldSource(stabilizers []zonenpc.Snapshot, position game.Vec3) uint32 {
-	for _, stabilizer := range stabilizers {
-		radius := zonenpc.GraviticFieldRadius
-		shieldRadius, shieldEffect, isDimensionist := nomadDragSlowShieldPresentation(stabilizer.Plan.NounName)
-		if isDimensionist && shieldEffect != "" {
-			radius = shieldRadius
-		}
-		if stabilizer.Plan.Position.Sub(position).Length() <= radius {
-			return stabilizer.Plan.ObjectID
+type graviticField struct {
+	objectID uint32
+	position game.Vec3
+	radius   float32
+}
+
+func graviticFieldSource(fields []graviticField, position game.Vec3) uint32 {
+	for _, field := range fields {
+		if field.position.Sub(position).Length() < field.radius {
+			return field.objectID
 		}
 	}
 	return 0
 }
 
 func (e gameplayPendingRuntime) updateGraviticProjectilesLocked(
-	member *gameplayPeerSession, stabilizers []zonenpc.Snapshot, now time.Time,
+	member *gameplayPeerSession, fields []graviticField, now time.Time,
 ) ([][]byte, error) {
-	if len(stabilizers) == 0 && len(member.graviticProjectiles) == 0 {
+	if len(fields) == 0 && len(member.graviticProjectiles) == 0 {
 		return nil, nil
 	}
 	runs := make([]*abilityraknet.ProjectileRun, 0, len(member.sageAttacks)+len(member.heroProjectileRuns)+2)
@@ -73,7 +74,7 @@ func (e gameplayPendingRuntime) updateGraviticProjectilesLocked(
 	}
 	for objectID, lob := range lobs {
 		position, isActive := lob.position(now)
-		sourceID := graviticFieldSource(stabilizers, position)
+		sourceID := graviticFieldSource(fields, position)
 		if isActive && sourceID != 0 {
 			projectiles[objectID] = graviticProjectile{lob: lob, objectID: objectID}
 			sources[objectID] = sourceID
@@ -81,7 +82,7 @@ func (e gameplayPendingRuntime) updateGraviticProjectilesLocked(
 	}
 	for _, run := range runs {
 		snapshot := run.Snapshot(now)
-		sourceID := graviticFieldSource(stabilizers, game.Vec3(snapshot.Position))
+		sourceID := graviticFieldSource(fields, game.Vec3(snapshot.Position))
 		if snapshot.IsActive && sourceID != 0 {
 			projectiles[snapshot.ObjectID] = graviticProjectile{run: run, objectID: snapshot.ObjectID}
 			sources[snapshot.ObjectID] = sourceID
@@ -89,7 +90,7 @@ func (e gameplayPendingRuntime) updateGraviticProjectilesLocked(
 	}
 	for _, run := range member.heroBurstAttacks {
 		for _, snapshot := range run.Snapshots(now) {
-			sourceID := graviticFieldSource(stabilizers, game.Vec3(snapshot.Position))
+			sourceID := graviticFieldSource(fields, game.Vec3(snapshot.Position))
 			if snapshot.IsActive && sourceID != 0 {
 				projectiles[snapshot.ObjectID] = graviticProjectile{burst: run, objectID: snapshot.ObjectID}
 				sources[snapshot.ObjectID] = sourceID

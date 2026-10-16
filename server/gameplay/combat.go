@@ -239,6 +239,12 @@ func destructibleDeathPresentation(
 	if isToxicactus(snapshot.Plan.NounName) {
 		return toxicactusDeathEffect, toxicactusDeleteDelay
 	}
+	scaldronDeath := scaldronPlantDeathPresentation(snapshot.Plan.NounName)
+	if scaldronDeath.effectName != "" {
+		// Both scripts emit their burst immediately. The large plant's dead
+		// model is retained by campaignNPCDeathDefinition below.
+		return scaldronDeath.effectName, time.Millisecond
+	}
 	if zonenpc.IsVerdanthTotem(snapshot.Plan) {
 		// HeadstatueDeath emits the authored destruction event before leaving
 		// the dead graphics state in place; the event owns its breaking sound.
@@ -340,7 +346,10 @@ func campaignNPCDeathDefinition(
 	}
 	isNocturnaPlant := isFixture && nocturnaPlantDeathEffect(snapshot.Plan.NounName) != ""
 	isToxicactusPlant := isFixture && isToxicactus(snapshot.Plan.NounName)
-	if isNocturnaPlant || isToxicactusPlant {
+	scaldronDeath := scaldronPlantDeathPresentation(snapshot.Plan.NounName)
+	isScaldronPlant := isFixture && scaldronDeath.effectName != ""
+	isScaldronRemnantRetained := isFixture && scaldronDeath.isRemnantRetained
+	if isNocturnaPlant || isToxicactusPlant || (isScaldronPlant && !isScaldronRemnantRetained) {
 		// The dedicated burst owns presentation; these authored death scripts
 		// do not request a dead graphics state or creature death animation.
 		graphicsState = 0
@@ -386,10 +395,10 @@ func campaignNPCDeathDefinition(
 		isCreatureTypeKnown: physics.IsCreatureTypeKnown,
 		isFixture:           isFixture,
 		isBoss:              snapshot.Plan.IsBoss || isDestructor,
-		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser || isPipe,
+		isRemnantRetained:   isNightmareVine || isGraviticRemnant || isVerdanthTotem || isCryosGeyser || isPipe || isScaldronRemnantRetained,
 		isCollisionRetained: isGraviticRemnant,
 		isDeathAnimationSuppressed: isIllusion || isNightmareVine || isGraviticRemnant ||
-			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant || isPipe,
+			isVerdanthTotem || isCryosGeyser || isNocturnaPlant || isToxicactusPlant || isPipe || isScaldronPlant,
 		ordinaryDeathAnimation: ordinaryDeathAnimation,
 		corpseFadeDelay:        deathPresentation.PresentationDuration,
 		graphicsState:          graphicsState,
