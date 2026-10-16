@@ -47,6 +47,17 @@ func scriptUse(use game.CampaignScriptUse, isSnapshot bool) ([][]byte, error) {
 		return nil, fmt.Errorf("scriptUseStateMarshal: %w", err)
 	}
 	packets := [][]byte{dataPacket, statePacket}
+	if isSnapshot {
+		// Restored uses represent the completed interaction, including the
+		// authored final RemovePhysicsForObject call.
+		collisionPacket, collisionErr := raknet.MarshalApplication(raknet.ObjectCollisionUpdateMessage{
+			ObjectID: publication.ObjectID, IsCollisionEnabled: false,
+		})
+		if collisionErr != nil {
+			return nil, fmt.Errorf("scriptSnapshotCollision: %w", collisionErr)
+		}
+		packets = append(packets, collisionPacket)
+	}
 	effectPackets, err := obeliskEffects(publication.ObjectID, publication.AbilityName, false, !isSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("scriptUseEffect: %w", err)

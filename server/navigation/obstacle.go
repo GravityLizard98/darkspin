@@ -4,15 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync/atomic"
 )
 
 // Obstacle is an upright static collision box in game coordinates. The
 // selected layout owns these boxes; the cached terrain mesh remains immutable.
 type Obstacle struct {
-	Position Vec3
-	Minimum  Vec3
-	Maximum  Vec3
-	Yaw      float32
+	MarkerID   uint32
+	Position   Vec3
+	Minimum    Vec3
+	Maximum    Vec3
+	Yaw        float32
+	isDisabled *atomic.Bool
 }
 
 func (e *Mesh) WithObstacles(obstacles []Obstacle) (*Mesh, error) {
@@ -30,7 +33,23 @@ func (e *Mesh) WithObstacles(obstacles []Obstacle) (*Mesh, error) {
 	}
 	result := *e
 	result.obstacles = append([]Obstacle(nil), obstacles...)
+	for index := range result.obstacles {
+		result.obstacles[index].isDisabled = new(atomic.Bool)
+	}
 	return &result, nil
+}
+
+// DisableObstacle retires a placed collider without changing the shared terrain
+// mesh. All actors using this layout observe the same collision lifetime.
+func (e *Mesh) DisableObstacle(markerID uint32) {
+	if e == nil || markerID == 0 {
+		return
+	}
+	for _, obstacle := range e.obstacles {
+		if obstacle.MarkerID == markerID && obstacle.isDisabled != nil {
+			obstacle.isDisabled.Store(true)
+		}
+	}
 }
 
 func (e Obstacle) local(point Vec3) Vec3 {
@@ -41,6 +60,9 @@ func (e Obstacle) local(point Vec3) Vec3 {
 }
 
 func (e Obstacle) intersects(start Vec3, end Vec3, radius float32, height float32) bool {
+	if e.isDisabled != nil && e.isDisabled.Load() {
+		return false
+	}
 	start, end = e.local(start), e.local(end)
 	minimums := [3]float32{e.Minimum.X - radius, e.Minimum.Y - radius, e.Minimum.Z - height}
 	maximums := [3]float32{e.Maximum.X + radius, e.Maximum.Y + radius, e.Maximum.Z}

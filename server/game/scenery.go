@@ -10,6 +10,7 @@ import (
 )
 
 type CampaignSceneryObstacle struct {
+	MarkerID uint32
 	Position Vec3
 	Minimum  Vec3
 	Maximum  Vec3
@@ -50,6 +51,7 @@ func (e CampaignDirector) SceneryObstacles() ([]CampaignSceneryObstacle, error) 
 				maximum = Vec3{X: footprint.Extents.X / 2, Y: footprint.Extents.Y / 2, Z: footprint.Extents.Z / 2}
 			}
 			obstacles = append(obstacles, CampaignSceneryObstacle{
+				MarkerID: definition.MarkerID,
 				Position: definition.Position,
 				Minimum:  minimum, Maximum: maximum,
 				Yaw: definition.Rotation.Z,

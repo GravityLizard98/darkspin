@@ -2088,6 +2088,9 @@ func (e *Zone) restoreCheckpoint(snapshot zonecheckpoint.Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("checkpointScript: %w", err)
 	}
+	for _, use := range snapshot.ScriptUses {
+		e.info.Navigation.DisableObstacle(use.Invocation.MarkerID)
+	}
 	err = e.info.Security.Restore(snapshot.Security)
 	if err != nil {
 		return fmt.Errorf("checkpointSecurity: %w", err)

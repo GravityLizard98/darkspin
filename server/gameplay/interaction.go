@@ -2716,6 +2716,7 @@ type campaignInteractableFinalStep struct {
 	sessionKey string
 	generation uint64
 	objectID   uint32
+	markerID   uint32
 	run        *zoneinteract.Run
 	deadline   time.Duration
 	release    []byte
@@ -2730,13 +2731,18 @@ func (s campaignInteractableFinalStep) produce() ([][]byte, error) {
 		return nil, nil
 	}
 	packet, err := s.adapter.advance(s.deadline)
-	if err == nil {
-		packet = append(packet, s.release)
-		s.runtime.releaseSchedule(
-			s.sessionKey, s.generation, s.objectID, s.run,
-		)
+	if err != nil {
+		return nil, fmt.Errorf("interactableFinal: %w", err)
 	}
-	return packet, err
+	// InteractWithObelisk/InteractHealthObelisk call
+	// RemovePhysicsForObject after finalWaitTime. The wire event already
+	// removes client physics; retire the same server navigation obstacle.
+	peerSession.zone.Navigation().DisableObstacle(s.markerID)
+	packet = append(packet, s.release)
+	s.runtime.releaseSchedule(
+		s.sessionKey, s.generation, s.objectID, s.run,
+	)
+	return packet, nil
 }
 
 type campaignInteractableScheduleFailure struct {
@@ -2968,7 +2974,8 @@ func (r campaignInteractionRuntime) handleScriptUse(
 	finalStep := campaignInteractableFinalStep{
 		runtime: r, adapter: packetAdapter, sessionKey: sessionKey,
 		generation: generation, objectID: use.Invocation.TargetObjectID,
-		run: interactableRun, deadline: deadline[2], release: releasePacket,
+		markerID: use.Invocation.MarkerID,
+		run:      interactableRun, deadline: deadline[2], release: releasePacket,
 	}
 	producers := []raknet.ScheduledPacketProducer{
 		{Delay: deadline[0], Produce: advanceStep.produce},

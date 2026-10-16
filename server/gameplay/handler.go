@@ -5890,6 +5890,7 @@ func (p campaignPreparation) initialize(
 		obstacles := make([]navigation.Obstacle, 0, len(sceneryObstacles))
 		for _, obstacle := range sceneryObstacles {
 			obstacles = append(obstacles, navigation.Obstacle{
+				MarkerID: obstacle.MarkerID,
 				Position: navigation.Vec3(obstacle.Position), Minimum: navigation.Vec3(obstacle.Minimum),
 				Maximum: navigation.Vec3(obstacle.Maximum), Yaw: obstacle.Yaw,
 			})
