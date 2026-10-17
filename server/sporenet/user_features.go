@@ -924,8 +924,8 @@ func isOnboardingTransition(current uint32, requested uint32) bool {
 
 // CompleteTutorial advances the server-owned onboarding boundary and persists
 // the cumulative XP/level snapshot consumed by TutorialGameMsgs subtype 0.
-// The floor is the video-observed 335/level-3 tutorial result, which also
-// normalizes compatibility routes that permit an optional encounter bypass.
+// First completion uses the video-observed 335/level-3 tutorial result,
+// including skipped tutorials and optional encounter bypasses.
 // Replays are idempotent and never reduce later account progression.
 func (m *UserManager) CompleteTutorial(ctx context.Context, userID int64) (TutorialCompletion, error) {
 	user := m.UserByID(userID)
@@ -956,7 +956,7 @@ func (m *UserManager) CompleteTutorial(ctx context.Context, userID int64) (Tutor
 		starterChanged := user.completeTutorialStarterSquad(blitzTemplate, sageTemplate)
 		isChanged = isChanged || starterChanged
 		blitzID = user.creatureIDByTemplateName(blitzTemplate.Name)
-		if isFirstCompletion && user.Account.CreatureRewards == 0 {
+		if isFirstCompletion && user.Account.CreatureRewards != 1 {
 			user.Account.CreatureRewards = 1
 			isChanged = true
 		}
@@ -1066,14 +1066,20 @@ func completeTutorialAccount(account *Account) bool {
 		return false
 	}
 	previous := *account
+	isFirstCompletion := account.IsTutorialPending()
 	// Build 103 continues from combat completion at 3000 through mandatory ship
 	// guides. The local server deliberately completes that onboarding chain so a
 	// victorious player reaches an immediately usable ship instead of another
 	// resumable soft-lock boundary.
 	account.OnboardingProgress = max(account.OnboardingProgress, shipOnboardingCompletedProgress)
 	account.NewPlayerInventory = max(account.NewPlayerInventory, uint32(1))
-	account.XP = max(account.XP, tutorialCompletionExperience)
-	account.Level = max(account.Level, tutorialCompletionLevel)
+	if isFirstCompletion {
+		account.XP = tutorialCompletionExperience
+		account.Level = tutorialCompletionLevel
+	} else {
+		account.XP = max(account.XP, tutorialCompletionExperience)
+		account.Level = max(account.Level, tutorialCompletionLevel)
+	}
 	account.DNA = max(account.DNA, tutorialCompletionDNA)
 	return *account != previous
 }
@@ -1591,18 +1597,13 @@ func (m *UserManager) SetAccountLevel(ctx context.Context, userID int64, level u
 }
 
 func heroRewardEntitlementCount(level uint32) uint32 {
-	milestones := [...]uint32{
-		4, 5, 8, 11, 14, 17, 18, 20, 22, 23, 25, 27, 28, 30, 32, 33,
-		35, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+	// The tutorial supplies the first three heroes: Blitz, Sage, and one
+	// activation choice. Each subsequent Crogenitor level earns another choice.
+	// Hero availability levels are separate from this activation allowance.
+	if level <= tutorialCompletionLevel {
+		return 0
 	}
-	count := uint32(0)
-	for _, milestone := range milestones {
-		if milestone > level {
-			break
-		}
-		count++
-	}
-	return count
+	return level - tutorialCompletionLevel
 }
 
 func minimumExperienceForLevel(level uint32) (uint32, bool) {

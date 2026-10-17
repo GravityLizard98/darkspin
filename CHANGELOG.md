@@ -2,6 +2,8 @@
 
 ### 2026-10-17
 
+- #74 Make first tutorial completion and tutorial skip finish at Crogenitor level 3 with Blitz, Sage and one hero activation credit, preserving later progression on repeated completion calls.
+- #74 Change hero activation rewards from selected milestones to one per Crogenitor level after the three tutorial heroes, restoring missing credits for existing accounts on profile load.
 - #75 Correct Overdrive's malformed active-state packet to restore native glow, sound and HELIX activation/ending cues, and share active-state changes with co-op peers while retaining the six-second base duration.
 - #75 Synchronize mission HUD core attributes and weapon damage with equipped hero stats instead of fixed placeholder values, preserve them during recovery, and align profile/combat defense and critical ratings with the client's Dexterity and Mind contributions.
 - #75 Resolve movement clicks onto the connected stair or ramp surface instead of rejecting goals carrying the hero's previous height, preventing repeated movement corrections while preserving horizontal tolerance and obstacle checks across maps.
