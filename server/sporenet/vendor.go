@@ -160,6 +160,7 @@ func (m *UserManager) ApplyVendorTransactions(
 				return VendorTransactionResult{}, errors.New("vendor DNA overflow")
 			}
 			part.MarketStatus = PartMarketBuyback
+			part.BuybackExpiresAt = time.Now().Add(buybackLifetime).Unix()
 			user.Account.DNA += price
 		case VendorBuyback:
 			if part.MarketStatus != PartMarketOffer && part.MarketStatus != PartMarketBuyback {
@@ -168,6 +169,11 @@ func (m *UserManager) ApplyVendorTransactions(
 				return VendorTransactionResult{}, ErrVendorPartStatus
 			}
 			isOffer := part.MarketStatus == PartMarketOffer
+			if !isOffer && part.BuybackExpiresAt <= time.Now().Unix() {
+				rollback()
+				user.mu.Unlock()
+				return VendorTransactionResult{}, ErrVendorPartStatus
+			}
 			if isOffer && (vendor == nil || !vendor.IsPartShopEnabled || user.PartShop.ExpiresAt <= time.Now().Unix()) {
 				rollback()
 				user.mu.Unlock()
@@ -205,6 +211,7 @@ func (m *UserManager) ApplyVendorTransactions(
 				part.Cost = ownedCost
 			}
 			part.MarketStatus = PartMarketOwned
+			part.BuybackExpiresAt = 0
 			user.Account.DNA -= price
 		case VendorFlair:
 			if partPolicy == nil || part.IsFlair ||

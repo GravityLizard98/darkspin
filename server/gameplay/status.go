@@ -1658,9 +1658,13 @@ func (s *gameplayPeerSession) marshalResetBaselineAt(
 	}
 	resourcePackets := make([][]byte, 0, 2)
 	maximumHitPoint, maximumManaPoint := s.characterResourceMaximum(s.deployedCreatureIndex)
-	for index, message := range raknet.HeroResourceStateMessages(
-		s.deployedObjectID, hitPoint, manaPoint, maximumHitPoint, maximumManaPoint,
-	) {
+	if s.deployedCreatureIndex >= uint32(len(s.binding.Creatures)) {
+		return nil, errors.New("reset creature unavailable")
+	}
+	creature := s.binding.Creatures[s.deployedCreatureIndex]
+	creature.HitPoint, creature.PowerPoint = hitPoint, manaPoint
+	creature.MaximumHitPoint, creature.MaximumPowerPoint = maximumHitPoint, maximumManaPoint
+	for index, message := range campaignHeroResourceStateMessages(s.deployedObjectID, creature) {
 		packet, marshalErr := raknet.MarshalApplication(message)
 		if marshalErr != nil {
 			return nil, fmt.Errorf("resetResource[%d]: %w", index, marshalErr)

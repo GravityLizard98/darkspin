@@ -216,6 +216,7 @@ type partRow struct {
 	Status                 uint8               `db:"status"`
 	Usage                  uint8               `db:"usage"`
 	CreationDate           uint64              `db:"creation_date"`
+	BuybackExpiresAt       int64               `db:"buyback_expires_at"`
 	RigblockAssetID        uint16              `db:"rigblock_asset_id"`
 	PrefixAssetID          uint16              `db:"prefix_asset_id"`
 	PrefixSecondaryAssetID uint16              `db:"prefix_secondary_asset_id"`

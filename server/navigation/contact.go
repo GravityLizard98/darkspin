@@ -46,7 +46,13 @@ func (e *Mesh) ProjectInteractionTarget(
 	if err != nil {
 		return Projection{}, fmt.Errorf("contactProject: %w", err)
 	}
-	if squaredDistance(projection.Position, target) > options.MaxDistance*options.MaxDistance {
+	contactTarget := target
+	if options.IsPlanar {
+		// The movement click's Z is only a surface-selection hint. Measure
+		// contact clearance from the recovered terrain point instead.
+		contactTarget = targetProjection.Position
+	}
+	if squaredDistance(projection.Position, contactTarget) > options.MaxDistance*options.MaxDistance {
 		return Projection{}, errors.New("interaction contact too distant")
 	}
 	return projection, nil

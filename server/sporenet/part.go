@@ -46,6 +46,7 @@ type Part struct {
 	Status                   uint8
 	Usage                    uint8
 	CreationDate             uint64
+	BuybackExpiresAt         int64
 	RigblockAssetID          uint16
 	PrefixAssetID            uint16
 	PrefixSecondaryAssetID   uint16

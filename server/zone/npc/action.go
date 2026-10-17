@@ -3782,15 +3782,15 @@ func ActionProfileForNoun(nounName string) (ActionProfile, bool) {
 		), true
 	case "scaldronbasicblink.noun":
 		return scaldronBasicBlinkAttackProfile(
-			8*time.Second, 15, 133*time.Millisecond, 266*time.Millisecond,
+			8*time.Second, 15,
 		), true
 	case "scaldronbasicblink_2.noun":
 		return scaldronBasicBlinkAttackProfile(
-			7*time.Second, 18, 266*time.Millisecond, 532*time.Millisecond,
+			7*time.Second, 18,
 		), true
 	case "scaldronbasicblink_3.noun":
 		return scaldronBasicBlinkAttackProfile(
-			6*time.Second, 21, 400*time.Millisecond, 800*time.Millisecond,
+			6*time.Second, 21,
 		), true
 	case "scaldronbasicsinkhole.noun":
 		return scaldronBasicSinkholeProjectileProfile(
@@ -4773,14 +4773,15 @@ func scaldronBasicThornoNovaProfile(
 
 func scaldronBasicBlinkAttackProfile(
 	cooldown time.Duration, attackRange float32,
-	hitDelay time.Duration, releaseDelay time.Duration,
 ) ActionProfile {
 	return ActionProfile{
 		Family: ActionMelee, AbilityName: "ScaldronBasicBlink_AttackBlink",
-		AnimationName:             "sca_minn_sp_02_attack1",
-		EndAnimationName:          "sca_minn_sp_02_attack1_end",
-		HitDelay:                  hitDelay,
-		ReleaseDelay:              releaseDelay,
+		AnimationName:    "sca_minn_sp_02_attack1",
+		EndAnimationName: "sca_minn_sp_02_attack1_end",
+		// timetohit is an eight-hit sequence shared by all ranks. AttackBlink
+		// adds 250ms to every hit, then rests 400ms after the final 1066ms hit.
+		HitDelay:                  383 * time.Millisecond,
+		ReleaseDelay:              1716 * time.Millisecond,
 		Cooldown:                  cooldown,
 		Range:                     attackRange,
 		Radius:                    3,

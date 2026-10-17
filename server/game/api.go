@@ -61,6 +61,7 @@ type API struct {
 	vendor              *sporenet.Vendor
 	partShopRules       sporenet.PartShopRules
 	partShopPreparer    PartShopPreparer
+	buybackExpirer      BuybackExpirer
 	storage             string
 	staticFileSystem    fs.FS
 	host                string
@@ -103,6 +104,10 @@ func RegisterAPI(router *recaphttp.Router, options APIOptions) error {
 	partShopPreparer, isPartShopSupported := options.UserManager.(PartShopPreparer)
 	if isPartShopSupported {
 		api.partShopPreparer = partShopPreparer
+	}
+	buybackExpirer, isBuybackSupported := options.UserManager.(BuybackExpirer)
+	if isBuybackSupported {
+		api.buybackExpirer = buybackExpirer
 	}
 	routes := []struct {
 		path    string
@@ -631,7 +636,22 @@ func (a *API) updateCreature(writer http.ResponseWriter, request *http.Request, 
 		writeXML(writer, http.StatusOK, xmlResponse(false))
 		return
 	}
-	partID := parseUint64List(values.Get("parts"))
+	// The native save always includes parts, even when deliberately empty.
+	// Missing or malformed IDs must not silently erase the saved loadout.
+	if !values.Has("parts") {
+		a.logger.Printf("creature_update missing parts account=%q creature_id=%d", userLoginName(user), creatureID)
+		writeXML(writer, http.StatusOK, xmlResponse(false))
+		return
+	}
+	partIDs := make([]uint64, 0)
+	if values.Get("parts") != "" {
+		partIDs, err = parseUint64CSV(values.Get("parts"))
+		if err != nil {
+			a.logger.Printf("creature_update invalid parts account=%q creature_id=%d error=%q", userLoginName(user), creatureID, err)
+			writeXML(writer, http.StatusOK, xmlResponse(false))
+			return
+		}
+	}
 	if a.logger != nil {
 		a.logger.Printf(
 			"creature_update account=%q creature_id=%d version=%d gear=%q points=%q parts=%q stats_length=%d ability_stats_length=%d thumb_length=%d large_length=%d",
@@ -674,7 +694,7 @@ func (a *API) updateCreature(writer http.ResponseWriter, request *http.Request, 
 	creature, err := a.userManager.UpdateCreature(request.Context(), user, sporenet.CreatureUpdate{
 		CreatureID: creatureID, GearScore: float32(gearScore), ItemPoints: float32(itemPoints),
 		PreviousVersion: savedCreature.Version, SavedVersion: version,
-		Stats: values.Get("stats"), AbilityStats: values.Get("stats_ability_keyvalues"), EquippedPartID: partID,
+		Stats: values.Get("stats"), AbilityStats: values.Get("stats_ability_keyvalues"), EquippedPartID: partIDs,
 		LargeImageURL: largeURL, ThumbImageURL: thumbURL,
 	})
 	if err != nil {
@@ -1041,6 +1061,16 @@ func (a *API) partList(ctx context.Context, writer http.ResponseWriter, user *sp
 		writeXML(writer, http.StatusOK, xmlResponse(false))
 		return
 	}
+	if a.buybackExpirer != nil {
+		err := a.buybackExpirer.ExpireBuyback(ctx, user, time.Now())
+		if err != nil {
+			if a.logger != nil {
+				a.logger.Printf("buyback_expire_failed account=%q error=%q", userLoginName(user), err)
+			}
+			writeXML(writer, http.StatusOK, xmlResponse(false))
+			return
+		}
+	}
 	query := parsePartListQuery(values)
 	isShopAvailable := a.partShopRules.IsEnabled && a.partShopPreparer != nil
 	if isShopAvailable && !query.isOwnedOnly && !query.isCreatureFiltered {
@@ -1113,7 +1143,7 @@ func parsePartListQuery(values interface{ Get(string) string }) partListQuery {
 }
 
 func (query partListQuery) matches(part sporenet.Part) bool {
-	if query.isOwnedOnly && part.MarketStatus != 0 {
+	if (query.isOwnedOnly || query.isCreatureFiltered) && part.MarketStatus != sporenet.PartMarketOwned {
 		return false
 	}
 	if query.isCreatureFiltered && part.EquippedToCreatureID != query.equippedCreatureID {
@@ -1149,11 +1179,9 @@ func (a *API) creatureResponse(ctx context.Context, writer http.ResponseWriter, 
 		return
 	}
 	equippedPart := make([]sporenet.Part, 0)
-	if queryBool(values, "include_parts", "includeParts") {
-		for _, part := range view.Parts {
-			if part.EquippedToCreatureID == creature.ID {
-				equippedPart = append(equippedPart, part)
-			}
+	for _, part := range view.Parts {
+		if part.MarketStatus == sporenet.PartMarketOwned && part.EquippedToCreatureID == creature.ID {
+			equippedPart = append(equippedPart, part)
 		}
 	}
 	if a.logger != nil {
@@ -1161,7 +1189,8 @@ func (a *API) creatureResponse(ctx context.Context, writer http.ResponseWriter, 
 	}
 	imageURL := fmt.Sprintf("http://%s:%d/template_png/%d_thumb.png", a.host, a.httpPort, creature.Noun())
 	partImageBaseURL := fmt.Sprintf("http://%s:%d/assets/images/loot/", a.host, a.httpPort)
-	profileXML := profileCreatureNode(creature, equippedPart, imageURL, partImageBaseURL, a.partCatalog)
+	profileXML := profileCreatureNode(creature, equippedPart, imageURL, partImageBaseURL, a.partCatalog,
+		queryBool(values, "include_parts", "includeParts"))
 	writeXML(writer, http.StatusOK, xmlResponse(true, profileXML))
 }
 
@@ -1445,31 +1474,41 @@ func creatureNodeWithImages(creature *sporenet.Creature, largeImageURL, thumbIma
 	)
 }
 
-func profileCreatureNode(creature *sporenet.Creature, parts []sporenet.Part, fallbackImageURL, partImageBaseURL string, partCatalog *PartCatalog) string {
-	return profileNode("creature", creature, parts, fallbackImageURL, partImageBaseURL, partCatalog)
+func profileCreatureNode(creature *sporenet.Creature, parts []sporenet.Part, fallbackImageURL, partImageBaseURL string, partCatalog *PartCatalog, isPartsIncluded bool) string {
+	return profileNode("creature", creature, parts, fallbackImageURL, partImageBaseURL, partCatalog, isPartsIncluded)
 }
 
 func profileTemplateNode(creature *sporenet.Creature, fallbackImageURL string, partCatalog *PartCatalog) string {
-	return profileNode("template", creature, nil, fallbackImageURL, "", partCatalog)
+	return profileNode("template", creature, nil, fallbackImageURL, "", partCatalog, true)
 }
 
-func profileNode(nodeName string, creature *sporenet.Creature, parts []sporenet.Part, fallbackImageURL, partImageBaseURL string, partCatalog *PartCatalog) string {
+func profileNode(nodeName string, creature *sporenet.Creature, parts []sporenet.Part, fallbackImageURL, partImageBaseURL string, partCatalog *PartCatalog, isPartsIncluded bool) string {
 	if creature == nil || creature.Template == nil {
 		return ""
 	}
 	template := creature.Template
 	profile := creatureProfileFieldsFor(template)
+	stats := creature.Stats
+	attributes := [partAttributeCount]float32{}
+	if nodeName == "creature" {
+		functionalParts, ignoredPartCount := gameplayEquippedParts(parts, creature.ID)
+		// The same functional-item limit owns profile and mission statistics.
+		_ = ignoredPartCount
+		attributes = profilePartAttributes(functionalParts, partCatalog)
+		stats = gameplayCreatureStats(creature, attributes)
+	}
 	abilityStats := encodeAbilityStats(creature.AbilityStats)
-	if abilityStats == "" && template.Noun != 1667741389 && len(creature.Stats) > 0 {
-		attributes := profilePartAttributes(parts, partCatalog)
-		abilityStats = profileAbilityStatsWithAttributes(template, profile.abilityID, creature.Stats, attributes)
+	if abilityStats == "" && template.Noun != 1667741389 && len(stats) > 0 {
+		abilityStats = profileAbilityStatsWithAttributes(template, profile.abilityID, stats, attributes)
 	}
 	creatorID := creature.CreatorID
 	largeImageURL := defaultText(creature.LargeImageURL, fallbackImageURL)
 	thumbImageURL := defaultText(creature.ThumbImageURL, fallbackImageURL)
 	partNodes := make([]string, 0, len(parts))
-	for index := range parts {
-		partNodes = append(partNodes, profilePartNode(&parts[index], partImageBaseURL, partCatalog))
+	if isPartsIncluded {
+		for index := range parts {
+			partNodes = append(partNodes, profilePartNode(&parts[index], partImageBaseURL, partCatalog))
+		}
 	}
 	abilityNodes := make([]string, 0, 5)
 	for _, abilityID := range profile.abilityID {
@@ -1484,7 +1523,7 @@ func profileNode(nodeName string, creature *sporenet.Creature, parts []sporenet.
 		xmlText("weapon_min_damage", fmt.Sprint(template.WeaponMinDamage)), xmlText("weapon_max_damage", fmt.Sprint(template.WeaponMaxDamage)),
 		xmlText("gear_score", fmt.Sprint(creature.GearScore)), xmlText("item_points", fmt.Sprint(creature.ItemPoints)),
 		xmlText("class", strings.ToLower(template.ClassType)),
-		xmlText("stats", profileStatsText(creature.Stats, profile.stats)),
+		xmlText("stats", profileStatsText(stats, profile.stats)),
 		xmlText("stats_template", profileStatsText(template.Stats, profile.stats)),
 		xmlText("stats_template_ability", profile.abilityBase),
 		xmlText("stats_template_ability_keyvalues", profile.abilityStats),

@@ -34,6 +34,10 @@ func ResolveMovementGoal(
 	}
 	options.ComponentID = startProjection.ComponentID
 	options.IsComponentConstrained = true
+	// Move clicks can carry the actor's current Z rather than the clicked
+	// stair/ramp height. Keep the three-unit XY tolerance and recover Z from
+	// the same connected walkable surface; placement/teleport checks stay 3D.
+	options.IsPlanar = true
 	goalProjection, err := mesh.Project(basenavigation.Vec3(goal), options)
 	if errors.Is(err, basenavigation.ErrProjectionObstructed) {
 		goalProjection, err = mesh.ProjectInteractionTarget(

@@ -132,6 +132,9 @@ type GameplayCreature struct {
 	WeaponItemLevel            uint32
 	WeaponDamageModifier       float32
 	PartAttribute              [111]float32
+	Strength                   float32
+	Dexterity                  float32
+	Mind                       float32
 	MinimumWeaponDamage        float32
 	MaximumWeaponDamage        float32
 	DamageProfile              DamageProfile
@@ -641,6 +644,12 @@ func gameplayCreature(
 	stats := gameplayCreatureStats(creature, partAttribute)
 	for _, stat := range stats {
 		switch stat.Name {
+		case "STR":
+			selected.Strength = float32(stat.Maximum)
+		case "DEX":
+			selected.Dexterity = float32(stat.Maximum)
+		case "MIND":
+			selected.Mind = float32(stat.Maximum)
 		case "HLTH":
 			selected.HitPoint = float32(stat.Maximum)
 			selected.MaximumHitPoint = selected.HitPoint
@@ -713,7 +722,7 @@ func gameplayEquippedParts(
 	seenPartIDs := make(map[uint64]struct{}, maximumGameplayFunctionalItemCount)
 	ignoredPartCount := uint32(0)
 	for _, part := range parts {
-		if part.EquippedToCreatureID != creatureID || part.IsFlair {
+		if part.MarketStatus != sporenet.PartMarketOwned || part.EquippedToCreatureID != creatureID || part.IsFlair {
 			continue
 		}
 		if _, isSeen := seenPartIDs[part.ID]; isSeen {
@@ -744,12 +753,15 @@ func gameplayCreatureStats(
 	if creature.Template == nil || len(creature.Template.Stats) == 0 {
 		return creature.Stats
 	}
-	// Native 1.2.7 sub_9E7360 derives health from Strength and energy from
-	// Mind. MagicNumbers.MagicNumbers supplies coefficients 5 and 1 at
-	// offsets 12 and 28. Template stats already include the base attributes,
-	// so convert only equipment deltas here, alongside direct resource bonuses.
+	// Native 103 sub_9E2580 / 127 sub_9E7360 derives health, energy,
+	// defenses and critical rating from core attributes. MagicNumbers supplies
+	// coefficients 5/6/4/6/1 at offsets 12/16/20/24/28. Template stats already
+	// include base attributes, so convert only equipment deltas here.
 	partAttributes[4] += partAttributes[0] * 5
 	partAttributes[5] += partAttributes[2]
+	partAttributes[7] += partAttributes[1] * 6
+	partAttributes[9] += partAttributes[2] * 6
+	partAttributes[10] += partAttributes[1] * 4
 	stats := append([]sporenet.Stat(nil), creature.Template.Stats...)
 	for index := range stats {
 		attributeIndex, isFound := gameplayCorePartAttribute(stats[index].Name)

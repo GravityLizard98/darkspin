@@ -14,6 +14,10 @@ type PartShopPreparer interface {
 		*sporenet.Vendor, sporenet.PartShopRules, time.Time) (sporenet.PartShopStock, error)
 }
 
+type BuybackExpirer interface {
+	ExpireBuyback(context.Context, *sporenet.User, time.Time) error
+}
+
 func (e *API) partOffers(writer http.ResponseWriter, request *http.Request, user *sporenet.User) {
 	if user == nil || e.partShopPreparer == nil {
 		writeXML(writer, http.StatusOK, xmlResponse(false))

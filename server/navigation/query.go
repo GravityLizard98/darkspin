@@ -12,6 +12,9 @@ type ProjectionOptions struct {
 	MaxDistance            float32
 	ComponentID            uint32
 	IsComponentConstrained bool
+	// IsPlanar measures click displacement in XY while recovering surface Z.
+	// The input height remains a tie-breaker for overlapping walkable surfaces.
+	IsPlanar bool
 }
 
 type Projection struct {
@@ -59,26 +62,45 @@ func projectPolygonIndexes(
 ) (Projection, error) {
 	maximumSquared := options.MaxDistance * options.MaxDistance
 	bestSquared := float32(math.Inf(1))
+	bestHeight := float32(math.Inf(1))
 	best := Projection{}
 	for _, polygonIndex := range polygonIndexes {
 		polygon := selected.polygons[polygonIndex]
 		if options.IsComponentConstrained && polygon.ComponentID != options.ComponentID {
 			continue
 		}
-		if squaredDistance(point, polygon.Center) >
+		centerDelta := subtract(point, polygon.Center)
+		if options.IsPlanar {
+			centerDelta.Z = 0
+		}
+		if dot(centerDelta, centerDelta) >
 			(polygon.Radius+options.MaxDistance)*(polygon.Radius+options.MaxDistance) {
 			continue
 		}
 		candidate := closestPointOnPolygon(point, polygon)
-		candidateSquared := squaredDistance(point, candidate)
+		if options.IsPlanar {
+			var isCandidateFound bool
+			candidate, isCandidateFound = closestPlanarPointOnPolygon(point, polygon)
+			if !isCandidateFound {
+				continue
+			}
+		}
+		candidateDelta := subtract(point, candidate)
+		candidateHeight := float32(math.Abs(float64(candidateDelta.Z)))
+		if options.IsPlanar {
+			candidateDelta.Z = 0
+		}
+		candidateSquared := dot(candidateDelta, candidateDelta)
 		if candidateSquared > maximumSquared {
 			continue
 		}
-		if candidateSquared > bestSquared ||
-			candidateSquared == bestSquared && polygon.Offset >= best.PolygonID {
+		if candidateSquared > bestSquared || candidateSquared == bestSquared &&
+			(options.IsPlanar && candidateHeight > bestHeight ||
+				(!options.IsPlanar || candidateHeight == bestHeight) && polygon.Offset >= best.PolygonID) {
 			continue
 		}
 		bestSquared = candidateSquared
+		bestHeight = candidateHeight
 		best = Projection{
 			Position: candidate, PolygonID: polygon.Offset, ComponentID: polygon.ComponentID,
 			Distance: float32(math.Sqrt(float64(candidateSquared))),

@@ -244,12 +244,12 @@ func writeDependents(ctx context.Context, tx *sqlx.Tx, record sporenet.UserRecor
 		_, err = tx.NamedExecContext(ctx, `
 			INSERT INTO part (
 				user_id, position, item_id, reference_id, is_flair, cost, creature_id, level,
-				market_status, rarity, status, usage, creation_date,
+				market_status, rarity, status, usage, creation_date, buyback_expires_at,
 				rigblock_asset_id, prefix_asset_id, prefix_secondary_asset_id,
 				suffix_asset_id
 			) VALUES (
 				:user_id, :position, :item_id, :reference_id, :is_flair, :cost, :creature_id, :level,
-				:market_status, :rarity, :status, :usage, :creation_date,
+				:market_status, :rarity, :status, :usage, :creation_date, :buyback_expires_at,
 				:rigblock_asset_id, :prefix_asset_id, :prefix_secondary_asset_id,
 				:suffix_asset_id
 			)`, partRow{
@@ -258,7 +258,8 @@ func writeDependents(ctx context.Context, tx *sqlx.Tx, record sporenet.UserRecor
 			Cost: part.Cost, CreatureID: part.EquippedToCreatureID, Level: part.Level,
 			MarketStatus: part.MarketStatus, Rarity: part.Rarity, Status: part.Status,
 			Usage: part.Usage, CreationDate: part.CreationDate, RigblockAssetID: part.RigblockAssetID,
-			PrefixAssetID: part.PrefixAssetID, PrefixSecondaryAssetID: part.PrefixSecondaryAssetID,
+			BuybackExpiresAt: part.BuybackExpiresAt,
+			PrefixAssetID:    part.PrefixAssetID, PrefixSecondaryAssetID: part.PrefixSecondaryAssetID,
 			SuffixAssetID: part.SuffixAssetID,
 		})
 		if err != nil {
@@ -453,7 +454,8 @@ func loadRecord(ctx context.Context, tx *sqlx.Tx, loginName string) (sporenet.Us
 			IsFlair: row.IsFlair != 0, Cost: row.Cost, EquippedToCreatureID: row.CreatureID,
 			Level: row.Level, MarketStatus: row.MarketStatus, Rarity: row.Rarity,
 			Status: row.Status, Usage: row.Usage, CreationDate: row.CreationDate,
-			RigblockAssetID: row.RigblockAssetID, PrefixAssetID: row.PrefixAssetID,
+			BuybackExpiresAt: row.BuybackExpiresAt,
+			RigblockAssetID:  row.RigblockAssetID, PrefixAssetID: row.PrefixAssetID,
 			PrefixSecondaryAssetID: row.PrefixSecondaryAssetID, SuffixAssetID: row.SuffixAssetID,
 		})
 	}

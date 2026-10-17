@@ -635,6 +635,9 @@ func (s *gameplayPeerSession) setCrystalInventory(inventory sim.CrystalInventory
 	next := inventory.Attributes()
 	for creatureIndex := range s.binding.Creatures {
 		creature := s.binding.Creatures[creatureIndex]
+		creature.Strength += next[0] - previous[0]
+		creature.Dexterity += next[1] - previous[1]
+		creature.Mind += next[2] - previous[2]
 		for attributeIndex := range creature.PartAttribute {
 			creature.PartAttribute[attributeIndex] +=
 				next[attributeIndex] - previous[attributeIndex]

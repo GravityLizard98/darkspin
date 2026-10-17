@@ -169,6 +169,7 @@ var schemaStatements = []string{
 		status INTEGER NOT NULL,
 		usage INTEGER NOT NULL,
 		creation_date INTEGER NOT NULL,
+		buyback_expires_at INTEGER NOT NULL DEFAULT 0,
 		rigblock_asset_id INTEGER NOT NULL,
 		prefix_asset_id INTEGER NOT NULL,
 		prefix_secondary_asset_id INTEGER NOT NULL,

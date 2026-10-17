@@ -231,21 +231,24 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 		user.mu.Unlock()
 		return nil, errors.New("creature revision changed or invalid")
 	}
-	ownedPartIDs := make(map[uint64]struct{}, len(user.Parts))
+	partsByID := make(map[uint64]Part, len(user.Parts))
 	for index := range user.Parts {
-		if user.Parts[index].MarketStatus != PartMarketOwned {
-			continue
-		}
-		ownedPartIDs[user.Parts[index].ID] = struct{}{}
+		partsByID[user.Parts[index].ID] = user.Parts[index]
 	}
 	selected := make(map[uint64]struct{}, len(command.EquippedPartID))
 	for _, itemID := range command.EquippedPartID {
-		_, isOwned := ownedPartIDs[itemID]
-		if !isOwned {
-			// Build 103 can retain stale inventory rows in the editor after a
-			// buyback or reward transition. Ignore those rows while accepting
-			// the valid appearance and owned portion of the loadout.
-			continue
+		part, isFound := partsByID[itemID]
+		if !isFound || part.MarketStatus != PartMarketOwned {
+			user.mu.Unlock()
+			return nil, fmt.Errorf("equipPart[%d]: %w", itemID, ErrPartNotFound)
+		}
+		if part.EquippedToCreatureID != 0 && part.EquippedToCreatureID != command.CreatureID {
+			user.mu.Unlock()
+			return nil, fmt.Errorf("equipPart[%d]: %w", itemID, ErrPartEquipped)
+		}
+		if _, isDuplicate := selected[itemID]; isDuplicate {
+			user.mu.Unlock()
+			return nil, fmt.Errorf("equipPart[%d]: duplicate item", itemID)
 		}
 		selected[itemID] = struct{}{}
 	}
@@ -277,6 +280,9 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 	for index := range user.Parts {
 		if _, isSelected := selected[user.Parts[index].ID]; isSelected {
 			user.Parts[index].EquippedToCreatureID = command.CreatureID
+			// Native 4C1990's successful-save event sets usage to 1 when
+			// equipping an item; it remains used after later removal.
+			user.Parts[index].Usage = 1
 		} else if user.Parts[index].EquippedToCreatureID == command.CreatureID {
 			user.Parts[index].EquippedToCreatureID = 0
 		}

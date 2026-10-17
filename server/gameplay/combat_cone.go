@@ -303,8 +303,8 @@ func (e campaignConeSchedule) hit() ([][]byte, error) {
 				Y: facing.Y / length * e.plan.Profile.ProjectileDistance,
 			})
 		}
-		beamPacket, err := npcraknet.PositionedEffect(
-			e.plan.Profile.TrailEffectName, maserEndpoint,
+		beamPacket, err := npcraknet.MaserBeamEffect(
+			e.plan, maserEndpoint,
 		)
 		if err != nil {
 			e.runtime.registry.mutex.Unlock()

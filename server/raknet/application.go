@@ -2200,22 +2200,21 @@ func (m LabsPlayerOverdriveEnergyMessage) EncodePayload() []byte {
 	return append(payload, 0xff)
 }
 
-// Build 103's player reflection uses fields 10 (energy), 11 (drain), and
-// 18 (active). Keep entitlement field 19 out of a running meter update.
+// Build 103's cLabsPlayer reflection uses field 10 for energy (offset 4668)
+// and field 11 for the one-byte active flag (offset 4676). The native drain
+// at offset 4672 is not reflected. Field 18 belongs to another player flag.
+// Runtime metadata: type 0x15FF16E2, active name hash 0x91632BE4.
 type LabsPlayerOverdriveStateMessage struct {
-	Slot           uint8
-	Energy         float32
-	DrainPerSecond float32
-	IsActive       bool
+	Slot     uint8
+	Energy   float32
+	IsActive bool
 }
 
 func (LabsPlayerOverdriveStateMessage) PacketID() PacketID { return LabsPlayerUpdate }
 func (m LabsPlayerOverdriveStateMessage) EncodePayload() []byte {
 	payload := []byte{m.Slot, 0, 0x10, 10}
 	payload = binary.LittleEndian.AppendUint32(payload, math.Float32bits(m.Energy))
-	payload = append(payload, 11)
-	payload = binary.LittleEndian.AppendUint32(payload, math.Float32bits(m.DrainPerSecond))
-	payload = append(payload, 18, boolByte(m.IsActive))
+	payload = append(payload, 11, boolByte(m.IsActive))
 	return append(payload, 0xff)
 }
 

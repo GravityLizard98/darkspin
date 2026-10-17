@@ -1,10 +1,22 @@
 # Changelog
 
+### 2026-10-17
+
+- #75 Correct Overdrive's malformed active-state packet to restore native glow, sound and HELIX activation/ending cues, and share active-state changes with co-op peers while retaining the six-second base duration.
+- #75 Synchronize mission HUD core attributes and weapon damage with equipped hero stats instead of fixed placeholder values, preserve them during recovery, and align profile/combat defense and critical ratings with the client's Dexterity and Mind contributions.
+- #75 Resolve movement clicks onto the connected stair or ramp surface instead of rejecting goals carrying the hero's previous height, preventing repeated movement corrections while preserving horizontal tolerance and obstacle checks across maps.
+- #75 Restore all Electric Striker variants' client-authored eight-hit melee bursts and recovery before retreating, restrict damage to their short forward melee arc instead of teleport activation range, and prevent repeated approach blinks from replacing the attack.
+- #75 Restore the client-authored source-object and target-point fields for all Maser Tank laser shots, replacing detached world-position effects with beams emitted by the attacking creature.
+- #75 Prevent placing the same physical item twice from the editor palette by checking the live model and mirrored attachments, persist equipped-item usage, and reject incomplete or invalid loadout saves instead of silently dropping equipment.
+- #75 Exclude unpurchased Parts shop offers and sold buyback items from the editor's functional and detail palettes, and require owned items for creature equipment responses and calculations.
+- #75 Display Parts shop purchase prices as Cost instead of Sell Value while retaining normal owned-item and buyback valuations.
+- #75 Expire buyback items two hours after sale, persist their deadlines across restarts, and remove expired or legacy undated sold items on the next inventory load without reusing their IDs.
+
 ### 2026-10-16
 
-- Add a Parts tab to build 103's DNA Converter with rotating server stock, single-item selection, purchases and native tab transition effects, keeping inventory images and tooltip queries intact.
-- Add persistent server-side Parts shop stock across all five genesis types, rotating 22–30 non-weapon offers every two hours by default with a configurable 5% green chance per offer capped at five greens, weapon-level pricing and one purchase per offer.
-- Add Fang compatibility for server-priced Parts shop offers in build 103, aligning tooltips, selection totals and purchase charges while allowing exact-DNA purchases and preserving normal resale and buyback valuations.
+- #73 Add a Parts tab to build 103's DNA Converter with rotating server stock, single-item selection, purchases and native tab transition effects, keeping inventory images and tooltip queries intact.
+- #73 Add persistent server-side Parts shop stock across all five genesis types, rotating 22–30 non-weapon offers every two hours by default with a configurable 5% green chance per offer capped at five greens, weapon-level pricing and one purchase per offer.
+- #73 Add Fang compatibility for server-priced Parts shop offers in build 103, aligning tooltips, selection totals and purchase charges while allowing exact-DNA purchases and preserving normal resale and buyback valuations.
 - #72 Restore Warp Totems' client-authored charge/discharge cycle, nearby random teleports and spatial effect events; replace generic explosions with their collapse effect and retain destroyed models across reconnects.
 - #72 Replace Sinkhole's repeated hero teleports with directional movement influence, restore client-authored well timing and effect cleanup across co-op peers, and preserve NPC projectile speed changes under gravity.
 - #72 Restore Hover Bots' client-authored circling, idle wandering and linked-beam damage, remove links when either bot dies without duplicate hits, and spawn selected campaign Hover Bots with at least one partner as a server encounter rule.

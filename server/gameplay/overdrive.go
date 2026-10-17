@@ -166,7 +166,6 @@ func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
 	}
 	isActive := member.deployedObjectID == e.objectID && member.isOverdriveActiveAt(now)
 	remaining := member.overdriveExpiresAt.Sub(now)
-	duration := campaignOverdriveDuration(member)
 	energy := member.presentedOverdriveEnergy(now)
 	e.runtime.registry.mutex.RUnlock()
 	if now.Before(member.overdriveStartsAt) && remaining > 0 {
@@ -178,7 +177,6 @@ func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
 	}
 	statePacket, err := raknet.MarshalApplication(raknet.LabsPlayerOverdriveStateMessage{
 		Slot: uint8(member.binding.Slot), Energy: energy, IsActive: isActive,
-		DrainPerSecond: float32(campaignOverdriveMaximumEnergy / duration.Seconds()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("overdriveMeter: %w", err)
@@ -205,6 +203,10 @@ func (e campaignOverdriveMeterStep) produce() ([][]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("overdriveMeterSchedule: %w", err)
 		}
+	}
+	err = publishCampaignPeersAfterCommit(e.runtime.registry, e.packet, packets)
+	if err != nil {
+		return nil, fmt.Errorf("overdrivePeers: %w", err)
 	}
 	return packets, nil
 }

@@ -2059,6 +2059,16 @@ static void trace_snapshot_action_state(void) {
     } else {
         trace_client_state("combat_controlled_missing", 1);
     }
+    /* Native sub_9C2A20 drives both the graphics loop (sub_508AB0) and
+     * HELIX active/ended announcements (sub_4E2740). Observe the source
+     * flag directly so missing presentation is distinguishable from a
+     * meter-only update. This never activates Overdrive or plays effects. */
+    if (readable_range(player, 4973)) {
+        trace_client_state("overdrive_active", player[4676]);
+        trace_client_state("overdrive_energy_bits", *(const unsigned int*)(player + 4668));
+        trace_client_state("overdrive_drain_bits", *(const unsigned int*)(player + 4672));
+        trace_client_state("overdrive_locked", player[4972]);
+    }
 }
 
 static unsigned int reset_combat_input_state(void) {
@@ -7024,6 +7034,16 @@ int fang_install(const char* hostname, unsigned short port, unsigned short party
         if (is_shop_pricing_installed) {
             int is_shop_ui_installed = fang_install_shop_ui(executable);
             trace_client_state("shop_ui_hook", (unsigned int)is_shop_ui_installed);
+            int is_shop_inventory_installed = fang_install_shop_inventory(executable);
+            trace_client_state("shop_inventory_hook", (unsigned int)is_shop_inventory_installed);
+            int is_editor_item_installed = fang_install_editor_item(executable);
+            trace_client_state("editor_item_hook", (unsigned int)is_editor_item_installed);
+            if (!is_editor_item_installed) {
+                result |= 0x8;
+            }
+            if (!is_shop_inventory_installed) {
+                result |= 0x8;
+            }
             if (!is_shop_ui_installed) {
                 result |= 0x8;
             }

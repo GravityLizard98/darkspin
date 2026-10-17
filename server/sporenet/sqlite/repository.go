@@ -599,6 +599,7 @@ func ensurePartIdentityColumns(ctx context.Context, tx *sqlx.Tx) error {
 	}{
 		{name: "item_id", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "reference_id", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "buyback_expires_at", definition: "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for index, column := range columns {
 		var count int
