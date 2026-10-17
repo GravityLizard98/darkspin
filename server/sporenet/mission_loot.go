@@ -40,7 +40,7 @@ func (e *UserManager) CommitMissionLoot(ctx context.Context, userID int64, req M
 		}
 	}
 	ownedCount := uint64(0)
-	nextPartID := uint64(1)
+	nextPartID := max(uint64(1), user.PartShop.NextPartID)
 	for _, part := range user.Parts {
 		if part.OccupiesInventorySlot() {
 			ownedCount++

@@ -3,6 +3,12 @@ package sqlite
 const chatLogTimeFormat = "2006-01-02T15:04:05.999999999Z07:00"
 
 var schemaStatements = []string{
+	`CREATE TABLE IF NOT EXISTS part_shop (
+		user_id INTEGER PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL DEFAULT 0,
+		next_part_id INTEGER NOT NULL DEFAULT 0,
+		item_level INTEGER NOT NULL DEFAULT 0
+	)`,
 	`CREATE TABLE IF NOT EXISTS user (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		login_name TEXT NOT NULL COLLATE NOCASE UNIQUE,

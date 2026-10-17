@@ -30,6 +30,7 @@ type User struct {
 	Squads                      []Squad
 	Creatures                   []*Creature
 	Parts                       []Part
+	PartShop                    PartShopState
 	Events                      []UserEvent
 	CampaignExperiences         []CampaignExperience
 	State                       uint32

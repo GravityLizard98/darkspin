@@ -59,6 +59,8 @@ type API struct {
 	template            *sporenet.TemplateDatabase
 	partCatalog         *PartCatalog
 	vendor              *sporenet.Vendor
+	partShopRules       sporenet.PartShopRules
+	partShopPreparer    PartShopPreparer
 	storage             string
 	staticFileSystem    fs.FS
 	host                string
@@ -75,6 +77,7 @@ type APIOptions struct {
 	Template         *sporenet.TemplateDatabase
 	PartCatalog      *PartCatalog
 	Vendor           *sporenet.Vendor
+	PartShopRules    sporenet.PartShopRules
 	Storage          string
 	StaticFileSystem fs.FS
 	Host             string
@@ -94,7 +97,12 @@ func RegisterAPI(router *recaphttp.Router, options APIOptions) error {
 		storage: options.Storage, staticFileSystem: options.StaticFileSystem,
 		host: options.Host, httpPort: options.HTTPPort, qosPort: options.QoSPort, logger: logger,
 		resumeActivator:     options.ResumeActivator,
+		partShopRules:       options.PartShopRules,
 		broadcastRecipients: make(map[string]struct{}),
+	}
+	partShopPreparer, isPartShopSupported := options.UserManager.(PartShopPreparer)
+	if isPartShopSupported {
+		api.partShopPreparer = partShopPreparer
 	}
 	routes := []struct {
 		path    string
@@ -300,9 +308,9 @@ func (a *API) game(writer http.ResponseWriter, request *http.Request, uri *recap
 		}
 		writeXML(writer, http.StatusOK, xmlResponse(true))
 	case "api.inventory.getPartList":
-		a.partList(writer, user, values)
+		a.partList(request.Context(), writer, user, values)
 	case "api.inventory.getPartOfferList":
-		a.partOffers(writer)
+		a.partOffers(writer, request, user)
 	case "api.inventory.vendorParts":
 		a.vendorParts(writer, request, user, values.Get("transactions"))
 	case "api.inventory.updatePartStatus":
@@ -1028,15 +1036,29 @@ func profileWholeStatNumber(number float64) string {
 	return strconv.FormatFloat(math.Ceil(max(0, number)), 'f', 0, 64)
 }
 
-func (a *API) partList(writer http.ResponseWriter, user *sporenet.User, values interface{ Get(string) string }) {
+func (a *API) partList(ctx context.Context, writer http.ResponseWriter, user *sporenet.User, values interface{ Get(string) string }) {
 	if user == nil {
 		writeXML(writer, http.StatusOK, xmlResponse(false))
 		return
 	}
 	query := parsePartListQuery(values)
+	isShopAvailable := a.partShopRules.IsEnabled && a.partShopPreparer != nil
+	if isShopAvailable && !query.isOwnedOnly && !query.isCreatureFiltered {
+		stock, shopErr := a.partShopPreparer.PreparePartShop(ctx, user, a.partCatalog, a.vendor, a.partShopRules, time.Now())
+		if shopErr != nil {
+			isShopAvailable = false
+			a.logger.Printf("part_shop_prepare_failed account=%q error=%q", userLoginName(user), shopErr)
+		} else if stock.IsRefreshed {
+			a.logger.Printf("part_shop_refreshed account=%q count=%d item_level=%d expires_at=%d",
+				userLoginName(user), len(stock.Parts), stock.ItemLevel, stock.ExpiresAt)
+		}
+	}
 	view := user.View()
 	nodes := make([]string, 0)
 	for index := range view.Parts {
+		if view.Parts[index].MarketStatus == sporenet.PartMarketOffer && !isShopAvailable {
+			continue
+		}
 		if len(nodes) >= query.count {
 			break
 		}
@@ -1098,12 +1120,6 @@ func (query partListQuery) matches(part sporenet.Part) bool {
 		return false
 	}
 	return true
-}
-
-func (a *API) partOffers(writer http.ResponseWriter) {
-	// Build 103 consumes packaged offers locally and has no retail XML schema
-	// for this compatibility-only endpoint.
-	writeXML(writer, http.StatusOK, xmlResponse(true, xmlNode("parts")))
 }
 
 func (a *API) creatureResponse(ctx context.Context, writer http.ResponseWriter, user *sporenet.User, values interface{ Get(string) string }) {

@@ -28,6 +28,11 @@ const (
 	PartMarketBuyback
 )
 
+// PartOfferMaximumPrice keeps build 103's Fang price bridge exact through the
+// native float32 half-cost helper. Cost is the final purchase price for an
+// offer, and the normal item valuation for an owned or buyback part.
+const PartOfferMaximumPrice uint32 = 1 << 23
+
 // Part is one persistent inventory item.
 type Part struct {
 	ID                       uint64
@@ -149,8 +154,9 @@ type PartOffer struct {
 
 // Vendor owns the rotating offers and per-user buyback inventory.
 type Vendor struct {
-	Offers  []PartOffer
-	Buyback map[int64][]Part
+	Offers            []PartOffer
+	Buyback           map[int64][]Part
+	IsPartShopEnabled bool
 }
 
 func NewVendor(offers ...PartOffer) *Vendor {

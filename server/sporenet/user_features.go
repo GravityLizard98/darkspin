@@ -1043,7 +1043,7 @@ func (u *User) equipTutorialPart(part Part, creatureID uint32) bool {
 		return false
 	}
 	for index := range u.Parts {
-		if !u.Parts[index].hasGrantIdentity(part) {
+		if u.Parts[index].MarketStatus != PartMarketOwned || !u.Parts[index].hasGrantIdentity(part) {
 			continue
 		}
 		if u.Parts[index].EquippedToCreatureID != 0 {
@@ -1286,11 +1286,11 @@ func (m *UserManager) GrantPartOnce(ctx context.Context, userID int64, part Part
 func (u *User) grantPartOnce(userID int64, part Part) (bool, error) {
 	part.Normalize()
 	for _, existing := range u.Parts {
-		if existing.hasGrantIdentity(part) {
+		if existing.MarketStatus != PartMarketOffer && existing.hasGrantIdentity(part) {
 			return false, nil
 		}
 	}
-	part.ID = 1
+	part.ID = max(uint64(1), u.PartShop.NextPartID)
 	for _, existing := range u.Parts {
 		if existing.ID >= part.ID {
 			if existing.ID >= uint64(^uint32(0)) {
@@ -1325,7 +1325,7 @@ func (m *UserManager) GrantPart(ctx context.Context, userID int64, part Part) (P
 	defer user.mutation.Unlock()
 	user.mu.Lock()
 	if part.ID == 0 {
-		part.ID = 1
+		part.ID = max(uint64(1), user.PartShop.NextPartID)
 		for _, existing := range user.Parts {
 			if existing.ID >= part.ID {
 				part.ID = existing.ID + 1
@@ -1457,7 +1457,7 @@ func (m *UserManager) grantPartWithinCapacity(
 		return Part{}, ErrInventoryFull
 	}
 	if part.ID == 0 {
-		part.ID = 1
+		part.ID = max(uint64(1), user.PartShop.NextPartID)
 		for _, existing := range user.Parts {
 			if existing.ID >= part.ID {
 				part.ID = existing.ID + 1

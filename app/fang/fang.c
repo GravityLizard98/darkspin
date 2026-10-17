@@ -7018,6 +7018,20 @@ int fang_install(const char* hostname, unsigned short port, unsigned short party
         result |= 0x8;
     }
 #endif
+    {
+        int is_shop_pricing_installed = fang_install_shop_pricing(executable);
+        trace_client_state("shop_pricing_hook", (unsigned int)is_shop_pricing_installed);
+        if (is_shop_pricing_installed) {
+            int is_shop_ui_installed = fang_install_shop_ui(executable);
+            trace_client_state("shop_ui_hook", (unsigned int)is_shop_ui_installed);
+            if (!is_shop_ui_installed) {
+                result |= 0x8;
+            }
+        }
+        if (!is_shop_pricing_installed) {
+            result |= 0x8;
+        }
+    }
     if (enable_borderless_fullscreen) {
         int is_display_hook_installed = fang_install_display_preferences(executable);
         trace_client_state("display_preferences_hook", (unsigned int)is_display_hook_installed);

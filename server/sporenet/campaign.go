@@ -298,7 +298,7 @@ func (m *UserManager) CommitCampaignCashOut(
 	previousAccount := user.Account
 	previousParts := append([]Part(nil), user.Parts...)
 	previousEvents := append([]UserEvent(nil), user.Events...)
-	nextPartID := uint64(1)
+	nextPartID := max(uint64(1), user.PartShop.NextPartID)
 	for _, existing := range user.Parts {
 		if existing.ID >= nextPartID {
 			if existing.ID >= uint64(^uint32(0)) {

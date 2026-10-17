@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/darkspinnet/darkspin/server/game"
+	"github.com/darkspinnet/darkspin/server/sporenet"
 	zonenpc "github.com/darkspinnet/darkspin/server/zone/npc"
 )
 
@@ -71,6 +72,7 @@ type serverRuleStore struct {
 	path       string
 	rules      zonenpc.AllyAlertRules
 	spawnRules game.BossSpawnRules
+	shopRules  sporenet.PartShopRules
 	sections   map[string]any
 }
 
@@ -115,6 +117,14 @@ func loadServerRuleStore(ctx context.Context, configPath string) (*serverRuleSto
 			isReplaced = true
 		}
 	}
+	shopRules, isShopDefined, err := decodePartShopRules(payload)
+	if err != nil {
+		return nil, fmt.Errorf("partShop: %w", err)
+	}
+	sections["part_shop"] = partShopSection(shopRules)
+	if !isShopDefined {
+		isReplaced = true
+	}
 	rules := document.AllyAlert.rules()
 	err = rules.Validate()
 	if err != nil {
@@ -130,7 +140,7 @@ func loadServerRuleStore(ctx context.Context, configPath string) (*serverRuleSto
 	if err != nil {
 		return nil, fmt.Errorf("spawnValidate: %w", err)
 	}
-	return &serverRuleStore{path: path, rules: rules, spawnRules: document.BossSpawning.rules(), sections: sections}, nil
+	return &serverRuleStore{path: path, rules: rules, spawnRules: document.BossSpawning.rules(), shopRules: shopRules, sections: sections}, nil
 }
 
 func decodeAllyAlertRules(payload []byte, isLegacy bool) (ServerRulesConfiguration, bool, error) {

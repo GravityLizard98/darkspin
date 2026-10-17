@@ -84,7 +84,7 @@ const updateUserQuery = `
 func clearDependents(ctx context.Context, tx *sqlx.Tx, userID int64) error {
 	tables := []string{
 		"setting", "user_stat", "user_event", "campaign_experience",
-		"user_association", "squad", "creature", "part", "extension",
+		"user_association", "squad", "creature", "part", "part_shop", "extension",
 	}
 	for index, table := range tables {
 		_, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE user_id = ?`, userID)
@@ -264,6 +264,10 @@ func writeDependents(ctx context.Context, tx *sqlx.Tx, record sporenet.UserRecor
 		if err != nil {
 			return fmt.Errorf("partInsert[%d]: %w", index, err)
 		}
+	}
+	err = writePartShop(ctx, tx, record)
+	if err != nil {
+		return fmt.Errorf("shopWrite: %w", err)
 	}
 	for index, extension := range record.Extensions {
 		_, err = tx.NamedExecContext(ctx, `
@@ -452,6 +456,10 @@ func loadRecord(ctx context.Context, tx *sqlx.Tx, loginName string) (sporenet.Us
 			RigblockAssetID: row.RigblockAssetID, PrefixAssetID: row.PrefixAssetID,
 			PrefixSecondaryAssetID: row.PrefixSecondaryAssetID, SuffixAssetID: row.SuffixAssetID,
 		})
+	}
+	record.PartShop, err = loadPartShop(ctx, tx, user.ID)
+	if err != nil {
+		return sporenet.UserRecord{}, fmt.Errorf("shopLoad: %w", err)
 	}
 	extensions := []extensionRow{}
 	err = tx.SelectContext(ctx, &extensions, `SELECT * FROM extension WHERE user_id = ? ORDER BY position`, user.ID)

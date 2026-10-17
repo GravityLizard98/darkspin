@@ -766,12 +766,14 @@ func New(options Options) (*Server, error) {
 		return nil, fmt.Errorf("partCatalogLoad: %w", err)
 	}
 	userManager.SetPartScorer(partCatalog)
+	vendor.IsPartShopEnabled = serverRuleStore.shopRules.IsEnabled
 	resumeCoordinator, err := game.NewResumeCoordinator(gameManager, checkpointManager)
 	if err != nil {
 		return nil, fmt.Errorf("resumeCoordinator: %w", err)
 	}
 	err = game.RegisterAPI(router, game.APIOptions{
 		UserManager: userManager, Template: templateDatabase, PartCatalog: partCatalog, Vendor: vendor,
+		PartShopRules:   serverRuleStore.shopRules,
 		ResumeActivator: resumeCoordinator,
 		Storage:         runtimePath, StaticFileSystem: webFileSystem,
 		Host: host, HTTPPort: ports.http, QoSPort: ports.qos,
