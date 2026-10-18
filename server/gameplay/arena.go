@@ -586,6 +586,13 @@ func (r campaignAbilityCommandRuntime) handleArenaCharacter(
 	}
 	if hitPoint > 0 && damage > 0 && targetSession.deployedObjectID == targetObjectID {
 		targetSession.applyPassiveDamageTaken(attackTime)
+		mantlePackets, mantleErr := targetSession.presentHardenedMantle(
+			r.modifierPool, r.effectPool, packet.SourceTime,
+		)
+		if mantleErr != nil {
+			r.logger.Printf("RakNet Hardened Mantle presentation omitted object=%d: %v", targetObjectID, mantleErr)
+		}
+		transitionPackets = append(transitionPackets, mantlePackets...)
 	}
 	if hitPoint > 0 {
 		index := targetSession.deployedCreatureIndex

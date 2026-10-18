@@ -2298,7 +2298,7 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 
 	timestamp := schedule.packet.SourceTime + uint64(e.delay/time.Millisecond)
 	var effect func(zoneability.AreaResult) ([]byte, error)
-	if schedule.selected.HitEffectName != "" {
+	if schedule.selected.HitEffectName != "" && schedule.selected.Name != "LightningTempest_Support" {
 		impact := campaignMeleeImpact{
 			assetName:      schedule.selected.HitEffectName,
 			sourceObjectID: schedule.sourceObjectID,
@@ -2313,6 +2313,13 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("campaignBasicPublish: %w", err)
+	}
+	if schedule.selected.Name == "LightningTempest_Support" {
+		chainPackets, chainErr := schedule.startChainLightning(livePlan, liveNPC.Plan.Position, e.delay)
+		if chainErr != nil {
+			runtime.logger.Printf("RakNet Chain Lightning continuation omitted source=%d: %v", schedule.sourceObjectID, chainErr)
+		}
+		publishedPackets = append(publishedPackets, chainPackets...)
 	}
 	tauntPackets, tauntErr := runtime.damage.applyAcceptedHitTaunts(
 		schedule.packet, schedule.sessionKey, schedule.generation,

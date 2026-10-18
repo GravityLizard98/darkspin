@@ -283,6 +283,7 @@ type AbilityDefinition struct {
 	Toss                            TossAbilityDefinition
 	CloudLob                        CloudLobAbilityDefinition
 	LightningSecondary              LightningSecondaryAbilityDefinition
+	ChainLightning                  ChainLightningDefinition
 	Provenance                      Provenance
 }
 
@@ -845,6 +846,9 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 	if hitEffect.kind == luaString {
 		definition.Kind = AbilityKindMelee
 		definition.HitEffectName = hitEffect.text
+		if definition.Name == "LightningTempest_Support" {
+			return loadChainLightning(definition, table)
+		}
 		if definition.Name == "TimeRavagerActive" {
 			return loadTimeLapse(definition, table)
 		}

@@ -2,6 +2,11 @@
 
 ### 2026-10-18
 
+- [#85](https://github.com/darkspinnet/darkspin/issues/85) Restore Hardened Mantle's damage-triggered effects and stack display, and increase its Overdrive damage reduction from 4% to 10% per stack.
+- [#85](https://github.com/darkspinnet/darkspin/issues/85) Restore Lumin's Chain Lightning from a single impact to its authored beam and two chained damage jumps.
+- [#85](https://github.com/darkspinnet/darkspin/issues/85) Apply the strongest nearby friendly Charge Field bonus and increase its critical-rating contribution from 50% to 75% during the source's Overdrive.
+- [#85](https://github.com/darkspinnet/darkspin/issues/85) Stop Nightmare Vine root damage after mission completion, preventing inactive-zone errors from disconnecting players on the mission-complete screen.
+- [#85](https://github.com/darkspinnet/darkspin/issues/85) Handle the client's lobby leave request with its native response and member-left notification instead of returning command not found.
 - [#81](https://github.com/darkspinnet/darkspin/issues/81) Restore Chrono Blink's native teleport message so the client hero moves with the server position.
 - [#81](https://github.com/darkspinnet/darkspin/issues/81) Keep completed melee damage and destructible destruction synchronized when movement interrupts an attack before its hit packets are published.
 - [#81](https://github.com/darkspinnet/darkspin/issues/81) Enable client-authored pursuit for ranged basic attacks, preventing Krel and other pursuing projectile users from repeatedly rejecting reachable targets as out of range.

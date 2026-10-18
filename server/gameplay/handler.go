@@ -4465,6 +4465,7 @@ func stopGameplayPeerRuntime(
 		}
 		effectPool.ReleaseObject(peerSession.deployedObjectID)
 	}
+	peerSession.stopHardenedMantle()
 	peerSession.stopCampaignPlasmaModifiers(modifierInstancePool)
 	peerSession.stopCampaignNPCModifiers(modifierInstancePool)
 	peerSession.stopCampaignNPCProjectiles()

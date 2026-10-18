@@ -7677,6 +7677,13 @@ func (r campaignNPCActionRuntime) commitHeroTargetReactions(
 	}
 	if damage.HitPoint > 0 {
 		targetSession.applyPassiveDamageTaken(r.now())
+		mantlePackets, mantleErr := targetSession.presentHardenedMantle(
+			r.modifierPool, r.effectPool, timestamp,
+		)
+		if mantleErr != nil {
+			r.logger.Printf("RakNet Hardened Mantle presentation omitted object=%d: %v", targetSession.deployedObjectID, mantleErr)
+		}
+		reactionPackets = append(reactionPackets, mantlePackets...)
 	}
 	if targetSession == peerSession {
 		return append(packets, reactionPackets...), statDelta, nil

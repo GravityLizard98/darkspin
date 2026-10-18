@@ -344,6 +344,7 @@ type controlledHeroState struct {
 	soulRavagerVisualStack        uint32
 	passiveReductionStack         [squad.Size]uint32
 	passiveReductionExpiresAt     [squad.Size]time.Time
+	hardenedMantleRun             *hardenedMantleRun
 	passiveStationarySince        [squad.Size]time.Time
 	isMissileTargetingPresented   [squad.Size]bool
 	missileTargetingEffectSlots   [squad.Size]uint8

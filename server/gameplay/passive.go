@@ -386,8 +386,14 @@ func (s gameplayPeerSession) passiveDamageReduction(now time.Time) float32 {
 		!now.Before(s.passiveReductionExpiresAt[s.deployedCreatureIndex]) {
 		return reduction
 	}
+	// Modifiers/0x0A09D13C.lua ranks 1-2 use 4%; overdrive ranks
+	// 3-4 use 10%. Both retain the five-stack cap.
+	damageReductionPerStack := float32(0.04)
+	if s.isOverdriveActiveAt(now) {
+		damageReductionPerStack = 0.10
+	}
 	return reduction +
-		0.04*float32(s.passiveReductionStack[s.deployedCreatureIndex])
+		damageReductionPerStack*float32(s.passiveReductionStack[s.deployedCreatureIndex])
 }
 
 func (s *gameplayPeerSession) applyPassiveDamageTaken(now time.Time) {
@@ -414,6 +420,7 @@ func (s *gameplayPeerSession) resetPassiveDamageReduction(creatureIndex uint32) 
 	}
 	s.passiveReductionStack[creatureIndex] = 0
 	s.passiveReductionExpiresAt[creatureIndex] = time.Time{}
+	s.stopHardenedMantle()
 }
 
 func (s *gameplayPeerSession) advanceFireRavagerBasic(
@@ -463,7 +470,9 @@ func (s gameplayPeerSession) projectPassiveCreature(
 		}
 	}
 	if creature.PassiveAbility == util.HashID("LightningTempest_Passive") {
-		creature.CriticalRating += creature.CriticalRating * 0.50
+		creature.CriticalRating += chargeFieldCriticalIncrease(
+			creature.CriticalRating, s.isOverdriveActiveAt(now),
+		)
 	}
 	if creature.PassiveAbility == util.HashID("LightspeedTempestPassive") {
 		healthRatio := s.passiveHealthRatio(creatureIndex)
@@ -519,6 +528,13 @@ func (e *gameplaySessionRegistry) projectPassiveCreature(
 	projectileSpeedIncrease := float32(0)
 	attackSpeedIncrease := float32(0)
 	criticalRatingIncrease := float32(0)
+	selfCriticalRatingIncrease := float32(0)
+	if creature.PassiveAbility == util.HashID("LightningTempest_Passive") {
+		selfCriticalRatingIncrease = chargeFieldCriticalIncrease(
+			peerSession.binding.Creatures[creatureIndex].CriticalRating,
+			peerSession.isOverdriveActiveAt(now),
+		)
+	}
 	for _, candidate := range e.sessions {
 		if candidate.zone != peerSession.zone ||
 			candidate.deployedObjectID == peerSession.deployedObjectID ||
@@ -564,11 +580,12 @@ func (e *gameplaySessionRegistry) projectPassiveCreature(
 				attackSpeedIncrease, aura.TimingProfile.AttackSpeed,
 			)
 		case util.HashID("LightningTempest_Passive"):
-			if creature.PassiveAbility == aura.PassiveAbility {
-				continue
-			}
+			// Both modifiers use kAddBest on the initiator's rating. A Lumin
+			// recipient can receive a stronger allied field than its own.
 			criticalRatingIncrease = max(
-				criticalRatingIncrease, aura.CriticalRating*0.50,
+				criticalRatingIncrease, chargeFieldCriticalIncrease(
+					aura.CriticalRating, candidate.isOverdriveActiveAt(now),
+				)-selfCriticalRatingIncrease,
 			)
 		}
 	}
@@ -579,6 +596,15 @@ func (e *gameplaySessionRegistry) projectPassiveCreature(
 	creature.TimingProfile.AttackSpeed += attackSpeedIncrease
 	creature.CriticalRating += criticalRatingIncrease
 	return creature
+}
+
+func chargeFieldCriticalIncrease(criticalRating float32, isOverdrive bool) float32 {
+	// Modifiers/0x7D667E50.lua and 0xAA8F880A.lua use 50% and 75%
+	// respectively. The authored overdrive critical-damage bonus is zero.
+	if isOverdrive {
+		return criticalRating * 0.75
+	}
+	return criticalRating * 0.50
 }
 
 func (e *gameplaySessionRegistry) passiveMovementIncrease(

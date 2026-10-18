@@ -160,11 +160,14 @@ func (r campaignDamageRuntime) publishNocturnaFixtureTerror(
 }
 
 // pollNightmareVineRootsLocked applies one retained environmental hit while a
-// hero stands on an authored live root. The caller holds registry.mutex.
+// hero stands on an authored live root. Roots may remain in the completed
+// zone, but result voting must not attempt another damage transaction.
+// The caller holds registry.mutex.
 func (r gameplayPendingRuntime) pollNightmareVineRootsLocked(
 	peerSession *gameplayPeerSession, timestamp uint64,
 ) ([][]byte, error) {
 	if peerSession == nil || peerSession.zone == nil ||
+		peerSession.isZoneTerminal() || !peerSession.zone.IsActive() ||
 		peerSession.zone.NPCs() == nil || peerSession.deployedObjectID == 0 ||
 		r.now == nil || r.now().Before(peerSession.nightmareRootDamageReadyAt) {
 		return nil, nil

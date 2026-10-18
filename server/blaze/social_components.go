@@ -2133,6 +2133,7 @@ func roomsComponent(roomManager *sporenet.RoomManager, presenceRegistry *Presenc
 		0x0a: roomsSelectViewHandler(roomManager),
 		0x0b: roomsSelectCategoryHandler(roomManager),
 		0x14: roomsJoinHandler(roomManager, presenceRegistry),
+		0x15: roomsLeaveHandler(roomManager),
 		0xa0: func(context.Context, *Request) (*Response, error) { return &Response{}, nil },
 	}}
 }
