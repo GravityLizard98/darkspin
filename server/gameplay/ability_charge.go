@@ -45,6 +45,7 @@ type heroChargeRun struct {
 	effectSlot         uint8
 	isEffectAttached   bool
 	isAnimationActive  bool
+	isSpeedActive      bool
 	animationStartTime time.Time
 	animationTimestamp uint64
 	cancel             raknet.CancelSchedule
@@ -112,7 +113,8 @@ func (e *heroChargeRun) Interrupt() [][]byte {
 	e.mutex.Lock()
 	isImpacted := e.isHeroImpacted || len(e.modifiers) != 0
 	e.mutex.Unlock()
-	packets := e.resetPhantomAnimationLocked()
+	packets := e.resetChargeSpeedLocked()
+	packets = append(packets, e.resetPhantomAnimationLocked()...)
 	if isImpacted {
 		return packets
 	}
@@ -162,7 +164,8 @@ func (e *heroChargeRun) cleanupLocked() [][]byte {
 	if e.registry != nil {
 		e.registry.retireChargeModifiersLocked(e, 0)
 	}
-	effectPackets := e.releaseEffectLocked()
+	effectPackets := e.resetChargeSpeedLocked()
+	effectPackets = append(effectPackets, e.releaseEffectLocked()...)
 	effectPackets = append(effectPackets, e.resetPhantomAnimationLocked()...)
 	if e.registry != nil {
 		e.registry.pruneChargeRunLocked(e)
@@ -640,6 +643,9 @@ func (e heroChargeSchedule) impact() ([][]byte, error) {
 			packets = append(packets, reactionPacket)
 		}
 	}
+	e.run.mutex.Lock()
+	e.run.isSpeedActive = false
+	e.run.mutex.Unlock()
 	return packets, nil
 }
 
@@ -769,6 +775,9 @@ func (e heroChargeSchedule) impactRoar(
 		packets = append(packets, effectPacket)
 	}
 	packets = append(packets, modifierPackets...)
+	e.run.mutex.Lock()
+	e.run.isSpeedActive = false
+	e.run.mutex.Unlock()
 	return append(packets, actionPackets...), nil
 }
 
@@ -817,6 +826,7 @@ func (e heroChargeSchedule) finish() ([][]byte, error) {
 		e.runtime.registry.mutex.Unlock()
 		return nil, nil
 	}
+	e.run.resetChargeSpeedLocked()
 	e.run.resetPhantomAnimationLocked()
 	peerSession = e.runtime.registry.sessions[e.sessionKey]
 	if peerSession.heroCharge == e.run {
@@ -839,6 +849,7 @@ func (e heroChargeSchedule) fail(scheduleErr error) {
 		e.runtime.registry.sessions[e.sessionKey] = peerSession
 	}
 	if isCurrent {
+		e.run.resetChargeSpeedLocked()
 		e.run.resetPhantomAnimationLocked()
 		peerSession = e.runtime.registry.sessions[e.sessionKey]
 		peerSession.heroCharge = nil
@@ -1274,6 +1285,7 @@ func (r campaignAbilityCommandRuntime) handleHeroCharge(
 		effectSlot:         chargeEffectSlot,
 		isEffectAttached:   chargeEffectPacket != nil,
 		isAnimationActive:  projected.Name == "PhantomCharge",
+		isSpeedActive:      true,
 		animationStartTime: abilityStartTime, animationTimestamp: req.packet.SourceTime,
 		zone: peerSession.zone, userID: peerSession.binding.UserID,
 		generation: peerSession.generation, ownerObjectID: req.command.Common.ObjectID,
