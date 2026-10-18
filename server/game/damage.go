@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 	"math"
 )
 
@@ -27,8 +28,9 @@ type DamageProfile struct {
 	PrimaryAttributeBaseline        float32
 	IsPrimaryAttributeBaselineFound bool
 	BasicDefenseBoost               float32
-	PhysicalDefenseBoost            float32
-	EnergyDefenseBoost              float32
+	DefenseRatingPerPercent         float32
+	PhysicalDefenseBoost            float32 // Total derived physical defense rating.
+	EnergyDefenseBoost              float32 // Total derived energy defense rating.
 	DamageBuff                      float32
 	ScienceDamage                   [5]float32
 	ProjectileDamage                float32
@@ -61,7 +63,7 @@ func ResolveAbilityDamageRange(ability AbilityDamage, profile DamageProfile) (Da
 	}
 	profileNumber := []float32{
 		profile.PrimaryAttribute, profile.PrimaryAttributeBaseline,
-		profile.BasicDefenseBoost, profile.PhysicalDefenseBoost,
+		profile.BasicDefenseBoost, profile.DefenseRatingPerPercent, profile.PhysicalDefenseBoost,
 		profile.EnergyDefenseBoost, profile.DamageBuff, profile.ProjectileDamage,
 		profile.EnergyDamageBuff, profile.AreaDamage, profile.DamageOverTimeIncrease,
 		profile.DirectAttackDamagePercent, profile.PhysicalDamage,
@@ -76,7 +78,14 @@ func ResolveAbilityDamageRange(ability AbilityDamage, profile DamageProfile) (Da
 	}
 	multiplier := float32(1) + profile.DamageBuff
 	if ability.IsDescriptorFound && ability.Descriptor&2 != 0 {
-		multiplier += profile.BasicDefenseBoost * (profile.PhysicalDefenseBoost + profile.EnergyDefenseBoost)
+		// Resonance follows its client Lua tooltip's capped dodge/resist
+		// chances. This intentionally replaces the raw-defense multiplication
+		// in native builds 103/127, which disagrees with that authored effect.
+		defenseBonus, err := resolveDefenseDamageBonus(profile)
+		if err != nil {
+			return DamageRange{}, fmt.Errorf("defenseBonus: %w", err)
+		}
+		multiplier += defenseBonus
 	}
 	if ability.IsDamageTypeFound {
 		multiplier += profile.ScienceDamage[ability.DamageType]

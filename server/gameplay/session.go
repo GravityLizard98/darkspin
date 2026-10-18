@@ -652,7 +652,8 @@ func (s *gameplayPeerSession) setCrystalInventory(inventory sim.CrystalInventory
 			physicalDefenseDelta *= 2
 		}
 		creature.PhysicalDefense += physicalDefenseDelta
-		creature.EnergyDefense += next[9] - previous[9] + (next[2]-previous[2])*6
+		energyDefenseDelta := next[9] - previous[9] + (next[2]-previous[2])*6
+		creature.EnergyDefense += energyDefenseDelta
 		creature.PetDamage += next[63] - previous[63]
 		creature.PetHealthIncrease += next[64] - previous[64]
 		creature.RangeIncrease += next[67] - previous[67]
@@ -679,8 +680,9 @@ func (s *gameplayPeerSession) setCrystalInventory(inventory sim.CrystalInventory
 		if creature.HealingProfile.IsPrimaryAttributeFound {
 			creature.HealingProfile.PrimaryAttribute += primaryDelta
 		}
-		creature.DamageProfile.PhysicalDefenseBoost += next[7] - previous[7]
-		creature.DamageProfile.EnergyDefenseBoost += next[9] - previous[9]
+		creature.DamageProfile.PhysicalDefenseBoost += physicalDefenseDelta
+		creature.DamageProfile.EnergyDefenseBoost += energyDefenseDelta
+		creature.DamageProfile.BasicDefenseBoost += next[16] - previous[16]
 		for index := range creature.DamageProfile.ScienceDamage {
 			attributeIndex := 38 + index
 			creature.DamageProfile.ScienceDamage[index] += next[attributeIndex] - previous[attributeIndex]

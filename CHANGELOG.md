@@ -2,6 +2,7 @@
 
 ### 2026-10-18
 
+- #86 Change Resonance's basic attack damage bonus from raw defense ratings to converted, capped dodge and resist chances, matching its client-authored tooltip.
 - #80 Restore client-authored pursuit for ranged support bursts, keeping the server hero alongside the client before the ability fires.
 - #80 Keep Rezzers retreating toward their chosen flee point instead of redirecting into the hero during Ghostly Bolt recovery.
 - #80 Approach reachable collider edges for walking clicks deep inside obstacles instead of repeatedly rejecting and correcting the hero.

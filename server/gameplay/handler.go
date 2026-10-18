@@ -1381,7 +1381,7 @@ func newGameplayHandlerWithDependencies(
 	joinRuntime := gameplayJoinRuntime{
 		registry: sessionRegistry, gameplayJoin: gameplayJoin, progression: progression,
 		modifierPool: modifierInstancePool, effectPool: attachedEffectPool,
-		logger: logger,
+		ratingConversions: program.Critical.RatingConversions, logger: logger,
 	}
 	inventoryRuntime := gameplayInventoryRuntime{
 		registry: sessionRegistry, progression: progression, logger: logger,
@@ -1964,12 +1964,13 @@ func sortScheduledPacketProducersByDelay(producers []raknet.ScheduledPacketProdu
 }
 
 type gameplayJoinRuntime struct {
-	registry     *gameplaySessionRegistry
-	gameplayJoin *game.GameplayJoin
-	progression  tutorialprogress.RestartStore
-	modifierPool *modifierPool
-	effectPool   *attachedEffectPool
-	logger       *log.Logger
+	registry          *gameplaySessionRegistry
+	gameplayJoin      *game.GameplayJoin
+	progression       tutorialprogress.RestartStore
+	modifierPool      *modifierPool
+	effectPool        *attachedEffectPool
+	ratingConversions []float32
+	logger            *log.Logger
 }
 
 func (r gameplayJoinRuntime) handle(
@@ -1982,6 +1983,10 @@ func (r gameplayJoinRuntime) handle(
 		return nil, fmt.Errorf("helloPlayer: %w", err)
 	}
 	binding = tutorialGameplayBinding(binding)
+	err = binding.ConfigureDefenseDamage(r.ratingConversions)
+	if err != nil {
+		return nil, fmt.Errorf("helloDefense: %w", err)
+	}
 	if r.progression != nil && binding.Mode == game.ModeTutorial &&
 		(binding.AvatarXP != 0 || binding.AvatarLevel != 1) {
 		experience, err := tutorialprogress.Restart(
@@ -5913,6 +5918,11 @@ func (p campaignPreparation) prepare(
 func (p campaignPreparation) initialize(
 	ctx context.Context, binding game.GameplayBinding, peerSession *gameplayPeerSession,
 ) error {
+	err := binding.ConfigureDefenseDamage(p.program.Critical.RatingConversions)
+	if err != nil {
+		return fmt.Errorf("initializeDefense: %w", err)
+	}
+	peerSession.binding = binding
 	director, setupErr := p.loadDirector(ctx, binding)
 	if setupErr != nil {
 		return fmt.Errorf("statusChainDirector: %w", setupErr)

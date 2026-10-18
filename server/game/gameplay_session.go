@@ -691,6 +691,8 @@ func gameplayCreature(
 	}
 	selected.HealingTargetProfile = healingTargetProfile(partAttribute)
 	selected.TimingProfile = timingProfile(partAttribute)
+	selected.DamageProfile.PhysicalDefenseBoost = selected.PhysicalDefense
+	selected.DamageProfile.EnergyDefenseBoost = selected.EnergyDefense
 	return selected
 }
 
