@@ -865,6 +865,17 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 	if s == nil || gameplayJoin == nil || progression == nil || !pickup.IsWinnerReward {
 		return sporenet.Part{}, commit, errors.New("campaign winner reward unavailable")
 	}
+	// Ordinary NPC and captain drops already publish a complete item in
+	// cLootData. Native AddLootToPlayer (103 sub_9C3740) retains its rigblock,
+	// rarity and affixes; choosing the recipient must not reroll that preview.
+	// Destructor rewards retain their separate deferred unique-reward policy.
+	if !pickup.IsDestructorReward && pickup.Part.RigblockAssetID != 0 {
+		err := gameplayJoin.ValidateGeneratedCampaignPart(pickup.Part)
+		if err != nil {
+			return sporenet.Part{}, commit, fmt.Errorf("winnerPublishedPart: %w", err)
+		}
+		return pickup.Part, commit, nil
+	}
 	partSubjects := s.campaignPartSubjects()
 	if len(partSubjects) == 0 {
 		return sporenet.Part{}, commit, errors.New("campaign winner roster unavailable")

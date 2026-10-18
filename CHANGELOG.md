@@ -2,6 +2,7 @@
 
 ### 2026-10-17
 
+- #76 Preserve displayed enemy and captain equipment drops when awarding them instead of rerolling their item type, rarity, level and affixes after pickup.
 - #77 Restore normal walking speed when Beast Charge or another hero charge is interrupted or fails, preventing Savage's charge speed from persisting after the ability ends.
 - #78 Fix editor items incorrectly showing Out of item by reading the correct live creature model and retaining native availability checks when model inspection is inconclusive.
 - #79 Keep squad lists and saved hero assignments in stable slot order instead of moving the active squad first, so selecting squads 1, 2 or 3 deploys the matching lineup.
