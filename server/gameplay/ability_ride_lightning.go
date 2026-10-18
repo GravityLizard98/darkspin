@@ -251,21 +251,50 @@ func (r campaignAbilityCommandRuntime) handleRideLightning(
 	creature := r.registry.projectPassiveCreature(
 		peerSession, creatureIndex, abilityStartTime,
 	)
+	strikeRange := peerSession.deployedCampaignActorFootprintRadius() +
+		zonenavigation.ProjectionDistance
+	var strikeTarget zonenpc.Snapshot
+	isStrikeTargetFound := false
+	if targetObjectID != 0 && peerSession.zone != nil && peerSession.zone.NPCs() != nil {
+		strikeTarget, isStrikeTargetFound = peerSession.zone.NPCs().LiveNPC(targetObjectID)
+		isStrikeTargetFound = isStrikeTargetFound &&
+			strikeTarget.Faction == zonenpc.FactionNonPlayerAligned &&
+			strikeTarget.Plan.NPCProfile.IsTargetable &&
+			!strikeTarget.Plan.IsIntroductionHidden
+		if isStrikeTargetFound {
+			strikeRange += strikeTarget.Plan.ActorFootprintRadius()
+		}
+	}
 	destination := command.Ability.CursorPosition
 	if !isReportedZonePosition(destination) {
 		destination = command.Ability.TargetPosition
+	}
+	if isStrikeTargetFound {
+		destination = raknet.Vector3(strikeTarget.Plan.Position)
 	}
 	if !isFiniteZonePosition(destination) || !isReportedZonePosition(destination) ||
 		peerSession.zone == nil || peerSession.zone.Navigation() == nil {
 		r.registry.mutex.Unlock()
 		return req.reject("cursor or navigation unavailable")
 	}
-	// A blink needs a walkable landing surface, not a walking path from the
-	// caster or the melee target's range. Preserve cursor-directed ground casts.
-	landing, isLandingFound, projectionErr := zonenavigation.ProjectPosition(
-		peerSession.zone.Navigation(), game.Vec3(destination),
-		peerSession.deployedCampaignNavigationRadius(),
-	)
+	// LightningRogueActive uses FindGoodMeleePosition/GetPosition for a
+	// validated hostile target. Only ground casts use GetTargetPosition.
+	// A selected destructible can carry an unrelated, stale-height cursor.
+	var landing game.Vec3
+	var isLandingFound bool
+	var projectionErr error
+	if isStrikeTargetFound {
+		landing, isLandingFound, projectionErr = zonenavigation.MeleeTeleportDestination(
+			peerSession.zone.Navigation(), game.Vec3(peerSession.playerPosition),
+			strikeTarget.Plan.Position, peerSession.deployedCampaignNavigationRadius(),
+			strikeRange,
+		)
+	} else {
+		landing, isLandingFound, projectionErr = zonenavigation.ProjectPosition(
+			peerSession.zone.Navigation(), game.Vec3(destination),
+			peerSession.deployedCampaignNavigationRadius(),
+		)
+	}
 	if projectionErr != nil {
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("rideLandingProject: %w", projectionErr)
@@ -299,23 +328,14 @@ func (r campaignAbilityCommandRuntime) handleRideLightning(
 		return req.reject("destination, cooldown, or power unavailable")
 	}
 	ridePlan := zoneability.BasicPlan{}
-	strikeRange := peerSession.deployedCampaignActorFootprintRadius() +
-		zonenavigation.ProjectionDistance
-	if targetObjectID != 0 && peerSession.zone.NPCs() != nil {
-		target, isTargetFound := peerSession.zone.NPCs().LiveNPC(targetObjectID)
-		if isTargetFound && target.Faction == zonenpc.FactionNonPlayerAligned &&
-			!target.Plan.IsFixture {
-			strikeRange += target.Plan.ActorFootprintRadius()
-			if target.Plan.Position.Sub(landing).Length() <= strikeRange {
-				ridePlan, err = zoneability.PlanProjected(
-					peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,
-					landing, creature, definition, strikeRange,
-				)
-				if err != nil {
-					r.registry.mutex.Unlock()
-					return nil, fmt.Errorf("rideStrikePlan: %w", err)
-				}
-			}
+	if isStrikeTargetFound && strikeTarget.Plan.Position.Sub(landing).Length() <= strikeRange {
+		ridePlan, err = zoneability.PlanProjected(
+			peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,
+			landing, creature, definition, strikeRange,
+		)
+		if err != nil {
+			r.registry.mutex.Unlock()
+			return nil, fmt.Errorf("rideStrikePlan: %w", err)
 		}
 	}
 	cooldown, cooldownErr := zoneability.ProjectCooldown(creature, definition)

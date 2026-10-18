@@ -2,6 +2,12 @@
 
 ### 2026-10-18
 
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Restore Chrono Blink's native teleport message so the client hero moves with the server position.
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Keep completed melee damage and destructible destruction synchronized when movement interrupts an attack before its hit packets are published.
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Enable client-authored pursuit for ranged basic attacks, preventing Krel and other pursuing projectile users from repeatedly rejecting reachable targets as out of range.
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Remove Enrage's modifier, visual effect, size increase and damage bonus when failed-action recovery cancels its expiry timer.
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Remove Pain Hounds from clients when failed-action recovery retires their server objects, preventing stationary summons from lingering after their timers are canceled.
+- [#81](https://github.com/darkspinnet/darkspin/issues/81) Restore Ride the Lightning's client-authored target-based landing and damage against destructibles instead of rejecting selected targets using an unrelated cursor position.
 - [#84](https://github.com/darkspinnet/darkspin/issues/84) Restore the Corruptor's second-stage target after resurrection instead of aborting the transition on its retained threat entry, allowing queued encounter cleanup and stage-two publication to complete.
 - [#84](https://github.com/darkspinnet/darkspin/issues/84) Enforce Grappling Pulsars' client-authored pull cooldown across initial shots and pursuit recovery, and select their fast melee attack for targets already within reach.
 - [#84](https://github.com/darkspinnet/darkspin/issues/84) Keep Destructor modifiers while removing the generic Elite nameplate affix from their spawn and reconnect packets.

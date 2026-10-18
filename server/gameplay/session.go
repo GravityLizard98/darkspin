@@ -1841,7 +1841,13 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 		e.sphereAttack = nil
 	}
 	_, _ = e.stopFireTempestActive()
-	_, _ = e.stopPlasmaSentinelActive()
+	plasmaPackets, plasmaErr := e.stopPlasmaSentinelActive()
+	if plasmaErr != nil {
+		log.Printf("RakNet Pain Hound action reset cleanup failed user=%d: %v", e.binding.UserID, plasmaErr)
+	}
+	// Retiring the summons cancels their expiry timers, so recovery must also
+	// publish their removal instead of leaving client objects alive indefinitely.
+	e.queueCampaignPackets(plasmaPackets)
 	dronePackets, droneErr := e.stopFieldMedicDrone()
 	if droneErr != nil {
 		log.Printf("RakNet Field Medic action reset cleanup failed user=%d: %v", e.binding.UserID, droneErr)
@@ -1859,7 +1865,15 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 	_, _ = e.stopTrapperStealth()
 	if e.enrageRun != nil {
 		e.enrageRun.Cancel()
-		e.enrageRun.ReleaseEffect()
+		// Recovery cancels the expiry timer, so perform the modifier's full
+		// deactivation now, including its damage bonus and client presentation.
+		enragePackets, enrageErr := e.enrageRun.Expire(campaignEnrageState{session: e})
+		if enrageErr != nil {
+			// A missing target can prevent Expire from reaching attachment cleanup.
+			e.enrageRun.ReleaseEffect()
+			log.Printf("RakNet Enrage action reset cleanup failed user=%d: %v", e.binding.UserID, enrageErr)
+		}
+		e.queueCampaignPackets(enragePackets)
 		if modifierInstancePool != nil {
 			_ = modifierInstancePool.Release(e.enrageRun.InstanceID())
 		}

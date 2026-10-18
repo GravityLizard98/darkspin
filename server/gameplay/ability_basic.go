@@ -816,8 +816,13 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 	}
 	if planErr != nil {
 		var rangeErr zoneability.TargetRangeError
+		// Native 103 sub_9E0660 returns pursuit (3) for an out-of-range
+		// ability with shouldPursue, including FireRavagerBasic projectiles.
+		// Advance the authoritative route instead of rejecting every retry
+		// while the client's local pursuit has already moved into range.
 		isPursuit := errors.As(planErr, &rangeErr) && targetObjectID != 0 &&
-			definition.Kind == sim.AbilityKindMelee && definition.IsShouldPursue &&
+			(definition.Kind == sim.AbilityKindMelee ||
+				definition.Kind == sim.AbilityKindProjectile) && definition.IsShouldPursue &&
 			targetFootprint > 0
 		if isPursuit {
 			if peerSession.isEnemyRootActive(abilityStartTime) {
@@ -1248,15 +1253,15 @@ func (e campaignTeleportAreaStep) produce() ([][]byte, error) {
 	e.runtime.registry.sessions[e.sessionKey] = current
 	e.runtime.registry.mutex.Unlock()
 
-	positionPacket, err := raknet.MarshalApplication(raknet.ObjectUpdateMessage{
-		ObjectID:  e.sourceObjectID,
-		PositionX: e.center.X, PositionY: e.center.Y, PositionZ: e.center.Z,
-		IsVisible: true,
+	// TimeRavagerSupport calls nLocomotion.TeleportObject after blinkintime.
+	// Its native path (A09A90 -> A20110) sends the teleport snapshot, which
+	// moves the client mover as well as updating the reflected object pose.
+	packets, err := actionraknet.Teleport(actionraknet.TeleportRequest{
+		ObjectID: e.sourceObjectID, Position: e.center,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("teleportAreaPosition: %w", err)
 	}
-	packets := [][]byte{positionPacket}
 	if e.effectName == "" {
 		return packets, nil
 	}
@@ -2173,9 +2178,9 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 			runtime.registry.mutex.Unlock()
 			return nil, fmt.Errorf("campaignBasicMissPrepare: %w", err)
 		}
+		packets, advanceErr := schedule.run.Advance(context.Background(), e.delay)
 		runtime.registry.sessions[schedule.sessionKey] = current
 		runtime.registry.mutex.Unlock()
-		packets, advanceErr := schedule.run.Advance(context.Background(), e.delay)
 		if advanceErr != nil {
 			return nil, fmt.Errorf("campaignBasicMissAdvance: %w", advanceErr)
 		}
@@ -2280,6 +2285,14 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 		runtime.registry.mutex.Unlock()
 		return nil, fmt.Errorf("campaignBasicPrepare: %w", err)
 	}
+	// Movement can stop the run after releasing the registry lock. Encode this
+	// committed hit first so cancellation cannot discard its damage/death packets.
+	packets, err := schedule.run.Advance(context.Background(), e.delay)
+	if err != nil {
+		runtime.registry.mutex.Unlock()
+		return nil, fmt.Errorf("campaignBasicHit: %w", err)
+	}
+	packets = filterProjectileCombatPackets(packets)
 	runtime.registry.sessions[schedule.sessionKey] = current
 	runtime.registry.mutex.Unlock()
 
@@ -2383,11 +2396,6 @@ func (e campaignMeleeHitStep) produce() ([][]byte, error) {
 		}
 		publishedPackets = append(publishedPackets, stunPackets...)
 	}
-	packets, err := schedule.run.Advance(context.Background(), e.delay)
-	if err != nil {
-		return nil, fmt.Errorf("campaignBasicHit: %w", err)
-	}
-	packets = filterProjectileCombatPackets(packets)
 	packets = append(packets, publishedPackets...)
 	// A lethal hit does not skip later authored hit frames. They can select a
 	// fallback victim within the same captured arc; release has its own step.
