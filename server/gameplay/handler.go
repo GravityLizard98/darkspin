@@ -2164,6 +2164,7 @@ func (r gameplayJoinRuntime) handle(
 		nextSession.isRejoinPending = true
 		nextSession.lastPlayerStatus = raknet.PlayerStatus{}
 		nextSession.isPlayerStatusKnown = false
+		nextSession.isCampaignPlayerInitialized = false
 		// The world survives a disconnect, but the new client process has not
 		// loaded its level or object resources. Repeat the loading handshake.
 		nextSession.stage.AwaitResume()
@@ -2575,6 +2576,9 @@ func (r gameplayPendingRuntime) poll(
 	rootHazardPackets = append(rootHazardPackets, pickupPursuitPackets...)
 	rootHazardPackets = append(rootHazardPackets, triggerPackets...)
 	queuedPackets, pendingPacketBatchID := peerSession.pendingPackets()
+	if len(queuedPackets) != 0 {
+		peerSession.pendingPacketResponseTraceID = packet.TraceID
+	}
 	isPendingPacketOverflow := peerSession.isPendingPacketOverflow
 	peerSession.isPendingPacketOverflow = false
 	queuedStatDeltas := peerSession.takeStatDeltas()
@@ -2592,7 +2596,7 @@ func (r gameplayPendingRuntime) poll(
 	if isArenaTransitionRetry || isArenaPreparationRetry {
 		peerSession.arenaLobbyTransitionAt = r.now()
 	}
-	if isFound && (len(queuedStatDeltas) != 0 || isPendingPacketOverflow ||
+	if isFound && (len(queuedPackets) != 0 || len(queuedStatDeltas) != 0 || isPendingPacketOverflow ||
 		isArenaTransitionRetry || isArenaPreparationRetry) {
 		r.registry.sessions[packet.Address.String()] = peerSession
 	}

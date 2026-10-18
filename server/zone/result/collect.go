@@ -56,8 +56,9 @@ type RewardStore interface {
 }
 
 type CollectCommand struct {
-	UserID  int64
-	Subject RewardSubject
+	UserID     int64
+	PlayerSlot uint16
+	Subject    RewardSubject
 }
 
 type CollectResult struct {
@@ -87,6 +88,9 @@ func CollectCashOut(
 		return CollectResult{}, errors.New("campaign cashout session unavailable")
 	}
 	snapshot := session.Snapshot()
+	if int(command.PlayerSlot) >= len(snapshot.MedalCounts) {
+		return CollectResult{}, errors.New("campaign cashout player slot invalid")
+	}
 	if snapshot.CashOutReceipt.IsCommitted {
 		return CollectResult{
 			Receipt: snapshot.CashOutReceipt, IsReplay: true,
@@ -116,7 +120,7 @@ func CollectCashOut(
 		}
 		rarityBands := CashOutRarityBands(
 			snapshot.CompletedIndex, snapshot.PlanetsCompleted,
-			snapshot.MedalCounts[0], bonusStatus.IsAvailable,
+			snapshot.MedalCounts[command.PlayerSlot], bonusStatus.IsAvailable,
 		)
 		rewardParts := make([]RewardPart, 0, rewardCount)
 		for rewardIndex := 0; rewardIndex < rewardCount; rewardIndex++ {

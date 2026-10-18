@@ -570,11 +570,13 @@ type gameplayPeerSession struct {
 	stage                                zonemember.Stage
 	lastPlayerStatus                     raknet.PlayerStatus
 	isPlayerStatusKnown                  bool
+	isCampaignPlayerInitialized          bool
 	dungeonSetup                         zonemember.Setup
 	transportGeneration                  uint64
 	schedulePackets                      func(time.Duration, [][]byte) error
 	schedulePacket                       raknet.Packet
 	pendingPacketBatches                 []pendingPeerPacketBatch
+	pendingPacketResponseTraceID         uint64
 	nextPendingPacketID                  uint64
 	isPendingPacketOverflow              bool
 	pendingStatDeltas                    []sporenet.PlayerStatDelta

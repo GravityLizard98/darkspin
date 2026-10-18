@@ -1323,7 +1323,12 @@ func (a *API) serveStaticFile(writer http.ResponseWriter, request *http.Request,
 }
 
 func (a *API) creatureImage(writer http.ResponseWriter, request *http.Request, uri *recaphttp.URI) {
-	a.serveStorageFile(writer, request, a.storage, uri.Resource())
+	resource, err := gameplayAppearanceResource(uri.Resource())
+	if err != nil {
+		http.NotFound(writer, request)
+		return
+	}
+	a.serveStorageFile(writer, request, a.storage, resource)
 }
 
 func (a *API) serveStorageFile(writer http.ResponseWriter, request *http.Request, root, resource string) {

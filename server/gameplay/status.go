@@ -200,6 +200,17 @@ func (r gameplayStatusRuntime) handleChain(
 		return r.campaignBeamOut(ctx, packet, peerSession)
 	}
 	if status.Status == 2 {
+		if peerSession.isCampaignPlayerInitialized {
+			playerPacket, err := memberraknet.Status(memberraknet.StatusRequest{
+				PlayerIndex: uint8(peerSession.binding.Slot),
+				Status:      status.Status, Progress: status.Progress,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("statusChainLoading: %w", err)
+			}
+			r.queueMemberStatus(packet.Address.String(), peerSession, playerPacket)
+			return [][]byte{playerPacket}, nil
+		}
 		playerPacket, err := marshalCampaignInitialPlayer(
 			peerSession.binding, status, peerSession.presentedOverdriveEnergy(time.Now()),
 		)
@@ -209,6 +220,14 @@ func (r gameplayStatusRuntime) handleChain(
 		crystalPackets, err := marshalGameplayCrystalState(peerSession)
 		if err != nil {
 			return nil, fmt.Errorf("statusChainCrystals: %w", err)
+		}
+		delivery := campaignInitialPlayerDelivery{
+			registry: r.registry, sessionKey: packet.Address.String(),
+			generation: peerSession.generation, transportGeneration: peerSession.transportGeneration,
+		}
+		err = packet.AfterResponseCommit(delivery.commit)
+		if err != nil {
+			return nil, fmt.Errorf("statusInitialCommit: %w", err)
 		}
 		statusRecipients := r.queueMemberStatus(
 			packet.Address.String(), peerSession, playerPacket,
@@ -1118,6 +1137,7 @@ func (r campaignResultRuntime) poll(
 		}
 		cashOutPacket, err := resultraknet.CashOutReceipt(
 			resultraknet.CashOutReceiptRequest{
+				PlayerSlot:         peerSession.binding.Slot,
 				Receipt:            snapshot.CashOutReceipt,
 				CompletedIndex:     snapshot.CompletedIndex,
 				PlanetsCompleted:   snapshot.PlanetsCompleted,
@@ -2009,8 +2029,9 @@ func (r campaignResultRuntime) presentCashOut(
 		resultsporenet.PartGenerator{GameplayJoin: r.gameplayJoin},
 		resultsporenet.RewardStore{Progression: r.cashOutProgression},
 		zoneresult.CollectCommand{
-			UserID:  int64(snapshot.UserID),
-			Subject: primaryRewardSubject,
+			PlayerSlot: peerSession.binding.Slot,
+			UserID:     int64(snapshot.UserID),
+			Subject:    primaryRewardSubject,
 		},
 	)
 	if err != nil {
@@ -2018,6 +2039,7 @@ func (r campaignResultRuntime) presentCashOut(
 	}
 	cashOutPacket, err := resultraknet.CashOutReceipt(
 		resultraknet.CashOutReceiptRequest{
+			PlayerSlot:         peerSession.binding.Slot,
 			Receipt:            collectResult.Receipt,
 			CompletedIndex:     snapshot.CompletedIndex,
 			PlanetsCompleted:   snapshot.PlanetsCompleted,

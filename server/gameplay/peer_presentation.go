@@ -31,12 +31,18 @@ func (e gameplayProjectionRuntime) drainQueuedProjection(
 	peerSession, isFound := e.registry.sessions[sessionKey]
 	if !isFound || peerSession.zone == nil || peerSession.isRejoinPending ||
 		!peerSession.dungeonSetup.IsCommitted() ||
-		len(peerSession.pendingPacketBatches) != 0 {
+		(request.TraceID != 0 && peerSession.pendingPacketResponseTraceID == request.TraceID) {
 		e.registry.mutex.Unlock()
 		return nil, nil
 	}
 	err := peerSession.queueCampaignPresentation(nil)
 	packets, batchID := peerSession.pendingPackets()
+	if len(packets) != 0 {
+		// Pending batches are retained until transport commit. Only a batch
+		// already included by this request should suppress the outer drain;
+		// the existence of queued peer updates is a reason to send them.
+		peerSession.pendingPacketResponseTraceID = request.TraceID
+	}
 	e.registry.sessions[sessionKey] = peerSession
 	e.registry.mutex.Unlock()
 	if err != nil {

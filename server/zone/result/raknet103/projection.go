@@ -19,6 +19,7 @@ const (
 )
 
 type CashOutReceiptRequest struct {
+	PlayerSlot         uint16
 	Receipt            zoneresult.CashOutReceipt
 	CompletedIndex     uint32
 	PlanetsCompleted   uint8
@@ -130,6 +131,7 @@ func CashOutRoute() ([]byte, error) {
 func CashOutReceipt(req CashOutReceiptRequest) ([]byte, error) {
 	receipt := req.Receipt
 	if !receipt.IsCommitted || receipt.ResultID == 0 ||
+		int(req.PlayerSlot) >= len(req.MedalCounts) ||
 		receipt.ChainProgression == 0 || len(receipt.Parts) == 0 ||
 		len(receipt.Parts) > maximumCashOutRewards ||
 		receipt.AccountExperience > math.MaxInt32 ||
@@ -139,10 +141,12 @@ func CashOutReceipt(req CashOutReceiptRequest) ([]byte, error) {
 		return nil, errors.New("cash out receipt invalid")
 	}
 	message := raknet.ChainCashOutMessage{
-		PlanetsCompleted:    int32(req.PlanetsCompleted),
-		StartingExperiences: [4]int32{int32(req.StartingExperience)},
-		FinalExperiences:    [4]int32{int32(req.FinalExperience)},
+		PlanetsCompleted: int32(req.PlanetsCompleted),
 	}
+	// Native cCashOutUI retains all four participant rows in slot order.
+	// A recipient's personal receipt must populate that participant's row.
+	message.StartingExperiences[req.PlayerSlot] = int32(req.StartingExperience)
+	message.FinalExperiences[req.PlayerSlot] = int32(req.FinalExperience)
 	for playerIndex, medalCount := range req.MedalCounts {
 		if medalCount.Gold > math.MaxInt32 || medalCount.Silver > math.MaxInt32 ||
 			medalCount.Bronze > math.MaxInt32 {
@@ -151,7 +155,7 @@ func CashOutReceipt(req CashOutReceiptRequest) ([]byte, error) {
 		message.GoldMedalCounts[playerIndex] = int32(medalCount.Gold)
 		message.SilverMedalCounts[playerIndex] = int32(medalCount.Silver)
 		message.BronzeMedalCounts[playerIndex] = int32(medalCount.Bronze)
-		isDailyBonusGranted := playerIndex == 0 && receipt.IsDailyBonusGranted
+		isDailyBonusGranted := playerIndex == int(req.PlayerSlot) && receipt.IsDailyBonusGranted
 		rarityBands := zoneresult.CashOutRarityBands(
 			req.CompletedIndex, req.PlanetsCompleted, medalCount,
 			isDailyBonusGranted,
@@ -165,7 +169,7 @@ func CashOutReceipt(req CashOutReceiptRequest) ([]byte, error) {
 			return nil, fmt.Errorf("cashOutReceiptPart[%d]: invalid", index)
 		}
 		roll := int32(zoneresult.CashOutRewardRoll(receipt.ResultID, index))
-		message.Rewards[0][index] = raknet.ChainCashOutReward{
+		message.Rewards[req.PlayerSlot][index] = raknet.ChainCashOutReward{
 			Rigblock: part.RigblockAssetHash, Suffix: part.SuffixAssetHash,
 			Prefix:  part.PrefixAssetHash,
 			Prefix2: part.PrefixSecondaryAssetHash,

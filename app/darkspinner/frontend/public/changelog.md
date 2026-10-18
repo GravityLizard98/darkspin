@@ -1,5 +1,12 @@
 # Changelog
 
+### 2026-10-18
+
+- [#83](https://github.com/darkspinnet/darkspin/issues/83) Give saved gameplay appearances revision-qualified identities so players with the same account-local hero ID no longer share the wrong multiplayer model; keep template appearances distinct by hero noun.
+- [#83](https://github.com/darkspinnet/darkspin/issues/83) Send the full hero roster once per loading session and use sparse progress updates afterward, preventing repeated co-op roster refreshes from restarting hero asset loading.
+- [#83](https://github.com/darkspinnet/darkspin/issues/83) Place mission-end rewards, XP and daily bonuses in the recipient's actual multiplayer slot instead of always player 1, and calculate reward rarity using that player's medals.
+- [#83](https://github.com/darkspinnet/darkspin/issues/83) Drain queued co-op animation and world updates on ordinary gameplay requests instead of waiting for a separate poll, while preventing duplicate batch delivery within the same request.
+
 ### 2026-10-17
 
 - [#76](https://github.com/darkspinnet/darkspin/issues/76) Preserve displayed enemy and captain equipment drops when awarding them instead of rerolling their item type, rarity, level and affixes after pickup.
