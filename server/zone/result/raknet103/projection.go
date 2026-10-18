@@ -105,7 +105,9 @@ func VoteWithCountdown(snapshot zoneresult.Snapshot, seconds float32) ([]byte, e
 		FirstVoice:        nextPresentation.CurrentVoice,
 		ContinuationLimit: continuationLimit,
 		NextPresentation: [3]uint32{
-			0,
+			// Build 103 sub_449090 reads record+0xd9 as its preferred
+			// interlevel camera; the following fields cannot start it.
+			presentation.NextMovie,
 			presentation.NextMovie,
 			presentation.NextMovie,
 		},

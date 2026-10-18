@@ -96,6 +96,13 @@ func (r campaignNPCActionRuntime) produceGrapplingPulsarPull(
 		r.registry.mutex.Unlock()
 		return nil, false, nil
 	}
+	target, isTargetFound := peerSession.campaignNPCTarget(generation, enemy.TargetObjectID)
+	swipeProfile, isSwipeFound := zonenpc.VerdanthSpecialThreeFastSwipeProfile(enemy.Plan.NounName)
+	if !isTargetFound || !isSwipeFound || zonegeometry.Distance(enemy.Plan.Position, target.Position)-
+		enemy.Plan.ActorFootprintRadius()-target.FootprintRadius <= swipeProfile.Range {
+		r.registry.mutex.Unlock()
+		return nil, false, nil
+	}
 	_, slowAttackScale := peerSession.zone.NPCs().SlowProfile(objectID, r.now())
 	cooldownProfile := applyNPCSlowTiming(profile, slowAttackScale)
 	reservedTimestamp := timestamp + uint64(cooldownProfile.Cooldown/time.Millisecond)

@@ -2,6 +2,10 @@
 
 ### 2026-10-18
 
+- [#84](https://github.com/darkspinnet/darkspin/issues/84) Restore the Corruptor's second-stage target after resurrection instead of aborting the transition on its retained threat entry, allowing queued encounter cleanup and stage-two publication to complete.
+- [#84](https://github.com/darkspinnet/darkspin/issues/84) Enforce Grappling Pulsars' client-authored pull cooldown across initial shots and pursuit recovery, and select their fast melee attack for targets already within reach.
+- [#84](https://github.com/darkspinnet/darkspin/issues/84) Keep Destructor modifiers while removing the generic Elite nameplate affix from their spawn and reconnect packets.
+- [#84](https://github.com/darkspinnet/darkspin/issues/84) Populate build 103's actual interlevel cinematic field, restoring the authored Corruptor epilogue and following planet presentations.
 - [#82](https://github.com/darkspinnet/darkspin/issues/82) Spread health-obelisk and enemy capsule batches across client-authored shuffled navigation-projected rings instead of landing every capsule at the same point.
 - [#82](https://github.com/darkspinnet/darkspin/issues/82) Deliver queued NPC spawns before starting recovered actions, preventing Nashira's entrance setup from arriving before her object exists and leaving her moving during the reveal.
 - [#82](https://github.com/darkspinnet/darkspin/issues/82) Retire authored teleporter duplicates when loading or rejoining mission 1-1, retaining one server-controlled pad at each of its seven security teleporter locations.

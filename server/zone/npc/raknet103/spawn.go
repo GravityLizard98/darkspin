@@ -124,6 +124,12 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 			IsInCombat: plan.IsArena,
 			Stealth:    uint8(actionStealthType(plan)),
 		})
+		eliteAffixAssetID := util.HashID("Elite.NPCAffix")
+		if profile.NPCType == 2 {
+			// Destructor class identity is its own nameplate. Retain the
+			// existing modifier bonuses without assigning a generic elite name.
+			eliteAffixAssetID = 0
+		}
 		messages = append(messages, raknet.ModifierCreatedMessage{
 			TargetID:          plan.ObjectID,
 			ModifierGUID:      util.HashID(zonenpc.EliteModifierName),
@@ -133,7 +139,7 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 				zonenpc.EliteModifierDuration.Milliseconds(),
 			),
 			StackCount:      1,
-			NPCAffixAssetID: util.HashID("Elite.NPCAffix"),
+			NPCAffixAssetID: eliteAffixAssetID,
 		})
 	}
 	// HUD_NPCBar reads live modifier instances, not ClassAttributes alone.

@@ -87,6 +87,7 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 	isHybridMelee := false
 	isSpecialTwoMelee := false
 	isNashiraMelee := false
+	isPullerMelee := false
 	if isPeekFound && peekSession.generation == generation &&
 		peekSession.zone != nil && peekSession.zone.NPCs() != nil {
 		peekNPC, isPeekNPCFound := peekSession.zone.NPCs().NPC(objectID)
@@ -95,6 +96,13 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		peekTarget, isPeekTargetFound := peekSession.campaignNPCTarget(
 			generation, peekNPC.TargetObjectID,
 		)
+		swipeProfile, isPuller := zonenpc.VerdanthSpecialThreeFastSwipeProfile(peekNPC.Plan.NounName)
+		if isPeekNPCFound && isPeekTargetFound && isPuller && volley.plan.Profile.AbilityName != "Puller" {
+			surfaceDistance := zonegeometry.Distance(peekNPC.Plan.Position, peekTarget.Position) -
+				peekNPC.Plan.ActorFootprintRadius() - peekTarget.FootprintRadius
+			isPullerMelee = surfaceDistance <= swipeProfile.Range ||
+				peekSession.campaignNPCPullReadiness[objectID] > timestamp
+		}
 		if isPeekNPCFound && isPeekTargetFound && isPeekProfileFound &&
 			peekProfile.AbilityName == "NocturnaSpecialHomer" {
 			selectedProfile, isSelectedFound := campaignNPCActionProfile(
@@ -145,6 +153,9 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		}
 	}
 	r.registry.mutex.RUnlock()
+	if isPullerMelee {
+		return r.produceEnemyMeleeWithPull(packet, sessionKey, generation, objectID, timestamp, false)
+	}
 	err := r.startCampaignSuppressionAura(
 		packet, sessionKey, generation, objectID, timestamp,
 	)
@@ -657,6 +668,12 @@ func (r campaignNPCActionRuntime) produceZelemShotWithVolley(
 		projectileRun.AddDeadline(impactDeadline)
 	}
 	lastDeadline := projectileRun.LastDeadline()
+	if isControlProjectile {
+		if peerSession.campaignNPCPullReadiness == nil {
+			peerSession.campaignNPCPullReadiness = make(map[uint32]uint64)
+		}
+		peerSession.campaignNPCPullReadiness[objectID] = timestamp + uint64(profile.Cooldown/time.Millisecond)
+	}
 	binding := peerSession.binding
 	r.registry.sessions[sessionKey] = peerSession
 	r.registry.mutex.Unlock()

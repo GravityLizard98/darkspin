@@ -2750,8 +2750,16 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 				fmt.Errorf("selfResurrectApply: %w", resurrectErr)
 		}
 		var isTargetAcquired bool
-		revived, isTargetAcquired, resurrectErr = s.zone.NPCs().AcquireTarget(
-			revived.Plan.ObjectID, s.deployedObjectID,
+		// Resurrection clears the active target but retains the threat list.
+		// AlertObject deliberately ignores duplicate threats, so it cannot
+		// restore this scripted encounter target after the first defeat.
+		revived, isTargetAcquired, resurrectErr = s.zone.NPCs().Retarget(
+			revived.Plan.ObjectID, zonenpc.Target{
+				ObjectID: s.deployedObjectID, Position: game.Vec3(s.playerPosition),
+				FootprintRadius: s.deployedCampaignFootprintRadius(),
+				Faction:         zonenpc.FactionPlayerAligned, IsAlive: true,
+				Owner: zonenpc.ActionOwner{UserID: s.binding.UserID, PeerGeneration: s.generation},
+			},
 		)
 		if resurrectErr != nil {
 			return campaignDamageTransition{},
@@ -2784,8 +2792,14 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 				fmt.Errorf("corruptorStageTwoApply: %w", resurrectErr)
 		}
 		var isTargetAcquired bool
-		revived, isTargetAcquired, resurrectErr = s.zone.NPCs().AcquireTarget(
-			revived.Plan.ObjectID, s.deployedObjectID,
+		// The retained threat entry cannot reacquire a target through AlertObject.
+		revived, isTargetAcquired, resurrectErr = s.zone.NPCs().Retarget(
+			revived.Plan.ObjectID, zonenpc.Target{
+				ObjectID: s.deployedObjectID, Position: game.Vec3(s.playerPosition),
+				FootprintRadius: s.deployedCampaignFootprintRadius(),
+				Faction:         zonenpc.FactionPlayerAligned, IsAlive: true,
+				Owner: zonenpc.ActionOwner{UserID: s.binding.UserID, PeerGeneration: s.generation},
+			},
 		)
 		if resurrectErr != nil {
 			return campaignDamageTransition{},
