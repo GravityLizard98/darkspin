@@ -825,125 +825,20 @@ func (r campaignAbilityCommandRuntime) handleBasic(
 				definition.Kind == sim.AbilityKindProjectile) && definition.IsShouldPursue &&
 			targetFootprint > 0
 		if isPursuit {
-			if peerSession.isEnemyRootActive(abilityStartTime) {
-				r.registry.mutex.Unlock()
-				return request.reject("cannot pursue while rooted")
-			}
-			targetEnemy, isTargetEnemyFound := peerSession.zone.NPCs().NPC(
-				targetObjectID,
-			)
-			if !isTargetEnemyFound {
+			targetEnemy, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
+			if !isTargetFound {
 				r.registry.mutex.Unlock()
 				return request.reject("pursuit target unavailable")
 			}
-			adjustedRange, adjustedErr := zoneaction.AdjustedPursuitRange(admissionRange)
-			if adjustedErr != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("campaignBasicPursuitRange: %w", adjustedErr)
-			}
-			stopDistance := actorFootprint + targetFootprint + adjustedRange
-			if isPursuitRetry {
-				r.registry.sessions[sessionKey] = peerSession
-				r.registry.mutex.Unlock()
-				pursuitResponse, responseErr := actionraknet.PursuitTransfer(
-					command.Common.Unknown[0], command.Common.ObjectID,
-				)
-				if responseErr != nil {
-					return nil, fmt.Errorf(
-						"campaignBasicPursuitResponse: %w", responseErr,
-					)
-				}
-				peerErr := r.publishPursuitToPeers(
-					packet, command.Common.ObjectID, peerSession.playerPosition,
-					targetObjectID, targetEnemy.Plan.Position, stopDistance,
-				)
-				if peerErr != nil {
-					return nil, fmt.Errorf("pursuitRetryPeers: %w", peerErr)
-				}
-				return pursuitResponse, nil
-			}
-			pursuitPackets, marshalErr := actionraknet.PursuitTransfer(
-				command.Common.Unknown[0], command.Common.ObjectID,
+			request.startTime = abilityStartTime
+			pursuitPackets, isPursuitStarted, pursuitErr := r.transferPlayerAbilityPursuit(
+				request, peerSession, targetEnemy, admissionRange, isPursuitRetry,
 			)
-			if marshalErr != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("campaignBasicPursuitTransfer: %w", marshalErr)
+			if pursuitErr != nil {
+				return nil, fmt.Errorf("basicPursuit: %w", pursuitErr)
 			}
-			_, _, movementErr := peerSession.advancePlayerPursuitMovement(
-				abilityStartTime, peerSession.playerPosition,
-				raknet.Vector3{
-					X: targetEnemy.Plan.Position.X,
-					Y: targetEnemy.Plan.Position.Y,
-					Z: targetEnemy.Plan.Position.Z,
-				},
-				r.registry.passiveMovementIncrease(peerSession),
-			)
-			if movementErr != nil {
-				r.registry.mutex.Unlock()
-				return nil, fmt.Errorf("campaignBasicPursuitMotion: %w", movementErr)
-			}
-			pursuitGeneration := peerSession.campaignPlayerPursuitSession().Begin(
-				command.Common.ObjectID, targetObjectID, command.Ability.Index,
-				command.Common.Unknown[0], stopDistance,
-			)
-			pursuitSyncStamp := command.Common.Unknown[0]
-			pursuitSourceObjectID := command.Common.ObjectID
-			sessionGeneration := peerSession.generation
-			r.registry.sessions[sessionKey] = peerSession
-			r.registry.mutex.Unlock()
-			timeout := campaignPursuitTimeoutProducer{
-				action: r.action, logger: r.logger,
-				sessionKey: sessionKey, sessionGeneration: sessionGeneration,
-				transportGeneration: peerSession.transportGeneration,
-				pursuitGeneration:   pursuitGeneration,
-				sourceObjectID:      pursuitSourceObjectID, targetObjectID: targetObjectID,
-				syncStamp: pursuitSyncStamp, timeout: zoneaction.PursuitTimeout,
-			}
-			timeoutProducer := raknet.ScheduledPacketProducer{
-				Delay:   zoneaction.PursuitTimeout,
-				Produce: timeout.produce,
-			}
-			progress := campaignPursuitProgressProducer{
-				runtime: r, packet: packet, sessionKey: sessionKey,
-				sessionGeneration:   sessionGeneration,
-				transportGeneration: peerSession.transportGeneration,
-				pursuitGeneration:   pursuitGeneration, command: command,
-				stopDistance:       stopDistance,
-				lastTargetPosition: targetEnemy.Plan.Position,
-				startedAt:          abilityStartTime,
-			}
-			progressProducer := raknet.ScheduledPacketProducer{
-				Delay: campaignPursuitCheckInterval, Produce: progress.produce,
-			}
-			pursuitProducers := r.registry.producerGuard.scheduledProducers(
-				sessionKey, []raknet.ScheduledPacketProducer{
-					progressProducer, timeoutProducer,
-				},
-			)
-			pursuitCancel, scheduleErr := packet.ScheduleProducers(pursuitProducers)
-			err = scheduleErr
-			if err == nil && pursuitCancel == nil {
-				err = errors.New("campaign pursuit schedule returned no cancellation")
-			}
-			if err != nil {
-				rollbackErr := r.cancelPlayerPursuitAdmission(
-					sessionKey, sessionGeneration, pursuitGeneration, abilityStartTime,
-				)
-				if rollbackErr != nil {
-					return nil, fmt.Errorf(
-						"campaignBasicPursuitRollback: %w", rollbackErr,
-					)
-				}
-				return request.reject("pursuit scheduling unavailable")
-			}
-			r.logger.Printf("RakNet campaign basic pursuit transferred source=%d target=%d stop=%g noun=%q",
-				command.Common.ObjectID, targetObjectID, stopDistance, targetEnemy.Plan.NounName)
-			peerErr := r.publishPursuitToPeers(
-				packet, command.Common.ObjectID, peerSession.playerPosition,
-				targetObjectID, targetEnemy.Plan.Position, stopDistance,
-			)
-			if peerErr != nil {
-				return nil, fmt.Errorf("pursuitStartPeers: %w", peerErr)
+			if !isPursuitStarted {
+				return pursuitPackets, nil
 			}
 			return directAggro.publish(pursuitPackets)
 		}

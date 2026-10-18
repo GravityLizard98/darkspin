@@ -2,6 +2,7 @@ package gameplay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -1069,14 +1070,42 @@ func (r campaignAbilityCommandRuntime) handleHeroProjectileBurst(
 		AbilityID: activeAbilityID, Definition: projected, Damage: damage,
 	}
 	admissionRange := heroAbilityAdmissionRange(creature, projected)
+	maximumRange := admissionRange
+	isPursuitRetry := peerSession.campaignPlayerPursuitSession().IsRetry(
+		command.Common.ObjectID, targetObjectID, command.Ability.Index,
+		command.Common.Unknown[0],
+	)
 	if targetObjectID != 0 {
+		targetEnemy, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
+		if isTargetFound {
+			// Native 103 sub_9DE710 applies both actor footprints to targeted
+			// ability admission, including projectile bursts.
+			maximumRange += peerSession.deployedCampaignActorFootprintRadius() +
+				targetEnemy.Plan.ActorFootprintRadius()
+		}
 		plan, err = zoneability.PlanBasic(zoneability.BasicCommand{
 			NPCs: peerSession.zone.NPCs(), SourceObjectID: command.Common.ObjectID,
 			TargetObjectID: targetObjectID, AbilityID: activeAbilityID,
-			SourcePosition: actorPosition, MaximumRange: admissionRange,
+			SourcePosition: actorPosition, MaximumRange: maximumRange,
 			Definition: projected, Damage: damage,
 		})
 		if err != nil {
+			var rangeErr zoneability.TargetRangeError
+			if errors.As(err, &rangeErr) && projected.IsShouldPursue && isTargetFound {
+				// FireRavagerSupport authors shouldPursue; the native range
+				// failure returns pursuit (3) in sub_9E0660.
+				request.startTime = abilityStartTime
+				pursuitPackets, isPursuitStarted, pursuitErr := r.transferPlayerAbilityPursuit(
+					request, peerSession, targetEnemy, admissionRange, isPursuitRetry,
+				)
+				if pursuitErr != nil {
+					return nil, fmt.Errorf("burstPursuit: %w", pursuitErr)
+				}
+				if isPursuitStarted {
+					r.logger.Printf("RakNet campaign projectile burst pursuit started source=%d target=%d ability=%s", command.Common.ObjectID, targetObjectID, projected.Name)
+				}
+				return pursuitPackets, nil
+			}
 			r.registry.mutex.Unlock()
 			return request.reject("projectile burst target unavailable or out of range")
 		}
@@ -1271,6 +1300,9 @@ func (r campaignAbilityCommandRuntime) handleHeroProjectileBurst(
 		run.Stop()
 		r.registry.mutex.Unlock()
 		return request.reject("release unavailable")
+	}
+	if isPursuitRetry {
+		peerSession.campaignPlayerPursuitSession().Cancel()
 	}
 	err = peerSession.stopPlayerMovement(abilityStartTime)
 	if err == nil {

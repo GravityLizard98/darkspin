@@ -40,7 +40,7 @@ func ResolveMovementGoal(
 	options.IsPlanar = true
 	goalProjection, err := mesh.Project(basenavigation.Vec3(goal), options)
 	if errors.Is(err, basenavigation.ErrProjectionObstructed) {
-		goalProjection, err = mesh.ProjectInteractionTarget(
+		goalProjection, err = mesh.ProjectMovementTarget(
 			startProjection, basenavigation.Vec3(goal), options,
 		)
 	}

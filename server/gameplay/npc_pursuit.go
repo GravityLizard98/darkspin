@@ -404,7 +404,10 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		return nil, nil
 	}
 	facingTargetPosition := targetPosition
+	// GhostlyBoltFlee is the Rezzer's fixed retreat point, not a chase of
+	// the hero retained as its combat target.
 	if profile.AbilityName == "StealthAttack" || profile.AbilityName == "Flee" ||
+		profile.AbilityName == "GhostlyBoltFlee" ||
 		profile.AbilityName == "NoctGhostCharge" ||
 		profile.AbilityName == "NocturnaSpecialDriftCharge" {
 		targetPosition = publishedGoal

@@ -12,6 +12,30 @@ import (
 func (e *Mesh) ProjectInteractionTarget(
 	start Projection, target Vec3, options ProjectionOptions,
 ) (Projection, error) {
+	projection, err := e.projectContactTarget(start, target, options, true)
+	if err != nil {
+		return Projection{}, fmt.Errorf("interactionContact: %w", err)
+	}
+	return projection, nil
+}
+
+// ProjectMovementTarget stops a blocked movement click at the near collider
+// edge. MaxDistance still bounds terrain projection, but does not bound the
+// distance from the click to that edge: a walk command can point deep inside
+// a large collider without making the reachable approach invalid.
+func (e *Mesh) ProjectMovementTarget(
+	start Projection, target Vec3, options ProjectionOptions,
+) (Projection, error) {
+	projection, err := e.projectContactTarget(start, target, options, false)
+	if err != nil {
+		return Projection{}, fmt.Errorf("movementContact: %w", err)
+	}
+	return projection, nil
+}
+
+func (e *Mesh) projectContactTarget(
+	start Projection, target Vec3, options ProjectionOptions, isContactDistanceConstrained bool,
+) (Projection, error) {
 	if e == nil || !isFinite(start.Position) {
 		return Projection{}, errors.New("interaction projection invalid")
 	}
@@ -52,7 +76,8 @@ func (e *Mesh) ProjectInteractionTarget(
 		// contact clearance from the recovered terrain point instead.
 		contactTarget = targetProjection.Position
 	}
-	if squaredDistance(projection.Position, contactTarget) > options.MaxDistance*options.MaxDistance {
+	if isContactDistanceConstrained &&
+		squaredDistance(projection.Position, contactTarget) > options.MaxDistance*options.MaxDistance {
 		return Projection{}, errors.New("interaction contact too distant")
 	}
 	return projection, nil

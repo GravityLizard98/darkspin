@@ -2,6 +2,9 @@
 
 ### 2026-10-18
 
+- [#80](https://github.com/darkspinnet/darkspin/issues/80) Restore client-authored pursuit for ranged support bursts, keeping the server hero alongside the client before the ability fires.
+- [#80](https://github.com/darkspinnet/darkspin/issues/80) Keep Rezzers retreating toward their chosen flee point instead of redirecting into the hero during Ghostly Bolt recovery.
+- [#80](https://github.com/darkspinnet/darkspin/issues/80) Approach reachable collider edges for walking clicks deep inside obstacles instead of repeatedly rejecting and correcting the hero.
 - [#85](https://github.com/darkspinnet/darkspin/issues/85) Restore Hardened Mantle's damage-triggered effects and stack display, and increase its Overdrive damage reduction from 4% to 10% per stack.
 - [#85](https://github.com/darkspinnet/darkspin/issues/85) Restore Lumin's Chain Lightning from a single impact to its authored beam and two chained damage jumps.
 - [#85](https://github.com/darkspinnet/darkspin/issues/85) Apply the strongest nearby friendly Charge Field bonus and increase its critical-rating contribution from 50% to 75% during the source's Overdrive.
