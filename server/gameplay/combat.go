@@ -8148,7 +8148,7 @@ type campaignNPCPushPullResumeSchedule struct {
 }
 
 func (e campaignNPCPushPullResumeSchedule) produce() ([][]byte, error) {
-	return e.schedule.resume(e.timestamp)
+	return e.schedule.resumeAfterCooldown(e.timestamp)
 }
 
 func (e campaignNPCPullEffectSchedule) remove() ([][]byte, error) {
@@ -8209,14 +8209,18 @@ func (e campaignNPCPushPullSchedule) next() ([][]byte, error) {
 func (e campaignNPCPushPullSchedule) resumeAfterCooldown(
 	timestamp uint64,
 ) ([][]byte, error) {
-	cooldownTimestamp := e.timestamp +
-		uint64(e.plan.Profile.Cooldown/time.Millisecond)
-	if timestamp >= cooldownTimestamp {
+	delay, isCurrent, err := e.selectedCooldownDelay(timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("enemyPushPullCooldown: %w", err)
+	}
+	if !isCurrent {
+		return nil, nil
+	}
+	if delay <= 0 {
 		return e.resume(timestamp)
 	}
-	delay := time.Duration(cooldownTimestamp-timestamp) * time.Millisecond
 	step := campaignNPCPushPullResumeSchedule{
-		schedule: e, timestamp: cooldownTimestamp,
+		schedule: e, timestamp: timestamp + uint64(delay/time.Millisecond),
 	}
 	cancel, err := scheduleNPCProducers(e.runtime.registry, e.packet, []raknet.ScheduledPacketProducer{{
 		Delay: delay, Produce: step.produce,

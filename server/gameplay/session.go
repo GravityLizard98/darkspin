@@ -264,6 +264,7 @@ type zonePresentationRuntime struct {
 	campaignTunnelExitSource                game.Vec3
 	campaignTunnelExitRadius                float32
 	isCampaignTunnelExitPending             bool
+	campaignTunnelTransfer                  *campaignTunnelTransfer
 	isClientBossBoundaryPending             bool
 }
 

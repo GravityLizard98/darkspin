@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/darkspinnet/darkspin/server/util"
 )
 
 // CampaignDirectorEntry is one difficulty-gated noun candidate from immutable
@@ -159,6 +161,7 @@ type CampaignTeleportRoute struct {
 	TriggerRadius       float32
 	IsSecurity          bool
 	IsBoss              bool
+	IsTunnel            bool
 }
 
 // CampaignHordeBarrierSet is one authored horde's projected blocking-door
@@ -873,6 +876,9 @@ func (e CampaignDirector) TeleportRoutes() []CampaignTeleportRoute {
 				Source: marker.Position, Destination: destination,
 				Rotation: marker.Rotation, TriggerVolume: marker.Teleporter.TriggerVolume,
 				TriggerRadius: marker.TeleporterTriggerRadius, IsSecurity: isSecurity, IsBoss: isBoss,
+				IsTunnel: strings.EqualFold(marker.NounName, "TunnelTeleporter.Noun") ||
+					(marker.Teleporter.TriggerVolume != nil &&
+						marker.Teleporter.TriggerVolume.OnEnterHash == util.HashID("TunnelTeleporter_OnEnter")),
 			})
 		}
 	}

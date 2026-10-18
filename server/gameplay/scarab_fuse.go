@@ -160,9 +160,11 @@ func (e campaignScarabChaseStep) produce() ([][]byte, error) {
 	var packets [][]byte
 	if isTargetFound && !isPaused {
 		if e.isMoving {
-			goal, goalErr := npcraknet.MovementGoalUpdate(req.objectID, target.Position)
-			err = goalErr
-			packets = [][]byte{goal}
+			// Native 539810 overwrites both the destination and corridor
+			// waypoint. Keep MoveToObject's path and stopping distance by
+			// redirecting through the complete native movement command.
+			packets, err = npcraknet.PursuitRedirect(req.objectID,
+				enemy.Plan.Position, target.ObjectID, target.Position, profile.Range)
 		} else {
 			packets, err = npcraknet.Pursuit(zonenpc.FirstActionPlan{
 				ObjectID: req.objectID, TargetObjectID: target.ObjectID,

@@ -296,6 +296,9 @@ func (r gameplayActionRuntime) handleCommand(
 			)
 		}
 		peerSession = currentSession
+		if peerSession.campaignTunnelTransfer != nil {
+			return r.reject(packet, command, r.now().Sub(startedAt), errors.New("tunnel traversal in progress"))
+		}
 		inputLockRemaining := peerSession.heroInputLockRemaining(r.now())
 		if inputLockRemaining > 0 &&
 			command.Common.ObjectID == peerSession.heroInputLockedObjectID {
@@ -2701,6 +2704,18 @@ func (r gameplayPendingRuntime) poll(
 	if len(teleporterPackets) != 0 {
 		return teleporterPackets, nil
 	}
+	// Spawn projections can be queued by the autonomous boss trigger between
+	// player requests. Deliver those creates before recovery starts an action;
+	// native object-targeted entrance packets are ignored without their actor.
+	projected, err := r.projection.drain(
+		packet, packet.Address.String(), packet.SourceTime,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("projectionPoll: %w", err)
+	}
+	if len(projected) != 0 {
+		return projected, nil
+	}
 	recoveryPackets, err := r.recoverNPCs(packet)
 	if err != nil {
 		return nil, fmt.Errorf("npcRecovery: %w", err)
@@ -2721,12 +2736,6 @@ func (r gameplayPendingRuntime) poll(
 	}
 	if len(responses) != 0 {
 		return responses, nil
-	}
-	projected, err := r.projection.drain(
-		packet, packet.Address.String(), packet.SourceTime,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("projectionPoll: %w", err)
 	}
 	combatPackets, err := r.heroCombatPackets(packet)
 	if err != nil {

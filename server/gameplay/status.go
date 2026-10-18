@@ -1607,6 +1607,14 @@ func (s *gameplayPeerSession) applyDeveloperResetCommand(
 
 	s.campaignScheduleSession().StopAll()
 	packets := make([][]byte, 0)
+	if s.campaignTunnelTransfer != nil {
+		exitPacket, exitErr := s.campaignTunnelEvent("PlayerExitedTunnel")
+		if exitErr != nil {
+			return nil, fmt.Errorf("resetTunnelExit: %w", exitErr)
+		}
+		packets = append(packets, exitPacket)
+		s.campaignTunnelTransfer = nil
+	}
 	summonPackets, summonErr := s.stopHeroSummons()
 	if summonErr == nil {
 		packets = append(packets, summonPackets...)

@@ -1340,14 +1340,21 @@ func ChargeStart(
 
 func ChargeMovementState(
 	objectID uint32, movementSpeedBuff float32, stealthType game.StealthType,
+	isNavCollisionDisabled bool,
 ) ([][]byte, error) {
 	// Preserve the locomotion agent. ObjectUpdate field 17 toggles the whole
 	// physics/navigation object, not the authored SetNavCollision avoidance.
+	// SetNavCollision(false) writes object+644 (sub_A03CC0), the same byte
+	// reflected by field 20's setter sub_A1C5D0.
 	if objectID == 0 || math.IsNaN(float64(movementSpeedBuff)) ||
 		math.IsInf(float64(movementSpeedBuff), 0) {
 		return nil, errors.New("npc charge movement state invalid")
 	}
 	return marshalMessages([]raknet.ApplicationMessage{
+		raknet.ObjectUpdateContractMessage{
+			ObjectID: objectID,
+			Object:   raknet.ObjectReflection{IsRepulsionDisabled: &isNavCollisionDisabled},
+		},
 		raknet.AttributeDataUpdateMessage{
 			ObjectID: objectID, Value: map[uint8]float32{48: movementSpeedBuff},
 		},

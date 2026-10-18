@@ -829,7 +829,8 @@ func (r campaignMovementCommandRuntime) handle(
 		)
 	}
 	isMovementRejected := isCurrent &&
-		(peerSession.isHeroSelectionPending || peerSession.deployedHitPoint() <= 0)
+		(peerSession.isHeroSelectionPending || peerSession.deployedHitPoint() <= 0 ||
+			peerSession.campaignTunnelTransfer != nil)
 	if isCurrent && peerSession.isHeroSelectionPending &&
 		isReportedZonePosition(command.Common.Position) {
 		positionErr := peerSession.advancePlayerPosition(
@@ -946,6 +947,9 @@ func (r campaignMovementCommandRuntime) handle(
 		if movementErr != nil {
 			r.registry.mutex.Unlock()
 			return nil, fmt.Errorf("moveCampaignTunnel: %w", movementErr)
+		}
+		if peerSession.campaignTunnelTransfer != nil {
+			publishedGoal = peerSession.playerMovementGoal
 		}
 		if isCampaignTunnel {
 			current = campaignTunnel.Destination

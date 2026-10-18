@@ -865,11 +865,11 @@ func (s *gameplayPeerSession) materializeCampaignWinnerPart(
 	if s == nil || gameplayJoin == nil || progression == nil || !pickup.IsWinnerReward {
 		return sporenet.Part{}, commit, errors.New("campaign winner reward unavailable")
 	}
-	// Ordinary NPC and captain drops already publish a complete item in
+	// NPC, captain and Destructor drops already publish a complete item in
 	// cLootData. Native AddLootToPlayer (103 sub_9C3740) retains its rigblock,
 	// rarity and affixes; choosing the recipient must not reroll that preview.
-	// Destructor rewards retain their separate deferred unique-reward policy.
-	if !pickup.IsDestructorReward && pickup.Part.RigblockAssetID != 0 {
+	// Deferred reward generation is only valid for an unmaterialized pickup.
+	if pickup.Part.RigblockAssetID != 0 {
 		err := gameplayJoin.ValidateGeneratedCampaignPart(pickup.Part)
 		if err != nil {
 			return sporenet.Part{}, commit, fmt.Errorf("winnerPublishedPart: %w", err)
@@ -1837,6 +1837,19 @@ func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 	if budget.ScaledBudget == 0 {
 		return nil, nil, nil
 	}
+	footprint := float32(0)
+	if s.zone.NPCs() != nil && invocation.TargetObjectID != 0 {
+		sourceNPC, isSourceFound := s.zone.NPCs().NPC(invocation.TargetObjectID)
+		if isSourceFound {
+			footprint = sourceNPC.Plan.NPCProfile.FootprintRadius
+		}
+	}
+	// Native DropStuffForObject retains one ring sampler across the orb
+	// budget. Reusing the player-directed compatibility point piles up drops.
+	placement, err := zoneloot.NewPlacement(source, footprint, s.zone.DropRandom())
+	if err != nil {
+		return nil, nil, fmt.Errorf("orbPlacement: %w", err)
+	}
 	maximumDrop := budget.GuaranteedSelection
 	if budget.RemainderThreshold != 0 {
 		maximumDrop++
@@ -1851,7 +1864,11 @@ func (s *gameplayPeerSession) spawnCampaignResourceOrb(
 		}
 		objectIDs = append(objectIDs, objectID)
 		roles = append(roles, sim.Role(fmt.Sprintf("campaignOrb.%d", objectID)))
-		destinations = append(destinations, s.reachableCampaignDropDestination(source))
+		destination, placementErr := placement.Next(campaignDropProjector{mesh: s.zone.Navigation()})
+		if placementErr != nil {
+			return nil, nil, fmt.Errorf("orbDestination[%d]: %w", index, placementErr)
+		}
+		destinations = append(destinations, destination)
 	}
 	pickups, err := zoneloot.PlanOrbs(sim.OrbDropInput{
 		ScaledBudget: budget.ScaledBudget,
@@ -1946,8 +1963,9 @@ func (s *gameplayPeerSession) spawnCampaignNPCOrb(
 	}
 	packets, objectIDs, err := s.spawnCampaignResourceOrb(
 		game.CampaignScriptInvocation{
-			Position:  enemy.Plan.Position,
-			Challenge: sourceAmount,
+			TargetObjectID: enemy.Plan.ObjectID,
+			Position:       enemy.Plan.Position,
+			Challenge:      sourceAmount,
 		},
 		sourceTime, now, true, registry,
 	)

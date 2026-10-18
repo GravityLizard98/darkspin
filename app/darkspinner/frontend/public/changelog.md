@@ -2,6 +2,15 @@
 
 ### 2026-10-18
 
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Spread health-obelisk and enemy capsule batches across client-authored shuffled navigation-projected rings instead of landing every capsule at the same point.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Deliver queued NPC spawns before starting recovered actions, preventing Nashira's entrance setup from arriving before her object exists and leaving her moving during the reveal.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Retire authored teleporter duplicates when loading or rejoining mission 1-1, retaining one server-controlled pad at each of its seven security teleporter locations.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Restore Twinblaze's client-authored first and second firing animations after its warmup for all heroes using the shared ability.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Keep Exploder Scarab fuse chases on the client's pursuit path instead of overwriting intermediate waypoints with the hero's position.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Preserve Destructor equipment drops' displayed item type, rarity, level and affixes when collected instead of replacing them with a deferred pickup roll.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Synchronize Lightning Juggernaut charge speed with the client's multiplicative speed modifier and replicate the charge template's actor-avoidance toggle, restoring normal movement afterward.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Give Magnetic Master's push and pull their separate client-authored cooldown deadlines, allowing a ready push during pull recovery and preventing early pulls after a push across all variants.
+- [#82](https://github.com/darkspinnet/darkspin/issues/82) Restore the client-authored fade-out, two-second transfer delay and fade-in for campaign tunnel teleporters, with input locked and damage immunity during transfer.
 - [#83](https://github.com/darkspinnet/darkspin/issues/83) Give saved gameplay appearances revision-qualified identities so players with the same account-local hero ID no longer share the wrong multiplayer model; keep template appearances distinct by hero noun.
 - [#83](https://github.com/darkspinnet/darkspin/issues/83) Send the full hero roster once per loading session and use sparse progress updates afterward, preventing repeated co-op roster refreshes from restarting hero asset loading.
 - [#83](https://github.com/darkspinnet/darkspin/issues/83) Place mission-end rewards, XP and daily bonuses in the recipient's actual multiplayer slot instead of always player 1, and calculate reward rarity using that player's medals.

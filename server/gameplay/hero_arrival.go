@@ -107,7 +107,7 @@ func (e gameplayPeerSession) isHeroArrivalProtected(at time.Time) bool {
 }
 
 func (e gameplayPeerSession) isHeroDamageImmune(at time.Time) bool {
-	return e.isHeroArrivalProtected(at) || e.heroModifierRun.IsDamageImmune() ||
+	return e.campaignTunnelTransfer != nil || e.isHeroArrivalProtected(at) || e.heroModifierRun.IsDamageImmune() ||
 		e.heroQuantumBlink != nil
 }
 

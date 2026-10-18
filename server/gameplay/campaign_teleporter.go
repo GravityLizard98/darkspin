@@ -25,6 +25,14 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 			fmt.Errorf("campaignTunnelState: %w", err)
 	}
 	routes := e.zone.DirectorDefinition().TeleportRoutes()
+	transferRoutes := routes
+	isTunnelReady := e.campaignTunnelTransfer != nil
+	if isTunnelReady {
+		if now.Before(e.campaignTunnelTransfer.readyAt) {
+			return statePackets, game.CampaignTeleportRoute{}, false, nil
+		}
+		transferRoutes = []game.CampaignTeleportRoute{e.campaignTunnelTransfer.route}
+	}
 	if e.isCampaignTunnelExitPending {
 		footprintRadius := e.deployedCampaignFootprintRadius()
 		if isCampaignTunnelContact(
@@ -47,7 +55,7 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 		e.clearCampaignTunnelExit()
 		return statePackets, game.CampaignTeleportRoute{}, false, nil
 	}
-	for _, route := range routes {
+	for _, route := range transferRoutes {
 		teleport := zonesecurity.Teleport{
 			Source: route.Source, Destination: route.Destination,
 			IsBoss: route.IsBoss,
@@ -57,8 +65,15 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 		) {
 			continue
 		}
-		if !isCampaignTeleportRouteContact(previous, current, route, e.deployedCampaignFootprintRadius()) {
+		if !isTunnelReady && !isCampaignTeleportRouteContact(previous, current, route, e.deployedCampaignFootprintRadius()) {
 			continue
+		}
+		if route.IsTunnel && !isTunnelReady {
+			entryPackets, entryErr := e.beginCampaignTunnel(route, current, orientation, now)
+			if entryErr != nil {
+				return nil, game.CampaignTeleportRoute{}, false, fmt.Errorf("tunnelEntry: %w", entryErr)
+			}
+			return append(statePackets, entryPackets...), game.CampaignTeleportRoute{}, false, nil
 		}
 		packets, err := campaignTeleportPackets(
 			e.deployedObjectID, route, teleport, orientation, timestamp,
@@ -66,6 +81,13 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 		if err != nil {
 			return nil, game.CampaignTeleportRoute{}, false,
 				fmt.Errorf("campaignTunnelMarshal: %w", err)
+		}
+		if isTunnelReady {
+			exitPacket, exitErr := e.campaignTunnelEvent("PlayerExitedTunnel")
+			if exitErr != nil {
+				return nil, game.CampaignTeleportRoute{}, false, fmt.Errorf("tunnelExit: %w", exitErr)
+			}
+			packets = append(packets, exitPacket)
 		}
 		destination := raknet.Vector3{
 			X: route.Destination.X, Y: route.Destination.Y, Z: route.Destination.Z,
@@ -101,6 +123,7 @@ func (e *gameplayPeerSession) observeCampaignTunnel(
 		}
 		packets = append(packets, companionPackets...)
 		packets = append(packets, destinationStatePackets...)
+		e.campaignTunnelTransfer = nil
 		return append(statePackets, packets...), route, true, nil
 	}
 	return statePackets, game.CampaignTeleportRoute{}, false, nil
@@ -117,11 +140,14 @@ func (e *gameplayPeerSession) campaignTeleporterInitialState() ([][]byte, error)
 		e.zone.Security() == nil {
 		return nil, nil
 	}
+	packets, err := e.retireInitialSecurityTeleporters()
+	if err != nil {
+		return nil, fmt.Errorf("campaignSecurityRetire: %w", err)
+	}
 	previousStates := e.campaignTeleporterStates
 	e.campaignTeleporterStates = make(map[uint32]bool)
 	threats := e.zone.SecurityThreats()
 	routes := e.zone.DirectorDefinition().TeleportRoutes()
-	packets := make([][]byte, 0)
 	for _, route := range routes {
 		if !route.IsSecurity || route.MarkerID == 0 {
 			continue

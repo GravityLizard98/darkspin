@@ -136,7 +136,10 @@ func (e heroBurstStep) produceLaunch() ([][]byte, error) {
 		return nil, nil
 	}
 	var presentationPackets [][]byte
-	if schedule.definition.Name == "SoulRavagerSupport" {
+	// The projectile template plays loopAnim for intermediate launches and
+	// lastLoopAnim for the final launch, including Twinblaze's two shots.
+	if schedule.definition.Name == "SoulRavagerSupport" ||
+		schedule.definition.Name == "FireRavagerSupport" {
 		animationName := schedule.definition.SecondaryAnimationName
 		if e.index == len(schedule.definition.HitDelays)-1 {
 			animationName = schedule.definition.OutAnimationName

@@ -67,7 +67,7 @@ func (e *gameplayPeerSession) spawnDestructorEquipment(
 		if e.zone.DropRandom().Float64() >= float64(threshold) {
 			continue
 		}
-		destination, placementErr := placement.Next(destructorDropProjector{mesh: e.zone.Navigation()})
+		destination, placementErr := placement.Next(campaignDropProjector{mesh: e.zone.Navigation()})
 		if placementErr != nil {
 			return nil, 0, fmt.Errorf("bossDestination[%d]: %w", index, placementErr)
 		}
@@ -140,7 +140,7 @@ func (e *gameplayPeerSession) removeDestructorDrops(drops []destructorEquipmentD
 	}
 }
 
-type destructorDropProjector struct {
+type campaignDropProjector struct {
 	mesh *navigation.Mesh
 }
 
@@ -165,7 +165,10 @@ func (e *gameplayPeerSession) destructorDropCenter(enemy zonenpc.Snapshot) sim.P
 	return sim.Position(projection.Position)
 }
 
-func (e destructorDropProjector) ProjectDropPosition(destination sim.Position) (sim.Position, bool) {
+func (e campaignDropProjector) ProjectDropPosition(destination sim.Position) (sim.Position, bool) {
+	if e.mesh == nil {
+		return destination, true
+	}
 	layer, isLayerFound := e.mesh.SelectDropLayer()
 	if !isLayerFound {
 		return sim.Position{}, false

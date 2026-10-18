@@ -31,11 +31,48 @@ type campaignChargeSchedule struct {
 func (e campaignChargeSchedule) fail(
 	step string, err error,
 ) ([][]byte, error) {
+	restorePackets, restoreErr := e.restoreMovementState()
+	if restoreErr != nil {
+		err = errors.Join(err, fmt.Errorf("chargeRestore: %w", restoreErr))
+	}
+	if len(restorePackets) > 0 {
+		e.runtime.registry.mutex.Lock()
+		member, isFound := e.runtime.registry.sessions[e.sessionKey]
+		if isFound && member.generation == e.generation {
+			e.runtime.registry.queueChargePacketsLocked(member.zone, restorePackets)
+		}
+		e.runtime.registry.mutex.Unlock()
+	}
 	e.runtime.clearNoctGhostChargeProtection(
 		e.sessionKey, e.generation, e.objectID,
 	)
 	e.runtime.releaseAction(e.sessionKey, e.generation, e.objectID)
 	return nil, fmt.Errorf("%s: %w", step, err)
+}
+
+func (e campaignChargeSchedule) restoreMovementState() ([][]byte, error) {
+	if e.plan.Profile.AbilityName != "BoomerCharge" &&
+		e.plan.Profile.AbilityName != "NocturnaSpecialDriftCharge" {
+		return nil, nil
+	}
+	e.runtime.registry.mutex.RLock()
+	member, isFound := e.runtime.registry.sessions[e.sessionKey]
+	if !isFound || member.generation != e.generation || member.zone == nil {
+		e.runtime.registry.mutex.RUnlock()
+		return nil, nil
+	}
+	enemy, isEnemyFound := member.zone.NPCs().NPC(e.objectID)
+	e.runtime.registry.mutex.RUnlock()
+	if !isEnemyFound || (e.plan.ActionGeneration != 0 && enemy.ActionGeneration != e.plan.ActionGeneration) {
+		return nil, nil
+	}
+	packets, err := npcraknet.ChargeMovementState(
+		e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan), e.plan.Profile.StealthType, false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("chargeMovementRestore: %w", err)
+	}
+	return packets, nil
 }
 
 type campaignGhostProtectionExpiryStep struct {
@@ -82,6 +119,16 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	movementProfile.Range = movementProfile.ForcedMovementStopDistance
 	movementProfile.MovementSpeed *= 1 + movementProfile.MovementSpeedBuff
 	movementProfile.MovementSpeed += movementProfile.ForcedMovementSpeed
+	if movementProfile.AbilityName == "BoomerCharge" {
+		// The charge template adds speedIncrease to attribute 48, which native
+		// locomotion applies as a multiplier, not as flat world units/second.
+		baseSpeed := enemy.Plan.NPCProfile.BaseCombatSpeed
+		if baseSpeed <= 0 {
+			baseSpeed = 3
+		}
+		movementProfile.MovementSpeed = baseSpeed *
+			(1 + zonenpc.EffectiveMovementSpeedBuff(enemy.Plan) + movementProfile.ForcedMovementSpeed)
+	}
 	isGhostCharge := movementProfile.AbilityName == "NoctGhostCharge"
 	if isGhostCharge {
 		expiresAt := e.runtime.now().Add(8 * time.Second)
@@ -192,8 +239,12 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	}
 	if movementProfile.AbilityName == "NocturnaSpecialDriftCharge" ||
 		movementProfile.AbilityName == "BoomerCharge" {
+		movementSpeedBuff := movementProfile.ForcedMovementSpeed
+		if movementProfile.AbilityName == "BoomerCharge" {
+			movementSpeedBuff += zonenpc.EffectiveMovementSpeedBuff(enemy.Plan)
+		}
 		statePackets, stateErr := npcraknet.ChargeMovementState(
-			e.objectID, movementProfile.ForcedMovementSpeed, 0,
+			e.objectID, movementSpeedBuff, 0, true,
 		)
 		if stateErr != nil {
 			return e.fail("enemyDriftMovementState", stateErr)
@@ -351,9 +402,7 @@ func (e campaignChargeSchedule) followup(timestamp uint64) ([][]byte, error) {
 	if e.plan.Profile.AbilityName == "NocturnaSpecialDriftCharge" ||
 		e.plan.Profile.AbilityName == "BoomerCharge" {
 		var stateErr error
-		restoredStatePackets, stateErr = npcraknet.ChargeMovementState(
-			e.objectID, 0, e.plan.Profile.StealthType,
-		)
+		restoredStatePackets, stateErr = e.restoreMovementState()
 		if stateErr != nil {
 			return e.fail("enemyDriftRestoreState", stateErr)
 		}
