@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"time"
 
 	tutorialprogress "github.com/darkspinnet/darkspin/server/zone/tutorial/progression"
@@ -496,8 +497,7 @@ func updateSquadSlots(
 		}
 	}
 	indexes := make([]int, 0, len(squads))
-	// Build 103 serializes the active deck first, followed by the remaining
-	// records from the same PVE or PVP destination in account-response order.
+	// Locate the selected destination before collecting the other decks.
 	for index := range squads {
 		if isSquadDestination(squads[index], category) && squads[index].Slot == activeSlot {
 			indexes = append(indexes, index)
@@ -524,6 +524,17 @@ func updateSquadSlots(
 			indexes = append(indexes, index)
 		}
 	}
+	// Build 103 sub_4E9360 serializes the complete deck vector in order;
+	// pve_active_slot selects a deck without moving its three creature IDs.
+	// Match the stable slot/ID order used by the account response.
+	sort.Slice(indexes, func(firstIndex, secondIndex int) bool {
+		firstSquad := squads[indexes[firstIndex]]
+		secondSquad := squads[indexes[secondIndex]]
+		if firstSquad.Slot != secondSquad.Slot {
+			return firstSquad.Slot < secondSquad.Slot
+		}
+		return firstSquad.ID < secondSquad.ID
+	})
 	isChanged := false
 	for requestIndex, squadIndex := range indexes {
 		requestOffset := requestIndex * len(squads[squadIndex].CreatureIDs)

@@ -866,10 +866,13 @@ func (a *API) accountProfileViewResponse(
 			}
 		}
 		squads := append([]sporenet.Squad(nil), view.Squads...)
+		// The native squad selector indexes this list before sending the deck
+		// ID. Changing its order when the active deck changes swaps UI slots.
 		sort.SliceStable(squads, func(firstIndex, secondIndex int) bool {
-			isFirstActive := squads[firstIndex].ID == view.Account.DefaultDeckPVEID
-			isSecondActive := squads[secondIndex].ID == view.Account.DefaultDeckPVEID
-			return isFirstActive && !isSecondActive
+			if squads[firstIndex].Slot != squads[secondIndex].Slot {
+				return squads[firstIndex].Slot < squads[secondIndex].Slot
+			}
+			return squads[firstIndex].ID < squads[secondIndex].ID
 		})
 		decks := make([]string, 0, len(squads))
 		for _, squad := range squads {

@@ -2,6 +2,7 @@
 
 ### 2026-10-17
 
+- #79 Keep squad lists and saved hero assignments in stable slot order instead of moving the active squad first, so selecting squads 1, 2 or 3 deploys the matching lineup.
 - #74 Make first tutorial completion and tutorial skip finish at Crogenitor level 3 with Blitz, Sage and one hero activation credit, preserving later progression on repeated completion calls.
 - #74 Change hero activation rewards from selected milestones to one per Crogenitor level after the three tutorial heroes, restoring missing credits for existing accounts on profile load.
 - #75 Correct Overdrive's malformed active-state packet to restore native glow, sound and HELIX activation/ending cues, and share active-state changes with co-op peers while retaining the six-second base duration.
