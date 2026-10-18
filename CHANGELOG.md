@@ -2,6 +2,7 @@
 
 ### 2026-10-17
 
+- #78 Fix editor items incorrectly showing Out of item by reading the correct live creature model and retaining native availability checks when model inspection is inconclusive.
 - #79 Keep squad lists and saved hero assignments in stable slot order instead of moving the active squad first, so selecting squads 1, 2 or 3 deploys the matching lineup.
 - #74 Make first tutorial completion and tutorial skip finish at Crogenitor level 3 with Blitz, Sage and one hero activation credit, preserving later progression on repeated completion calls.
 - #74 Change hero activation rewards from selected milestones to one per Crogenitor level after the three tutorial heroes, restoring missing credits for existing accounts on profile load.

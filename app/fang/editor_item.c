@@ -19,7 +19,8 @@ static uint64_t editor_last_reserved_id;
 /* sub_4CC100 matches physical item IDs against the live creature's parts
  * and their mirrored children. sub_69C050/sub_69D010 expose the creature's
  * pointer vector at [24,28); placed-part IDs live at [40,48). Use that live
- * geometry rather than a palette selection or the last saved equipment set.
+ * geometry at editor +176, as passed by native callers to sub_4CC100, rather
+ * than the separate editor +156 field or the last saved equipment set.
  * Only a new palette placement is rejected; existing mirrored hands/feet
  * and ordinary manipulation of the attached geometry remain native. */
 static int editor_part_has_item(const BYTE* part, uint64_t item_id) {
@@ -122,15 +123,20 @@ static int FANG_THISCALL editor_available(BYTE* collection, const BYTE* item, BY
         return editor_item_locked(error);
     }
     editor = *(const BYTE**)(collection + 56);
-    if (!readable_range(editor, 160)) {
-        return editor_item_locked(error);
+    if (!readable_range(editor, 180)) {
+        return native_editor_available(collection, item, error);
     }
-    is_reserved = editor_model_has_item(*(const BYTE**)(editor + 156), item_id);
+    is_reserved = editor_model_has_item(*(const BYTE**)(editor + 176), item_id);
     if (is_reserved != 0) {
         if (editor_last_reserved_id != item_id) {
             trace_client_state(is_reserved < 0 ? "editor_item_model_invalid" :
                 "editor_item_reserved", (unsigned int)item_id);
             editor_last_reserved_id = item_id;
+        }
+        /* An unreadable model is not evidence that this item is equipped.
+         * Keep the native stock/eligibility result in that case. */
+        if (is_reserved < 0) {
+            return native_editor_available(collection, item, error);
         }
         return editor_item_locked(error);
     }
