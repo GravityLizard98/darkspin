@@ -25,11 +25,45 @@ type TossPlan struct {
 	Damage         game.DamageRange
 }
 
+type TossRequest struct {
+	SourceObjectID     uint32
+	TargetObjectID     uint32
+	SourcePosition     game.Vec3
+	SourceCenter       game.Vec3
+	Creature           game.GameplayCreature
+	Definition         sim.AbilityDefinition
+	SimulationTime     time.Duration
+	SourceFootprint    float32
+	AdmissionAllowance float32
+}
+
 func PlanToss(
 	enemies *zonenpc.Session, sourceObjectID uint32, targetObjectID uint32,
 	sourcePosition game.Vec3, creature game.GameplayCreature,
 	definition sim.AbilityDefinition, simulationTime time.Duration,
 ) (TossPlan, error) {
+	plan, err := PlanTossWithAdmission(enemies, TossRequest{
+		SourceObjectID: sourceObjectID, TargetObjectID: targetObjectID,
+		SourcePosition: sourcePosition, SourceCenter: sourcePosition,
+		Creature: creature, Definition: definition, SimulationTime: simulationTime,
+	})
+	if err != nil {
+		return TossPlan{}, fmt.Errorf("tossPlan: %w", err)
+	}
+	return plan, nil
+}
+
+// PlanTossWithAdmission uses actor origins and scaled footprints for admission.
+// The separate source center preserves the toss template's muzzle and flight.
+func PlanTossWithAdmission(
+	enemies *zonenpc.Session, req TossRequest,
+) (TossPlan, error) {
+	sourceObjectID := req.SourceObjectID
+	targetObjectID := req.TargetObjectID
+	sourceCenter := req.SourceCenter
+	creature := req.Creature
+	definition := req.Definition
+	simulationTime := req.SimulationTime
 	if enemies == nil || sourceObjectID == 0 || creature.Noun == 0 ||
 		simulationTime < 0 {
 		return TossPlan{}, errors.New("invalid toss identity")
@@ -43,8 +77,14 @@ func PlanToss(
 		definition.Toss.Radius <= 0 {
 		return TossPlan{}, errors.New("invalid toss definition")
 	}
-	if !isFinitePosition(sourcePosition) {
+	if !isFinitePosition(sourceCenter) || !isFinitePosition(req.SourcePosition) {
 		return TossPlan{}, errors.New("invalid toss source position")
+	}
+	if invalidNumber(req.SourceFootprint) || req.SourceFootprint < 0 {
+		return TossPlan{}, errors.New("invalid toss source footprint")
+	}
+	if invalidNumber(req.AdmissionAllowance) || req.AdmissionAllowance < 0 {
+		return TossPlan{}, errors.New("invalid toss admission allowance")
 	}
 	admissionRange := game.AbilityAdmissionRange(
 		definition.Range, creature.RangeIncrease, definition.DescriptorMask,
@@ -52,7 +92,7 @@ func PlanToss(
 	)
 	if targetObjectID == 0 {
 		targetObjectID = NearestTarget(
-			enemies, sourceObjectID, sourcePosition, admissionRange,
+			enemies, sourceObjectID, req.SourcePosition, admissionRange,
 		)
 	}
 	target, isFound := enemies.NPC(targetObjectID)
@@ -60,11 +100,13 @@ func PlanToss(
 		target.Faction != zonenpc.FactionNonPlayerAligned {
 		return TossPlan{}, fmt.Errorf("targetUnavailable: %d", targetObjectID)
 	}
-	distance := Distance(sourcePosition, target.Plan.Position)
-	if distance > admissionRange {
-		return TossPlan{},
-			fmt.Errorf("targetRange: got %g, want <= %g", distance, admissionRange)
+	admissionDistance := Distance(req.SourcePosition, target.Plan.Position)
+	admissionRange += req.SourceFootprint + target.Plan.ActorFootprintRadius() +
+		req.AdmissionAllowance
+	if admissionDistance > admissionRange {
+		return TossPlan{}, TargetRangeError{Distance: admissionDistance, Maximum: admissionRange}
 	}
+	distance := Distance(sourceCenter, target.Plan.Position)
 	projected, err := ProjectTiming(creature, definition)
 	if err != nil {
 		return TossPlan{}, fmt.Errorf("tossTiming: %w", err)
@@ -78,7 +120,7 @@ func PlanToss(
 		return TossPlan{}, fmt.Errorf("tossDamage: %w", err)
 	}
 	launchPosition, err := TossLaunchPosition(
-		sourcePosition, target.Plan.Position, cast.Offset,
+		sourceCenter, target.Plan.Position, cast.Offset,
 	)
 	if err != nil {
 		return TossPlan{}, fmt.Errorf("tossLaunch: %w", err)

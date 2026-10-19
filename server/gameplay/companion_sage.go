@@ -2,6 +2,43 @@ package gameplay
 
 import "github.com/darkspinnet/darkspin/server/util"
 
+// reserveDefeatedSageCompanionRespawnLocked routes a shared-zone death to the
+// summon owner's passive even when another player's NPC action dealt the hit.
+// The registry lock must be held, and peerSession is the caller's working copy.
+func (e campaignNPCActionRuntime) reserveDefeatedSageCompanionRespawnLocked(
+	peerSession *gameplayPeerSession, objectID uint32,
+) {
+	if peerSession == nil || peerSession.zone == nil ||
+		peerSession.zone.Companion() == nil || e.registry == nil {
+		return
+	}
+	actor, isFound := peerSession.zone.Companion().Snapshot(objectID)
+	if !isFound || actor.HitPoint > 0 ||
+		actor.Noun != util.HashID(e.program.SupportHealerPassive.CompanionNoun) {
+		return
+	}
+	for sessionKey, ownerSession := range e.registry.sessions {
+		if ownerSession.zone != peerSession.zone ||
+			ownerSession.binding.UserID != actor.UserID ||
+			ownerSession.generation != actor.PeerGeneration ||
+			ownerSession.deployedObjectID != actor.OwnerObjectID {
+			continue
+		}
+		if peerSession.binding.UserID == actor.UserID &&
+			peerSession.generation == actor.PeerGeneration {
+			e.reserveSageCompanionRespawnLocked(
+				peerSession, sessionKey, actor.PeerGeneration, objectID,
+			)
+			return
+		}
+		e.reserveSageCompanionRespawnLocked(
+			&ownerSession, sessionKey, actor.PeerGeneration, objectID,
+		)
+		e.registry.sessions[sessionKey] = ownerSession
+		return
+	}
+}
+
 // sageCompanionObjectIDs selects the current deployment's live Dendrones before
 // reserving combat state in the shared zone. The registry lock must be held.
 func (e *gameplayPeerSession) sageCompanionObjectIDs(nounName string) []uint32 {

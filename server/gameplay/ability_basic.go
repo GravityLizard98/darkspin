@@ -3628,14 +3628,46 @@ func (r campaignAbilityCommandRuntime) handleTossBasic(
 		sourceHeight = max(sourceHeight, (physics.BoundMinimum.Z+physics.BoundMaximum.Z)*0.5)
 	}
 	sourceCenter.Z += max(float32(0), sourceHeight)
-	tossPlan, planErr := zoneability.PlanToss(
-		peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,
-		game.Vec3{
-			X: sourceCenter.X, Y: sourceCenter.Y, Z: sourceCenter.Z,
+	isPursuitRetry := peerSession.campaignPlayerPursuitSession().IsRetry(
+		command.Common.ObjectID, targetObjectID, command.Ability.Index,
+		command.Common.Unknown[0],
+	)
+	admissionAllowance := float32(0)
+	if isPursuitRetry {
+		// Match basic admission when a target moves during the arrival retry.
+		admissionAllowance = campaignPlayerPursuitRedirectDistance
+	}
+	tossPlan, planErr := zoneability.PlanTossWithAdmission(
+		peerSession.zone.NPCs(), zoneability.TossRequest{
+			SourceObjectID: command.Common.ObjectID, TargetObjectID: targetObjectID,
+			SourcePosition: game.Vec3(peerSession.playerPosition),
+			SourceCenter:   game.Vec3(sourceCenter),
+			Creature:       creature, Definition: definition,
+			SourceFootprint:    peerSession.deployedCampaignActorFootprintRadius(),
+			AdmissionAllowance: admissionAllowance,
 		},
-		creature, definition, 0,
 	)
 	if planErr != nil {
+		var rangeErr zoneability.TargetRangeError
+		// VoodooTempestBasic authors shouldPursue. Toss attacks must transfer
+		// to the same authoritative pursuit used by other ranged abilities.
+		if errors.As(planErr, &rangeErr) && definition.IsShouldPursue && targetObjectID != 0 {
+			targetEnemy, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
+			if isTargetFound {
+				request.startTime = abilityStartTime
+				admissionRange := heroAbilityAdmissionRange(creature, definition)
+				packets, isPursuitStarted, pursuitErr := r.transferPlayerAbilityPursuit(
+					request, peerSession, targetEnemy, admissionRange, isPursuitRetry,
+				)
+				if pursuitErr != nil {
+					return nil, fmt.Errorf("tossPursuit: %w", pursuitErr)
+				}
+				if isPursuitStarted {
+					r.logger.Printf("RakNet campaign toss pursuit started source=%d target=%d ability=%s", command.Common.ObjectID, targetObjectID, definition.Name)
+				}
+				return packets, nil
+			}
+		}
 		r.registry.mutex.Unlock()
 		return request.reject(planErr.Error())
 	}
@@ -3667,6 +3699,9 @@ func (r campaignAbilityCommandRuntime) handleTossBasic(
 	if err != nil {
 		r.registry.mutex.Unlock()
 		return nil, fmt.Errorf("campaignTossObjectID: %w", err)
+	}
+	if isPursuitRetry {
+		peerSession.campaignPlayerPursuitSession().Cancel()
 	}
 	err = peerSession.stopPlayerMovement(abilityStartTime)
 	if err != nil {

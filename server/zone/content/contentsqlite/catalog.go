@@ -388,6 +388,7 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 			DescriptorMask: 136, DamageType: 0, DamageSource: 1,
 			IsDescriptorFound: true, IsDamageTypeFound: true, IsDamageSourceFound: true,
 			SpawnNoun:           "ClaymoreTrap.Noun",
+			ImpactEffectName:    "claymore_explode.ServerEventDef",
 			RootModifierID:      util.HashID("ClaymoreTrap_Daze"),
 			StatusKind:          sim.AbilityStatusKindSlow,
 			StatusDuration:      6 * time.Second,

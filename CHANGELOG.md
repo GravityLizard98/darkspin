@@ -1,5 +1,13 @@
 # Changelog
 
+### 2026-10-19
+
+- #88 Restore client-authored pursuit and footprint-aware range admission for Jinx's thrown basic attack, preventing repeated out-of-range failures while its animation plays.
+- #88 Register Dendrone respawns for every enemy damage death path and route them to the summon owner's session, preserving the authored respawn delay in co-op.
+- #88 Consume repeated triggers for already-admitted horde encounters instead of attempting duplicate admission and disconnecting the player on the next gameplay poll.
+- #88 Change Proximity Mine's trigger range from 20 to the authored 3.5 units, restore its explosion effect, and include placement and arming time in its timeout.
+- #88 Restore Web Transfusion's five area-drain pulses, damage-based healing, full channel timer, beam and spark effects, and authored ending animation with interruption cleanup.
+
 ### 2026-10-18
 
 - Add Borderless Mode in the game's graphics options, mutually exclusive with Full Screen Mode and preserving the selected resolution.

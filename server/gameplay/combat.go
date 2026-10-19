@@ -4889,9 +4889,6 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 		runtime.registry.mutex.Unlock()
 		return e.fail("enemyAttackDamage", err)
 	}
-	runtime.reserveSageCompanionRespawnLocked(
-		&current, req.sessionKey, req.generation, currentPlan.TargetObjectID,
-	)
 	if !isApplied {
 		runtime.registry.mutex.Unlock()
 		if beamPacket != nil {
@@ -4983,9 +4980,6 @@ func (e campaignNPCAttackSchedule) hit() ([][]byte, error) {
 				runtime.registry.mutex.Unlock()
 				return e.fail("enemyArcDamage", chainErr)
 			}
-			runtime.reserveSageCompanionRespawnLocked(
-				&current, req.sessionKey, req.generation, chainPlan.TargetObjectID,
-			)
 			packets = append(packets, chainPackets...)
 			statDelta.PVEDamageTaken += chainStatDelta.PVEDamageTaken
 			hitObjectIDs[chainTarget.ObjectID] = true
@@ -8311,9 +8305,6 @@ func (e campaignNPCPushPullSchedule) hit() ([][]byte, error) {
 				runtime.registry.mutex.Unlock()
 				return nil, fmt.Errorf("enemyPushDamage: %w", damageErr)
 			}
-			runtime.reserveSageCompanionRespawnLocked(
-				&current, e.sessionKey, e.generation, currentPlan.TargetObjectID,
-			)
 			packets = append(packets, hitPackets...)
 			statDelta.PVEDamageTaken += targetStatDelta.PVEDamageTaken
 			if !isApplied {

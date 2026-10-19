@@ -34,6 +34,7 @@ type heroDrainRun struct {
 	zone               *zone.Zone
 	timer              zone.Timer
 	cast               *channelCast
+	areaDrain          *webTransfusionRun
 }
 
 func (e *heroDrainRun) Stop() {
@@ -329,6 +330,9 @@ func (e heroDrainSchedule) fail(scheduleErr error) {
 		e.runtime.logger.Printf("RakNet channel drain refund failed: %v", refundErr)
 	}
 	retireErr := e.run.retireLocked()
+	if isCurrent && e.run.areaDrain != nil {
+		e.failWebTransfusionLocked()
+	}
 	e.runtime.registry.mutex.Unlock()
 	if retireErr != nil {
 		e.runtime.logger.Printf("RakNet drain failure retirement failed: %v", retireErr)
@@ -347,6 +351,9 @@ func (r campaignAbilityCommandRuntime) handleHeroChannelDrain(
 	activeAbilityID uint32, targetObjectID uint32, sessionKey string,
 	abilityStartTime time.Time,
 ) ([][]byte, error) {
+	if definition.Name == "VoodooTempestActive" {
+		return r.handleWebTransfusion(req, peerSession, creature, definition, activeAbilityID, sessionKey, abilityStartTime)
+	}
 	if activeAbilityID == 0 || definition.Kind != sim.AbilityKindChannelDrain ||
 		definition.Range <= 0 || definition.NumberOfTicks == 0 ||
 		definition.TickDuration <= 0 || definition.MinimumDamagePerTick <= 0 ||

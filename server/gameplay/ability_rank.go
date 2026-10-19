@@ -137,6 +137,9 @@ func projectEvenHeroAbilityRank(
 		definition.StatusDamageBuff = -0.25
 		definition.StatusPhysicalIncrease = 0.25
 		definition.StatusEnergyIncrease = 0.25
+	case "VoodooTempestActive":
+		definition.MinimumDamage = 12
+		definition.MaximumDamage = 12
 	case "TCShieldedSentinelSupport":
 		definition.MinimumDamage = 16
 		definition.MaximumDamage = 24

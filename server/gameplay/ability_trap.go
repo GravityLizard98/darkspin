@@ -21,7 +21,10 @@ const turretFallbackHitPoint = float32(25)
 const turretFallbackFootprint = float32(0.5)
 const claymoreArmDelay = 400 * time.Millisecond
 const claymoreTriggerInterval = 250 * time.Millisecond
-const claymorePerceptionRadius = float32(20)
+
+// nAbility_ClaymoreTrap_Detonate.range is 3.5; perception alone does not
+// authorize the mine's detonation ability.
+const claymoreTriggerRange = float32(3.5)
 
 type heroTrapRun struct {
 	assetName     string
@@ -190,7 +193,7 @@ func (e heroTrapSchedule) trigger() ([][]byte, error) {
 	for _, npc := range peerSession.zone.NPCs().LiveSnapshots() {
 		if npc.Faction != zonenpc.FactionNonPlayerAligned || npc.IsDefeated ||
 			npc.HitPoint <= 0 || npc.Plan.IsFixture ||
-			center.Sub(npc.Plan.Position).Length() >= claymorePerceptionRadius {
+			center.Sub(npc.Plan.Position).Length() >= claymoreTriggerRange {
 			continue
 		}
 		isTriggered = true
@@ -693,10 +696,15 @@ func (r campaignAbilityCommandRuntime) handleHeroTrap(
 		releaseReservation:  releaseReservation, releasePacket: releasePacket,
 		detonationDelay: projected.Duration + projected.TickDuration,
 	}
+	if projected.Name == "ClaymoreTrap" {
+		// The passive modifier starts on the spawned mine, arms for 0.4s,
+		// then waits its 15s timeout before requesting the 0.2s detonation.
+		schedule.detonationDelay += projected.HitDelay + claymoreArmDelay
+	}
 	producers := []raknet.ScheduledPacketProducer{
 		{Delay: projected.HitDelay, Produce: schedule.spawn},
 		{Delay: projected.ReleaseDelay, Produce: schedule.release},
-		{Delay: projected.Duration + projected.TickDuration, Produce: schedule.detonate},
+		{Delay: schedule.detonationDelay, Produce: schedule.detonate},
 	}
 	if projected.Name == "TurretTrap" {
 		for tick := time.Second; tick < projected.Duration; tick += time.Second {
@@ -709,7 +717,8 @@ func (r campaignAbilityCommandRuntime) handleHeroTrap(
 			})
 		}
 	} else if projected.Name == "ClaymoreTrap" {
-		for delay := projected.HitDelay + claymoreArmDelay; delay < projected.Duration+projected.TickDuration; delay += claymoreTriggerInterval {
+		timeoutDelay := schedule.detonationDelay - projected.TickDuration
+		for delay := projected.HitDelay + claymoreArmDelay; delay < timeoutDelay; delay += claymoreTriggerInterval {
 			trigger := schedule
 			trigger.detonationDelay = delay
 			producers = append(producers, raknet.ScheduledPacketProducer{

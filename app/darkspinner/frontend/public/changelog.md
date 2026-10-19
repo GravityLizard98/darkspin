@@ -1,10 +1,17 @@
 # Changelog
 
+### 2026-10-19
+
+- [#88](https://github.com/darkspinnet/darkspin/issues/88) Restore client-authored pursuit and footprint-aware range admission for Jinx's thrown basic attack, preventing repeated out-of-range failures while its animation plays.
+- [#88](https://github.com/darkspinnet/darkspin/issues/88) Register Dendrone respawns for every enemy damage death path and route them to the summon owner's session, preserving the authored respawn delay in co-op.
+- [#88](https://github.com/darkspinnet/darkspin/issues/88) Consume repeated triggers for already-admitted horde encounters instead of attempting duplicate admission and disconnecting the player on the next gameplay poll.
+- [#88](https://github.com/darkspinnet/darkspin/issues/88) Change Proximity Mine's trigger range from 20 to the authored 3.5 units, restore its explosion effect, and include placement and arming time in its timeout.
+- [#88](https://github.com/darkspinnet/darkspin/issues/88) Restore Web Transfusion's five area-drain pulses, damage-based healing, full channel timer, beam and spark effects, and authored ending animation with interruption cleanup.
+
 ### 2026-10-18
 
-- Replace the launcher's experimental fullscreen option with Borderless Mode in the game's graphics options, mutually exclusive with Full Screen Mode and preserving the selected resolution.
-- Fix saving Borderless Mode changes so disabling it restores window decorations, and ignore the retired experimental mode's saved preference.
-- Restore No Blood and add separate Borderless Mode and Taskbar Overlay controls; both default off and save per profile.
+- Add Borderless Mode in the game's graphics options, mutually exclusive with Full Screen Mode and preserving the selected resolution.
+- Add Taskbar Overlay controls
 - Remove custom resolution handling, limit Borderless Mode to window decorations, and change Taskbar Overlay from always-on-top positioning to the Windows taskbar API.
 - [#86](https://github.com/darkspinnet/darkspin/issues/86) Change Resonance's basic attack damage bonus from raw defense ratings to converted, capped dodge and resist chances, matching its client-authored tooltip.
 - [#80](https://github.com/darkspinnet/darkspin/issues/80) Restore client-authored pursuit for ranged support bursts, keeping the server hero alongside the client before the ability fires.

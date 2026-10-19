@@ -43,6 +43,7 @@ func (e campaignNPCActionRuntime) companionDefeat(
 	actor, isFound := peerSession.zone.Companion().Snapshot(objectID)
 	nounName := e.program.SupportHealerPassive.CompanionNoun
 	if !isFound || nounName == "" || actor.Noun != util.HashID(nounName) || e.timer == nil {
+		e.reserveDefeatedSageCompanionRespawnLocked(peerSession, objectID)
 		return [][]byte{deletePacket}, nil
 	}
 	physics := e.program.NPCDeathPhysics(nounName)
@@ -71,5 +72,6 @@ func (e campaignNPCActionRuntime) companionDefeat(
 	if cancel == nil {
 		return nil, fmt.Errorf("companionDeathSchedule: missing cancellation")
 	}
+	e.reserveDefeatedSageCompanionRespawnLocked(peerSession, objectID)
 	return packets, nil
 }

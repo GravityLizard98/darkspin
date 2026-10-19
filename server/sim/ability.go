@@ -445,6 +445,9 @@ func abilityDefinitionFromLua(table *luaTable, provenance Provenance) (AbilityDe
 		definition.ReleaseDelays[index] = luaSeconds(delay)
 	}
 	definition.ReleaseDelay = definition.ReleaseDelays[0]
+	if definition.Name == "VoodooTempestActive" {
+		return webTransfusionDefinition(table, definition)
+	}
 	if table.has(stringLuaKey("damage")) {
 		definition.MinimumDamage, definition.MaximumDamage, err = luaAbilityDamage(table, 1)
 		if err != nil {

@@ -45,11 +45,13 @@ func (e campaignEncounterRuntime) acceptTriggerPublicationsLocked(
 			continue
 		}
 		if zonehorde.IsTrigger(publication) &&
-			peerSession.zone.Horde().IsComplete(publication.MarkerSetName) {
+			peerSession.zone.Horde().IsAdmitted(publication.MarkerSetName) {
+			// Consume re-entry publications while the original encounter owns
+			// its actors and barriers, including the delay between waves.
 			acceptErr := peerSession.zone.AcceptPublication(publication)
 			if acceptErr != nil {
 				return result, fmt.Errorf(
-					"moveCampaignRestoredHordeAccept: %w", acceptErr,
+					"moveCampaignAdmittedHordeAccept: %w", acceptErr,
 				)
 			}
 			continue

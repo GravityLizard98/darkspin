@@ -488,6 +488,17 @@ func ValidateCompletedSnapshots(snapshots []Snapshot) error {
 	return nil
 }
 
+// IsAdmitted includes active waves and inter-wave delays: re-entering an
+// authored trigger does not start a second encounter for the same marker set.
+func (e *Session) IsAdmitted(markerSetName string) bool {
+	if e == nil {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.encountersByMarkerSet[strings.ToLower(markerSetName)] != nil
+}
+
 func (s *Session) IsComplete(markerSetName string) bool {
 	snapshot, isFound := s.Snapshot(markerSetName)
 	return isFound && snapshot.Phase == PhaseComplete && !snapshot.IsGateActive &&

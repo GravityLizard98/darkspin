@@ -61,6 +61,9 @@ func (e *heroDrainRun) retireLocked() error {
 	if e.isEffectsReleased {
 		return nil
 	}
+	if e.areaDrain != nil {
+		return e.retireWebTransfusionLocked()
+	}
 	if e.areEffectsAttached {
 		packets, err := abilityraknet.ChannelDrainEffectRemovals(e.sourceObjectID, e.sourceEffectSlot, e.targetObjectID, e.targetEffectSlot)
 		if err != nil {
@@ -159,6 +162,9 @@ func (e *gameplayPeerSession) retireChannelsLocked(sourceTimes ...uint64) {
 		}
 		if len(sourceTimes) != 0 {
 			packet, marshalErr := abilityraknet.AnimationReset(e.heroDrain.sourceObjectID, sourceTimes[0])
+			if e.heroDrain.areaDrain != nil {
+				packet, marshalErr = abilityraknet.Animation(e.heroDrain.sourceObjectID, e.heroDrain.areaDrain.relaxAnimationName, sourceTimes[0])
+			}
 			if marshalErr != nil {
 				log.Printf("RakNet drain interrupt animation failed: %v", marshalErr)
 			} else {
