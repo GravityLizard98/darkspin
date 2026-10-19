@@ -95,6 +95,7 @@ type campaignNPCPursuitStep struct {
 	profile                  zonenpc.ActionProfile
 	onArrival                campaignNPCArrival
 	isMovementPaused         bool
+	isCorridorActive         bool
 }
 
 func (s campaignNPCPursuitStep) produce() ([][]byte, error) {
@@ -103,6 +104,7 @@ func (s campaignNPCPursuitStep) produce() ([][]byte, error) {
 		s.objectID, s.timestamp,
 		s.targetObjectID, s.publishedGoal, s.lastPublicationTimestamp,
 		s.profile, s.onArrival, s.movementAt, s.isMovementPaused,
+		s.isCorridorActive,
 	)
 }
 
@@ -251,7 +253,7 @@ func (r campaignNPCPursuitRuntime) scheduleTargetCorrection(
 	return r.scheduleActionCorrection(
 		packet, sessionKey, generation, actionGeneration, objectID,
 		targetObjectID, timestamp, publishedGoal, lastPublicationTimestamp,
-		profile, onArrival, r.now(), false,
+		profile, onArrival, r.now(), false, false,
 	)
 }
 
@@ -260,7 +262,7 @@ func (r campaignNPCPursuitRuntime) scheduleActionCorrection(
 	actionGeneration uint64, objectID uint32, targetObjectID uint32,
 	timestamp uint64, publishedGoal game.Vec3, lastPublicationTimestamp uint64,
 	profile zonenpc.ActionProfile, onArrival campaignNPCArrival, movementAt time.Time,
-	isMovementPaused bool,
+	isMovementPaused bool, isCorridorActive bool,
 ) error {
 	if onArrival == nil {
 		return errors.New("enemy pursuit arrival unavailable")
@@ -275,6 +277,7 @@ func (r campaignNPCPursuitRuntime) scheduleActionCorrection(
 		profile:                  profile,
 		onArrival:                onArrival,
 		isMovementPaused:         isMovementPaused,
+		isCorridorActive:         isCorridorActive,
 	}
 	producer := raknet.ScheduledPacketProducer{
 
@@ -301,7 +304,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 	lastPublicationTimestamp uint64,
 	profile zonenpc.ActionProfile,
 	onArrival campaignNPCArrival, movementAt time.Time,
-	isMovementPaused bool,
+	isMovementPaused bool, isCorridorActive bool,
 ) ([][]byte, error) {
 	r.registry.mutex.Lock()
 	advancedAt := r.now()
@@ -345,6 +348,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 			targetObjectID, nextTimestamp,
 			publishedGoal, lastPublicationTimestamp,
 			profile, onArrival, advancedAt, isMovementPaused,
+			isCorridorActive,
 		)
 		if err != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
@@ -399,8 +403,21 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		}
 	}
 	if !isTargetFound {
+		restorePackets, restoreErr := nomadChargeCancelSpeed(objectID, enemy, profile)
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
 		r.registry.mutex.Unlock()
+		if restoreErr != nil {
+			return nil, fmt.Errorf("enemyPursuitCancelSpeed: %w", restoreErr)
+		}
+		if profile.AbilityName == "NomadSpecialOneCharge" {
+			stopPackets, stopErr := npcraknet.StopAtPose(
+				objectID, enemy.Plan.Position, enemy.Facing,
+			)
+			if stopErr != nil {
+				return nil, fmt.Errorf("enemyPursuitCancelStop: %w", stopErr)
+			}
+			return append(stopPackets, restorePackets...), nil
+		}
 		return nil, nil
 	}
 	facingTargetPosition := targetPosition
@@ -448,6 +465,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 			packet, sessionKey, generation, actionGeneration, objectID,
 			targetObjectID, nextTimestamp, publishedGoal,
 			lastPublicationTimestamp, profile, onArrival, advancedAt, true,
+			false,
 		)
 		if err != nil {
 			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
@@ -466,9 +484,13 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		return nil, fmt.Errorf("enemyPursuitAdvance: %w", err)
 	}
 	if step.IsBlocked {
+		restorePackets, restoreErr := nomadChargeCancelSpeed(objectID, enemy, profile)
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
 		r.registry.sessions[sessionKey] = peerSession
 		r.registry.mutex.Unlock()
+		if restoreErr != nil {
+			return nil, fmt.Errorf("enemyBlockedSpeed: %w", restoreErr)
+		}
 		if r.logger != nil {
 			r.logger.Printf("RakNet NPC pursuit blocked object=%d noun=%q target=%d reason=%q",
 				objectID, enemy.Plan.NounName, resolvedTargetObjectID, step.NavigationFallbackReason)
@@ -477,7 +499,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		if stopErr != nil {
 			return nil, fmt.Errorf("enemyBlockedStop: %w", stopErr)
 		}
-		return packets, nil
+		return append(packets, restorePackets...), nil
 	}
 	// Ordinary pursuit publishes 0x41 with a live target ID. Projectile
 	// pursuit, fleeing, and pass-through charges retain movement-derived heading.
@@ -498,22 +520,33 @@ func (r campaignNPCPursuitRuntime) produceStep(
 
 	nextTimestamp := timestamp +
 		uint64(elapsed/time.Millisecond)
-	// Retarget with a complete locomotion command. Native 539810 only replaces
-	// the goal and intermediate path point; it does not refresh stop distances
-	// or reset the movement state as 5393D0 does. Do not send a pose correction
-	// here: the client continues interpolating from its current rendered root.
+	// Enter fixed-point corridor movement once, then update its goal without
+	// resetting native locomotion on every waypoint. Native 539810 replaces
+	// both goal vectors while preserving the mode installed by 5393D0.
 	stepPackets := make([][]byte, 0, 4)
-	isCorridorPursuit := step.IsWaypointKnown && !isSecondaryFamily &&
+	isCorridorPursuit := step.IsWaypointKnown &&
+		(!isSecondaryFamily || profile.AbilityName == "RezMelee") &&
 		profile.Family != zonenpc.ActionCharge && profile.AbilityName != "StealthAttack" &&
 		profile.AbilityName != "Flee"
 	isWaypointChanged := zonegeometry.DistanceSquared(publishedGoal, step.Waypoint) > 0.0001
-	if isCorridorPursuit && !step.IsInRange && (isMovementPaused || isWaypointChanged) {
-		waypointPackets, waypointErr := npcraknet.PursuitWaypoint(objectID, step.Waypoint)
-		if waypointErr != nil {
-			npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
-			return nil, fmt.Errorf("enemyWaypoint: %w", waypointErr)
+	if isCorridorPursuit && !step.IsInRange &&
+		(!isCorridorActive || isMovementPaused || isWaypointChanged) {
+		if !isCorridorActive || isMovementPaused {
+			waypointPackets, waypointErr := npcraknet.PursuitWaypoint(objectID, step.Waypoint)
+			if waypointErr != nil {
+				npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+				return nil, fmt.Errorf("enemyWaypointStart: %w", waypointErr)
+			}
+			stepPackets = append(stepPackets, waypointPackets...)
+			isCorridorActive = true
+		} else {
+			waypointPacket, waypointErr := npcraknet.MovementGoalUpdate(objectID, step.Waypoint)
+			if waypointErr != nil {
+				npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
+				return nil, fmt.Errorf("enemyWaypointUpdate: %w", waypointErr)
+			}
+			stepPackets = append(stepPackets, waypointPacket)
 		}
-		stepPackets = append(stepPackets, waypointPackets...)
 		publishedGoal = step.Waypoint
 		lastPublicationTimestamp = timestamp
 	}
@@ -532,6 +565,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		stepPackets = append(stepPackets, resumePackets...)
 		publishedGoal = targetPosition
 		lastPublicationTimestamp = timestamp
+		isCorridorActive = false
 	}
 	isStalkerLeap := profile.AbilityName == "NomadBioSpecialTwoJumpAttack" &&
 		profile.MovementSpeed == profile.ForcedMovementSpeed
@@ -581,6 +615,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		stepPackets = append(stepPackets, redirectPackets...)
 		publishedGoal = targetPosition
 		lastPublicationTimestamp = timestamp
+		isCorridorActive = false
 	}
 	if step.IsInRange {
 		stopPackets, stopErr := npcraknet.StopAtPose(objectID, step.Position, enemy.Facing)
@@ -601,7 +636,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		packet, sessionKey, generation, actionGeneration, objectID,
 		targetObjectID, nextTimestamp,
 		publishedGoal, lastPublicationTimestamp,
-		profile, onArrival, advancedAt, false,
+		profile, onArrival, advancedAt, false, isCorridorActive,
 	)
 	if err != nil {
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)

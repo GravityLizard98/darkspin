@@ -2,6 +2,15 @@
 
 ### 2026-10-19
 
+- #91 Send an authoritative pose and stop when enemies return home instead of only a movement goal, preventing unattackable enemies from remaining at their old client positions.
+- #91 Start NPC corridor movement once and send subsequent waypoint changes as goal-only updates, preventing repeated native locomotion resets and correction jumps.
+- #91 Preserve navigation corridor waypoints during Hypno Mantis's secondary melee chase instead of redirecting straight toward the hero.
+- #91 Match Ragetusk's server and client charge stopping distances, restore its authored approach and landing stages, and clear its speed bonus when pursuit loses its target or becomes blocked.
+- #91 Apply Shade Drifter's charge speed bonus as the client-authored multiplier instead of a flat speed increase, including existing movement bonuses.
+- #91 Use representable float32 movement steps near NPC attack range instead of rounding to no movement and repeatedly stopping and restarting pursuit.
+- #90 Restore Botanical Tunneler's client-authored above-ground attack animation, hit timing and cooldown instead of entering underground travel during each attack.
+- #90 Synchronize Ragetusk's charge with the client-authored movement-speed multiplier and restore its normal speed before the follow-up attack and on failure.
+- #90 Admit movement from the sampled authoritative position instead of an obstructed client prediction, allowing bounded reconciliation without repeated start-position corrections.
 - #89 Retain a validated approach point when obstacle-contact terrain projection is obstructed, reducing rejected movement corrections while preserving collision and connectivity checks.
 - #89 Expand camera snapshot diagnostics with native follow anchors, interpolation state and cached transforms, and report the latest completed snapshot's fields instead of an earlier capture.
 - #88 Restore client-authored pursuit and footprint-aware range admission for Jinx's thrown basic attack, preventing repeated out-of-range failures while its animation plays.

@@ -224,6 +224,7 @@ type FirstActionPlan struct {
 	TargetObjectID   uint32
 	ActionGeneration uint64
 	SourcePosition   game.Vec3
+	SourceFacing     game.Vec3
 	TargetPosition   game.Vec3
 	Profile          ActionProfile
 	IsPursuitNeeded  bool
@@ -2397,11 +2398,11 @@ func VerdanthBasicHealerRootedHealProfile(
 func stagnantNovaAboveProfile(cooldown time.Duration) ActionProfile {
 	return ActionProfile{
 		Family: ActionCone, AbilityName: "StagnantNovaAbove",
-		AnimationName:          "burrow_tunnelling",
-		EmergeDelay:            1500 * time.Millisecond,
-		HitDelay:               2800 * time.Millisecond,
-		ReleaseDelay:           3400 * time.Millisecond,
-		Cooldown:               3400*time.Millisecond + cooldown,
+		AnimationName:          "burrow_attack2",
+		EndAnimationName:       "burrow_idle",
+		HitDelay:               600 * time.Millisecond,
+		ReleaseDelay:           1900 * time.Millisecond,
+		Cooldown:               cooldown,
 		Range:                  8,
 		Radius:                 8,
 		Angle:                  360,

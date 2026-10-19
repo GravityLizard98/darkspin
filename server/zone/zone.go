@@ -1849,6 +1849,7 @@ func (e *Zone) publishNPCReturns(returning []zonenpc.Snapshot) {
 			Kind: zonenpc.ActionEventReturn,
 			Plan: zonenpc.FirstActionPlan{
 				ObjectID:       npc.Plan.ObjectID,
+				SourceFacing:   npc.Facing,
 				TargetPosition: npc.Origin,
 			},
 		}, zoneprojection.Subscriber{})

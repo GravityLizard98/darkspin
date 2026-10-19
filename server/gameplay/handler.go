@@ -4130,13 +4130,14 @@ func marshalCampaignProjection(event zoneprojection.Event) ([][]byte, error) {
 			}
 			return packet, nil
 		case zonenpc.ActionEventReturn:
-			packet, err := actionraknet.PursuitStep(
+			packets, err := npcraknet.MovementPause(
 				action.Plan.ObjectID, action.Plan.TargetPosition,
+				action.Plan.SourceFacing,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("npcActionReturn: %w", err)
 			}
-			return [][]byte{packet}, nil
+			return packets, nil
 		default:
 			return nil, fmt.Errorf("npcActionKind: %d", action.Kind)
 		}

@@ -26,6 +26,7 @@ type campaignChargeSchedule struct {
 	objectID   uint32
 	timestamp  uint64
 	plan       zonenpc.AttackPlan
+	isLanding  bool
 }
 
 func (e campaignChargeSchedule) fail(
@@ -52,7 +53,8 @@ func (e campaignChargeSchedule) fail(
 
 func (e campaignChargeSchedule) restoreMovementState() ([][]byte, error) {
 	if e.plan.Profile.AbilityName != "BoomerCharge" &&
-		e.plan.Profile.AbilityName != "NocturnaSpecialDriftCharge" {
+		e.plan.Profile.AbilityName != "NocturnaSpecialDriftCharge" &&
+		e.plan.Profile.AbilityName != "NomadSpecialOneCharge" {
 		return nil, nil
 	}
 	e.runtime.registry.mutex.RLock()
@@ -65,6 +67,15 @@ func (e campaignChargeSchedule) restoreMovementState() ([][]byte, error) {
 	e.runtime.registry.mutex.RUnlock()
 	if !isEnemyFound || (e.plan.ActionGeneration != 0 && enemy.ActionGeneration != e.plan.ActionGeneration) {
 		return nil, nil
+	}
+	if e.plan.Profile.AbilityName == "NomadSpecialOneCharge" {
+		packets, err := npcraknet.ChargeMovementSpeed(
+			e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("nomadSpeedRestore: %w", err)
+		}
+		return packets, nil
 	}
 	packets, err := npcraknet.ChargeMovementState(
 		e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan), e.plan.Profile.StealthType, false,
@@ -104,6 +115,13 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	)
 	if !isCurrent {
 		e.runtime.registry.mutex.RUnlock()
+		if e.isLanding {
+			packets, err := e.restoreMovementState()
+			if err != nil {
+				return e.fail("nomadLandingCancelRestore", err)
+			}
+			return packets, nil
+		}
 		return nil, nil
 	}
 	enemy, isEnemyFound := peerSession.zone.NPCs().NPC(e.objectID)
@@ -112,19 +130,39 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	)
 	e.runtime.registry.mutex.RUnlock()
 	if !isEnemyFound || !isTargetFound {
+		if e.isLanding && isEnemyFound {
+			packets, err := e.restoreMovementState()
+			if err != nil {
+				return e.fail("nomadLandingRestore", err)
+			}
+			e.runtime.releaseAction(e.sessionKey, e.generation, e.objectID)
+			return packets, nil
+		}
 		e.runtime.releaseAction(e.sessionKey, e.generation, e.objectID)
 		return nil, nil
 	}
 	movementProfile := e.plan.Profile
 	movementProfile.Range = movementProfile.ForcedMovementStopDistance
+	if movementProfile.AbilityName == "NomadSpecialOneCharge" && !e.isLanding {
+		// The authored charge approaches to distanceBeforeLanding=4 before
+		// playing the land animation and closing the remaining gap.
+		movementProfile.Range = 4
+	}
 	movementProfile.MovementSpeed *= 1 + movementProfile.MovementSpeedBuff
 	movementProfile.MovementSpeed += movementProfile.ForcedMovementSpeed
-	if movementProfile.AbilityName == "BoomerCharge" {
-		// The charge template adds speedIncrease to attribute 48, which native
+	if movementProfile.AbilityName == "BoomerCharge" ||
+		movementProfile.AbilityName == "NomadSpecialOneCharge" ||
+		movementProfile.AbilityName == "NocturnaSpecialDriftCharge" {
+		// These charge scripts add speedIncrease to attribute 48, which native
 		// locomotion applies as a multiplier, not as flat world units/second.
 		baseSpeed := enemy.Plan.NPCProfile.BaseCombatSpeed
 		if baseSpeed <= 0 {
 			baseSpeed = 3
+			if movementProfile.AbilityName == "NomadSpecialOneCharge" {
+				baseSpeed = 4
+			} else if movementProfile.AbilityName == "NocturnaSpecialDriftCharge" {
+				baseSpeed = 5
+			}
 		}
 		movementProfile.MovementSpeed = baseSpeed *
 			(1 + zonenpc.EffectiveMovementSpeedBuff(enemy.Plan) + movementProfile.ForcedMovementSpeed)
@@ -227,8 +265,15 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		}
 		return e.fail("enemyChargeMovePlan", err)
 	}
+	movementTimestamp := e.timestamp + uint64(e.plan.Profile.HitDelay/time.Millisecond)
+	if e.isLanding {
+		movementTimestamp = e.timestamp
+	}
 	if !action.IsPursuitNeeded {
-		return e.followup(e.timestamp + uint64(e.plan.Profile.HitDelay/time.Millisecond))
+		if movementProfile.AbilityName == "NomadSpecialOneCharge" && !e.isLanding {
+			return e.land(movementTimestamp)
+		}
+		return e.followup(movementTimestamp)
 	}
 	packets, err := npcraknet.Pursuit(action)
 	if err != nil {
@@ -237,12 +282,22 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		}
 		return e.fail("enemyChargeMoveMarshal", err)
 	}
+	if movementProfile.AbilityName == "NomadSpecialOneCharge" {
+		// Abilities/0x5FEB4BF9.lua adds MovementSpeedBuff=3 for the
+		// charge, then removes it before the follow-up melee attack.
+		statePackets, stateErr := npcraknet.ChargeMovementSpeed(
+			e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan)+
+				movementProfile.ForcedMovementSpeed,
+		)
+		if stateErr != nil {
+			return e.fail("nomadSpeedMarshal", stateErr)
+		}
+		packets = append(statePackets, packets...)
+	}
 	if movementProfile.AbilityName == "NocturnaSpecialDriftCharge" ||
 		movementProfile.AbilityName == "BoomerCharge" {
-		movementSpeedBuff := movementProfile.ForcedMovementSpeed
-		if movementProfile.AbilityName == "BoomerCharge" {
-			movementSpeedBuff += zonenpc.EffectiveMovementSpeedBuff(enemy.Plan)
-		}
+		movementSpeedBuff := zonenpc.EffectiveMovementSpeedBuff(enemy.Plan) +
+			movementProfile.ForcedMovementSpeed
 		statePackets, stateErr := npcraknet.ChargeMovementState(
 			e.objectID, movementSpeedBuff, 0, true,
 		)
@@ -253,8 +308,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	}
 	err = e.runtime.pursuit.schedule(
 		e.packet, e.sessionKey, e.generation, e.objectID,
-		e.timestamp+uint64(e.plan.Profile.HitDelay/time.Millisecond),
-		action.TargetPosition, movementProfile, e.followup,
+		movementTimestamp, action.TargetPosition, action.Profile, e.arrive,
 	)
 	if err != nil {
 		if isGhostCharge {
@@ -262,12 +316,12 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		}
 		return e.fail("enemyChargeMoveSchedule", err)
 	}
-	if e.plan.Profile.LoopAnimationName == "" {
+	if e.isLanding || e.plan.Profile.LoopAnimationName == "" {
 		return packets, nil
 	}
 	loopPacket, err := npcraknet.AnimationState(
 		e.objectID, e.plan.Profile.LoopAnimationName,
-		e.timestamp+uint64(e.plan.Profile.HitDelay/time.Millisecond),
+		movementTimestamp,
 	)
 	if err != nil {
 		e.runtime.logger.Printf(
@@ -278,6 +332,49 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	}
 	// Set locomotion first so its default pose cannot replace the charge loop.
 	return append(packets, loopPacket), nil
+}
+
+func (e campaignChargeSchedule) arrive(timestamp uint64) ([][]byte, error) {
+	if e.plan.Profile.AbilityName == "NomadSpecialOneCharge" && !e.isLanding {
+		return e.land(timestamp)
+	}
+	return e.followup(timestamp)
+}
+
+func (e campaignChargeSchedule) land(timestamp uint64) ([][]byte, error) {
+	landing := e
+	landing.timestamp = timestamp
+	landing.isLanding = true
+	landingPackets, err := landing.move()
+	if err != nil {
+		return nil, fmt.Errorf("nomadLandingMove: %w", err)
+	}
+	animationPacket, err := npcraknet.ChargeRelax(
+		e.objectID, e.plan.Profile.EndAnimationName, timestamp,
+	)
+	if err != nil {
+		e.runtime.logger.Printf(
+			"RakNet campaign NPC nomad landing presentation omitted object=%d: %v",
+			e.objectID, err,
+		)
+		return landingPackets, nil
+	}
+	return append([][]byte{animationPacket}, landingPackets...), nil
+}
+
+func nomadChargeCancelSpeed(
+	objectID uint32, enemy zonenpc.Snapshot, profile zonenpc.ActionProfile,
+) ([][]byte, error) {
+	if profile.AbilityName != "NomadSpecialOneCharge" {
+		return nil, nil
+	}
+	packets, err := npcraknet.ChargeMovementSpeed(
+		objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("nomadCancelSpeed: %w", err)
+	}
+	return packets, nil
 }
 
 func isTemplateContactCharge(abilityName string) bool {
@@ -400,7 +497,8 @@ func navigationClippedMovementDestination(
 func (e campaignChargeSchedule) followup(timestamp uint64) ([][]byte, error) {
 	var restoredStatePackets [][]byte
 	if e.plan.Profile.AbilityName == "NocturnaSpecialDriftCharge" ||
-		e.plan.Profile.AbilityName == "BoomerCharge" {
+		e.plan.Profile.AbilityName == "BoomerCharge" ||
+		e.plan.Profile.AbilityName == "NomadSpecialOneCharge" {
 		var stateErr error
 		restoredStatePackets, stateErr = e.restoreMovementState()
 		if stateErr != nil {
@@ -417,15 +515,19 @@ func (e campaignChargeSchedule) followup(timestamp uint64) ([][]byte, error) {
 			e.packet, e.sessionKey, e.generation, e.objectID, timestamp, e.plan,
 		)
 	}
-	relaxPacket, err := npcraknet.ChargeRelax(
-		e.objectID, e.plan.Profile.EndAnimationName, timestamp,
-	)
-	if err != nil {
-		e.runtime.logger.Printf(
-			"RakNet campaign NPC charge relax presentation omitted object=%d: %v",
-			e.objectID, err,
+	var relaxPacket []byte
+	var err error
+	if e.plan.Profile.AbilityName != "NomadSpecialOneCharge" {
+		relaxPacket, err = npcraknet.ChargeRelax(
+			e.objectID, e.plan.Profile.EndAnimationName, timestamp,
 		)
-		relaxPacket = nil
+		if err != nil {
+			e.runtime.logger.Printf(
+				"RakNet campaign NPC charge relax presentation omitted object=%d: %v",
+				e.objectID, err,
+			)
+			relaxPacket = nil
+		}
 	}
 	followupTimestamp := timestamp +
 		uint64(e.plan.Profile.EndAnimationDelay/time.Millisecond)
@@ -480,6 +582,9 @@ func (e campaignChargeSchedule) followup(timestamp uint64) ([][]byte, error) {
 			followupPackets = append([][]byte{relaxPacket}, followupPackets...)
 		}
 		return append(followupPackets, restoredStatePackets...), nil
+	}
+	if e.plan.Profile.AbilityName == "NomadSpecialOneCharge" {
+		return append(restoredStatePackets, followupPackets...), nil
 	}
 	if relaxPacket == nil {
 		return followupPackets, nil

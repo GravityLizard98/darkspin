@@ -1338,6 +1338,20 @@ func ChargeStart(
 	return marshalMessages(messages, "chargeStart")
 }
 
+// ChargeMovementSpeed publishes the authored additive attribute modifier;
+// native locomotion multiplies its combat speed by 1 + attribute 48.
+func ChargeMovementSpeed(objectID uint32, movementSpeedBuff float32) ([][]byte, error) {
+	if objectID == 0 || math.IsNaN(float64(movementSpeedBuff)) ||
+		math.IsInf(float64(movementSpeedBuff), 0) {
+		return nil, errors.New("npc charge movement speed invalid")
+	}
+	return marshalMessages([]raknet.ApplicationMessage{
+		raknet.AttributeDataUpdateMessage{
+			ObjectID: objectID, Value: map[uint8]float32{48: movementSpeedBuff},
+		},
+	}, "chargeSpeed")
+}
+
 func ChargeMovementState(
 	objectID uint32, movementSpeedBuff float32, stealthType game.StealthType,
 	isNavCollisionDisabled bool,

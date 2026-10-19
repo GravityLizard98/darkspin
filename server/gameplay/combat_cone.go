@@ -844,25 +844,10 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 			raknet.ScheduledPacketProducer{Delay: nextDelay, Produce: resume.next},
 		)
 	}
-	var intangibleRun *campaignNPCIntangibleRun
 	if profile.AbilityName == "StagnantNovaAbove" {
-		modifierPackets, run, modifierErr := r.prepareStagnantNovaIntangible(
-			sessionKey, generation, plan, timestamp,
-		)
-		if modifierErr != nil {
-			return nil, fmt.Errorf("enemyConeIntangible: %w", modifierErr)
-		}
-		startPackets = append(startPackets, modifierPackets...)
-		intangibleRun = run
-		if run != nil {
-			expiry := campaignNPCIntangibleExpiry{
-				runtime: r, sessionKey: sessionKey,
-				generation: generation, run: run,
-			}
-			producers = append(producers, raknet.ScheduledPacketProducer{
-				Delay: profile.EmergeDelay, Produce: expiry.produce,
-			})
-		}
+		producers = append(producers, raknet.ScheduledPacketProducer{
+			Delay: profile.ReleaseDelay, Produce: resume.endStagnantNovaAbove,
+		})
 	}
 	sortScheduledPacketProducersByDelay(producers)
 	cancel, err := scheduleNPCProducers(r.registry, packet, producers)
@@ -870,15 +855,7 @@ func (r campaignNPCActionRuntime) produceEnemyCone(
 		err = errors.New("nil cancellation")
 	}
 	if err != nil {
-		r.rollbackStagnantNovaIntangible(sessionKey, generation, intangibleRun)
 		return nil, fmt.Errorf("enemyConeSchedule: %w", err)
-	}
-	if intangibleRun != nil && !r.activateStagnantNovaIntangible(
-		sessionKey, generation, intangibleRun, cancel,
-	) {
-		cancel()
-		r.rollbackStagnantNovaIntangible(sessionKey, generation, intangibleRun)
-		return nil, nil
 	}
 	return startPackets, nil
 }

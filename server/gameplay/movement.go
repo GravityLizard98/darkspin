@@ -697,6 +697,18 @@ func (r campaignMovementCommandRuntime) handle(
 	footprintRadius := commandSession.deployedCampaignNavigationRadius()
 	navigationActor := commandSession.playerMotion.NavigationSettings()
 	navigationActor.Mode = uint8(commandSession.binding.Mode)
+	// The predicted pose is an observation for Motion's bounded reconciliation.
+	// It may already be inside the collision overlay while input is held at a
+	// blocked click. Resolve the next goal from the running authoritative route
+	// so admission does not turn that rejected observation into a teleport.
+	navigationStart := game.Vec3(commandSession.playerPosition)
+	if commandSession.playerMotion != nil {
+		position, sampleErr := commandSession.playerMotion.SamplePosition(r.now())
+		if sampleErr != nil {
+			return nil, fmt.Errorf("moveNavigationStart: %w", sampleErr)
+		}
+		navigationStart = game.Vec3(position)
+	}
 	admission, admissionErr := action.AdmitMovement(
 		action.MovementCommand{
 			NavigationActor:  navigationActor,
@@ -706,6 +718,7 @@ func (r campaignMovementCommandRuntime) handle(
 				X: command.Common.Position.X, Y: command.Common.Position.Y,
 				Z: command.Common.Position.Z,
 			},
+			NavigationStart: navigationStart,
 			Goal:            game.Vec3{X: goal.X, Y: goal.Y, Z: goal.Z},
 			FootprintRadius: footprintRadius,
 			Navigation:      commandSession.zone.Navigation(),
