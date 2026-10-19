@@ -2,6 +2,8 @@
 
 ### 2026-10-19
 
+- #89 Retain a validated approach point when obstacle-contact terrain projection is obstructed, reducing rejected movement corrections while preserving collision and connectivity checks.
+- #89 Expand camera snapshot diagnostics with native follow anchors, interpolation state and cached transforms, and report the latest completed snapshot's fields instead of an earlier capture.
 - #88 Restore client-authored pursuit and footprint-aware range admission for Jinx's thrown basic attack, preventing repeated out-of-range failures while its animation plays.
 - #88 Register Dendrone respawns for every enemy damage death path and route them to the summon owner's session, preserving the authored respawn delay in co-op.
 - #88 Consume repeated triggers for already-admitted horde encounters instead of attempting duplicate admission and disconnecting the player on the next gameplay poll.

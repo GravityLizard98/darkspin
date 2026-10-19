@@ -362,20 +362,25 @@ func isServerSessionReplayCaptured(session SessionState) bool {
 func analyzeClientBoundaryStates(report *analysisReport, events []replayEvent) {
 	isCollecting := false
 	states := make([]clientStateSample, 0)
+	latestStates := make([]clientStateSample, 0)
 	for _, event := range events {
 		if event.Source != "client" {
 			continue
 		}
 		if event.Kind == "action_snapshot_boundary" {
 			isCollecting = true
-			states = states[:0]
+			states = nil
 			continue
 		}
 		if !isCollecting {
 			continue
 		}
 		if event.Kind == "snapshot_boundary" {
-			break
+			// A capture ring can contain earlier snapshots. Keep the latest
+			// completed block instead of stopping at the first boundary.
+			latestStates = states
+			isCollecting = false
+			continue
 		}
 		if event.ClientStateValue == nil {
 			continue
@@ -386,8 +391,8 @@ func analyzeClientBoundaryStates(report *analysisReport, events []replayEvent) {
 			ThreadID: event.ClientThreadID, FrameSequence: event.FrameSequence,
 		})
 	}
-	report.ClientBoundaryStates = states
-	report.Metrics.ClientBoundaryStateCount = len(states)
+	report.ClientBoundaryStates = latestStates
+	report.Metrics.ClientBoundaryStateCount = len(latestStates)
 }
 
 func analyzePendingServerPackets(report *analysisReport, state StateFrame) {
