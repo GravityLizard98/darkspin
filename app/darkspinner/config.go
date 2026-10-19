@@ -13,12 +13,11 @@ import (
 
 // ServerConfiguration is the launcher-editable server and client configuration.
 type ServerConfiguration struct {
-	Port                          uint16         `json:"port"`
-	IsMultiplayerEnabled          bool           `json:"isMultiplayerEnabled"`
-	Locale                        string         `json:"locale"`
-	Locales                       []ClientLocale `json:"locales"`
-	SnapshotMode                  string         `json:"snapshotMode"`
-	IsBorderlessFullscreenEnabled bool           `json:"isBorderlessFullscreenEnabled"`
+	Port                 uint16         `json:"port"`
+	IsMultiplayerEnabled bool           `json:"isMultiplayerEnabled"`
+	Locale               string         `json:"locale"`
+	Locales              []ClientLocale `json:"locales"`
+	SnapshotMode         string         `json:"snapshotMode"`
 }
 
 // GetServerConfiguration returns the persisted local network configuration.
@@ -56,7 +55,6 @@ func (e *App) SetServerPort(port uint16) (ServerConfiguration, error) {
 	return e.SetServerConfiguration(
 		port, configuration.IsMultiplayerEnabled,
 		configuration.Locale, configuration.SnapshotMode,
-		configuration.IsBorderlessFullscreenEnabled,
 	)
 }
 
@@ -64,7 +62,6 @@ func (e *App) SetServerPort(port uint16) (ServerConfiguration, error) {
 // server only when its network binding changed.
 func (e *App) SetServerConfiguration(
 	port uint16, isMultiplayerEnabled bool, locale string, snapshotMode string,
-	isBorderlessFullscreenEnabled bool,
 ) (ServerConfiguration, error) {
 	if port == 0 || port == ^uint16(0) {
 		return ServerConfiguration{}, errors.New("server port must be between 1 and 65534")
@@ -101,10 +98,6 @@ func (e *App) SetServerConfiguration(
 	}
 	isPreviouslyMultiplayerEnabled := config.Bool(game.ConfigIsMultiplayerEnabled)
 	previousLocale := config.String(game.ConfigClientLocale)
-	isPreviouslyBorderlessFullscreenEnabled := config.Bool(game.ConfigIsBorderlessFullscreenEnabled)
-	if BuildChannel != "development" {
-		isBorderlessFullscreenEnabled = isPreviouslyBorderlessFullscreenEnabled
-	}
 	previousSnapshotMode, err := snapshot.ParseMode(
 		config.String(game.ConfigSnapshotMode),
 	)
@@ -125,8 +118,7 @@ func (e *App) SetServerConfiguration(
 	}
 	if previousPort == port && isPreviouslyMultiplayerEnabled == isMultiplayerEnabled &&
 		normalizeClientLocale(previousLocale) == locale &&
-		previousSnapshotMode == selectedSnapshotMode &&
-		isPreviouslyBorderlessFullscreenEnabled == isBorderlessFullscreenEnabled {
+		previousSnapshotMode == selectedSnapshotMode {
 		configuration, configErr := serverConfiguration(config, pathSet.gamePath)
 		if configErr != nil {
 			return ServerConfiguration{}, fmt.Errorf("configRead: %w", configErr)
@@ -148,13 +140,6 @@ func (e *App) SetServerConfiguration(
 	err = config.Set(game.ConfigSnapshotMode, string(selectedSnapshotMode))
 	if err != nil {
 		return ServerConfiguration{}, fmt.Errorf("snapshotModeSet: %w", err)
-	}
-	err = config.Set(
-		game.ConfigIsBorderlessFullscreenEnabled,
-		strconv.FormatBool(isBorderlessFullscreenEnabled),
-	)
-	if err != nil {
-		return ServerConfiguration{}, fmt.Errorf("borderlessSet: %w", err)
 	}
 	err = config.Save(pathSet.configPath)
 	if err != nil {
@@ -205,12 +190,6 @@ func (e *App) SetServerConfiguration(
 	if rollbackErr == nil {
 		rollbackErr = config.Set(
 			game.ConfigSnapshotMode, string(previousSnapshotMode),
-		)
-	}
-	if rollbackErr == nil {
-		rollbackErr = config.Set(
-			game.ConfigIsBorderlessFullscreenEnabled,
-			strconv.FormatBool(isPreviouslyBorderlessFullscreenEnabled),
 		)
 	}
 	if rollbackErr == nil {
@@ -308,8 +287,6 @@ func serverConfiguration(config *game.Config, gamePath string) (ServerConfigurat
 		Locale:               locale,
 		Locales:              locales,
 		SnapshotMode:         string(snapshotMode),
-		IsBorderlessFullscreenEnabled: BuildChannel == "development" &&
-			config.Bool(game.ConfigIsBorderlessFullscreenEnabled),
 	}, nil
 }
 

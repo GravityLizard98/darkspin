@@ -47,12 +47,11 @@ const isRemotePasswordRemembered = ref(true)
 const isRemoteRegistration = ref(false)
 const isRemoteBusy = ref(false)
 const remoteMessage = ref('Enter a server address or ask for LAN suggestions.')
-const serverConfiguration = ref({ port:42127, isMultiplayerEnabled:false, locale:'en-us', locales:[], snapshotMode:'auto', isBorderlessFullscreenEnabled:false })
+const serverConfiguration = ref({ port:42127, isMultiplayerEnabled:false, locale:'en-us', locales:[], snapshotMode:'auto' })
 const configuredServerPort = ref(42127)
 const isConfiguredMultiplayerEnabled = ref(false)
 const configuredLocale = ref('en-us')
 const configuredSnapshotMode = ref('auto')
-const isConfiguredBorderlessFullscreenEnabled = ref(false)
 const systemWineRunner = 'system'
 const wineRunnerConfiguration = ref({ isSupported:false, selectedPath:'', runners:[] })
 const configuredWineRunner = ref(systemWineRunner)
@@ -583,7 +582,6 @@ async function refreshServerConfiguration() {
     isConfiguredMultiplayerEnabled.value = serverConfiguration.value.isMultiplayerEnabled
     configuredLocale.value = serverConfiguration.value.locale
     configuredSnapshotMode.value = serverConfiguration.value.snapshotMode
-    isConfiguredBorderlessFullscreenEnabled.value = serverConfiguration.value.isBorderlessFullscreenEnabled
   }
   catch (error) { serverConfigurationMessage.value = visibleLauncherText(error) }
   await refreshWineRunnerConfiguration()
@@ -654,13 +652,11 @@ async function applyServerConfiguration() {
     serverConfiguration.value = await SetServerConfiguration(
       Number(configuredServerPort.value), isConfiguredMultiplayerEnabled.value,
       configuredLocale.value, configuredSnapshotMode.value,
-      isConfiguredBorderlessFullscreenEnabled.value,
     )
     configuredServerPort.value = serverConfiguration.value.port
     isConfiguredMultiplayerEnabled.value = serverConfiguration.value.isMultiplayerEnabled
     configuredLocale.value = serverConfiguration.value.locale
     configuredSnapshotMode.value = serverConfiguration.value.snapshotMode
-    isConfiguredBorderlessFullscreenEnabled.value = serverConfiguration.value.isBorderlessFullscreenEnabled
     if (isNetworkChanged) {
       const interfaceLabel = serverConfiguration.value.isMultiplayerEnabled ? 'all network interfaces' : 'loopback only'
       serverConfigurationMessage.value = `Local server restarted on ${interfaceLabel}, port ${serverConfiguration.value.port}. Language: ${serverConfiguration.value.locale}.`
@@ -1426,7 +1422,6 @@ async function copyLauncherFailure() {
             </SelectContent>
             </Select>
           </template>
-          <label v-if="status.buildChannel === 'development'" class="management-toggle config-borderless"><Checkbox v-model="isConfiguredBorderlessFullscreenEnabled" :disabled="isServerConfigurationBusy" /><span><strong>EXPERIMENTAL BORDERLESS FULLSCREEN</strong><small>Use Fang's borderless window and live-resolution compatibility hooks on the next game launch.</small></span></label>
           <p v-if="serverConfigurationMessage" class="management-message">{{ serverConfigurationMessage }}</p>
           <Button variant="default" class="config-save" type="button" :disabled="!isServerPortValid || !configuredLocale || isServerConfigurationBusy" @click="saveServerConfiguration">{{ isServerConfigurationBusy ? 'SAVING...' : 'SAVE CONFIGURATION' }}</Button>
         </Card>

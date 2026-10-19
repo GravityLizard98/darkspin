@@ -2,6 +2,10 @@
 
 ### 2026-10-18
 
+- Replace the launcher's experimental fullscreen option with Borderless Mode in the game's graphics options, mutually exclusive with Full Screen Mode and preserving the selected resolution.
+- Fix saving Borderless Mode changes so disabling it restores window decorations, and ignore the retired experimental mode's saved preference.
+- Restore No Blood and add separate Borderless Mode and Taskbar Overlay controls; both default off and save per profile.
+- Remove custom resolution handling, limit Borderless Mode to window decorations, and change Taskbar Overlay from always-on-top positioning to the Windows taskbar API.
 - [#86](https://github.com/darkspinnet/darkspin/issues/86) Change Resonance's basic attack damage bonus from raw defense ratings to converted, capped dodge and resist chances, matching its client-authored tooltip.
 - [#80](https://github.com/darkspinnet/darkspin/issues/80) Restore client-authored pursuit for ranged support bursts, keeping the server hero alongside the client before the ability fires.
 - [#80](https://github.com/darkspinnet/darkspin/issues/80) Keep Rezzers retreating toward their chosen flee point instead of redirecting into the hero during Ghostly Bolt recovery.

@@ -47,15 +47,14 @@ var launcherUpdateManifestURL = "https://github.com/darkspinnet/darkspin/" +
 	"releases/latest/download/darkspinner-update.json"
 
 const (
-	launchJWTEnvironment            = "DARKSPIN_LAUNCH_JWT"
-	skipIntroEnvironment            = "DARKSPIN_SKIP_INTRO"
-	skipCinematicEnvironment        = "DARKSPIN_SKIP_CINEMATIC"
-	darkSpinnerVersionEnvironment   = "DARKSPINNER_VERSION"
-	serverAddressEnvironment        = "DARKSPIN_SERVER_ADDRESS"
-	snapshotModeEnvironment         = "DARKSPIN_SNAPSHOT_MODE"
-	snapshotControlEnvironment      = "DARKSPIN_SNAPSHOT_CONTROL"
-	borderlessFullscreenEnvironment = "DARKSPIN_BORDERLESS_FULLSCREEN"
-	maximumJWTLength                = 16 * 1024
+	launchJWTEnvironment          = "DARKSPIN_LAUNCH_JWT"
+	skipIntroEnvironment          = "DARKSPIN_SKIP_INTRO"
+	skipCinematicEnvironment      = "DARKSPIN_SKIP_CINEMATIC"
+	darkSpinnerVersionEnvironment = "DARKSPINNER_VERSION"
+	serverAddressEnvironment      = "DARKSPIN_SERVER_ADDRESS"
+	snapshotModeEnvironment       = "DARKSPIN_SNAPSHOT_MODE"
+	snapshotControlEnvironment    = "DARKSPIN_SNAPSHOT_CONTROL"
+	maximumJWTLength              = 16 * 1024
 )
 
 type options struct {
@@ -321,18 +320,6 @@ func run(ctx context.Context, arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("localeConfig: %w", err)
 	}
-	err = configureBorderlessFullscreen(
-		BuildChannel == "development" && gameConfig.Bool(game.ConfigIsBorderlessFullscreenEnabled),
-	)
-	if err != nil {
-		return fmt.Errorf("borderlessConfigure: %w", err)
-	}
-	defer func() {
-		unsetErr := os.Unsetenv(borderlessFullscreenEnvironment)
-		if unsetErr != nil {
-			// The launched child already owns an independent environment block.
-		}
-	}()
 	err = configureSnapshotEnvironment(
 		gameConfig.String(game.ConfigSnapshotMode),
 		filepath.Join(pathSet.tracePath, "snapshot-control.txt"),
@@ -795,14 +782,6 @@ func configureCinematicOptions(isIntroSkipped, isCinematicSkipped bool) error {
 	err = configureBooleanEnvironment(skipCinematicEnvironment, isCinematicSkipped)
 	if err != nil {
 		return fmt.Errorf("cinematicEnvironment: %w", err)
-	}
-	return nil
-}
-
-func configureBorderlessFullscreen(isEnabled bool) error {
-	err := configureBooleanEnvironment(borderlessFullscreenEnvironment, isEnabled)
-	if err != nil {
-		return fmt.Errorf("borderlessEnvironment: %w", err)
 	}
 	return nil
 }

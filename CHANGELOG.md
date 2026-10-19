@@ -2,6 +2,9 @@
 
 ### 2026-10-18
 
+- Add Borderless Mode in the game's graphics options, mutually exclusive with Full Screen Mode and preserving the selected resolution.
+- Add Taskbar Overlay controls
+- Remove custom resolution handling, limit Borderless Mode to window decorations, and change Taskbar Overlay from always-on-top positioning to the Windows taskbar API.
 - #86 Change Resonance's basic attack damage bonus from raw defense ratings to converted, capped dodge and resist chances, matching its client-authored tooltip.
 - #80 Restore client-authored pursuit for ranged support bursts, keeping the server hero alongside the client before the ability fires.
 - #80 Keep Rezzers retreating toward their chosen flee point instead of redirecting into the hero during Ghostly Bolt recovery.

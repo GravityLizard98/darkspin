@@ -6,7 +6,7 @@
 
 int fang_install(const char* hostname, unsigned short port, unsigned short party_port,
     const char* trace_path, int skip_intro, int skip_cinematic,
-    int enable_borderless_fullscreen, const char* jwt, const char* window_title);
+    const char* jwt, const char* window_title);
 
 int fang_install_display_preferences(HMODULE executable);
 int fang_install_camera_zoom(HMODULE executable);

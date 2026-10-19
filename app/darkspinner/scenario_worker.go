@@ -264,10 +264,6 @@ func (e *scenarioWorker) clientRequest() (scenarioClientRequest, error) {
 	if err != nil {
 		return scenarioClientRequest{}, fmt.Errorf("clientCinematic: %w", err)
 	}
-	err = configureBorderlessFullscreen(false)
-	if err != nil {
-		return scenarioClientRequest{}, fmt.Errorf("clientBorderless: %w", err)
-	}
 	err = configureLaunchJWT(e.host.JWT)
 	if err != nil {
 		return scenarioClientRequest{}, fmt.Errorf("clientCredential: %w", err)
