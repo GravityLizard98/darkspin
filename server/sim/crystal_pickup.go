@@ -297,10 +297,29 @@ func (i CrystalInventory) Attributes() map[int]float32 {
 			continue
 		}
 		amount := float32(max(slot.CrystalLevel, int32(1)))
-		if isPercentage {
+		if slot.CrystalType == 25 {
+			// MoveSpeedCrystal modifiers use a fixed percentage regardless of rank.
+			// The ordinary epic noun is authored with AttackSpeedCrystalEpic.
+			switch strings.ToLower(slot.NounName) {
+			case "crystal_movespeed_epic.noun":
+				attributeIndex = 23
+				amount = 0.10
+			default:
+				switch slot.Rarity {
+				case 1:
+					amount = 0.06
+				case 2:
+					amount = 0.08
+				default:
+					amount = 0.04
+				}
+			}
+		} else if isPercentage {
 			amount *= 0.01
 		}
-		amount *= 1 + 0.5*float32(max(slot.Rarity, int32(0)))
+		if slot.CrystalType != 25 {
+			amount *= 1 + 0.5*float32(max(slot.Rarity, int32(0)))
+		}
 		amount *= 1 + crystalLinkBonus*float32(links.LinkCounts[index])
 		attributes[attributeIndex] += amount
 	}

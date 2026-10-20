@@ -1,5 +1,11 @@
 # Changelog
 
+### 2026-10-20
+
+- [#92](https://github.com/darkspinnet/darkspin/issues/92) Accept straight NPC movement through intermediate navigation portals instead of treating every portal crossing as a blocked route, while retaining checks against bends and off-route projections.
+- [#92](https://github.com/darkspinnet/darkspin/issues/92) Restore Vampiric Leapers' client-authored jump packets, approach and retreat animations, airborne hitbox movement, and landing-only attack damage across all ranks.
+- [#92](https://github.com/darkspinnet/darkspin/issues/92) Replace rank-scaled movement catalyst bonuses with client-authored fixed percentages and preserve the ordinary epic catalyst's authored attack-speed effect.
+
 ### 2026-10-19
 
 - [#91](https://github.com/darkspinnet/darkspin/issues/91) Send an authoritative pose and stop when enemies return home instead of only a movement goal, preventing unattackable enemies from remaining at their old client positions.

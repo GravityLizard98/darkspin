@@ -70,14 +70,39 @@ func NPCDirectMovementDestination(
 			MaxVisitedPolygon: maximumVisitedPolygon,
 		},
 	)
-	if err != nil || len(path.Points) != 2 {
+	if err != nil || len(path.Points) < 2 {
 		return source, false, nil
 	}
-	return game.Vec3{
-		X: path.Goal.Position.X,
-		Y: path.Goal.Position.Y,
-		Z: path.Goal.Position.Z,
-	}, true, nil
+	if len(path.Points) == 2 {
+		return game.Vec3{
+			X: path.Goal.Position.X,
+			Y: path.Goal.Position.Y,
+			Z: path.Goal.Position.Z,
+		}, true, nil
+	}
+	// The navigation funnel retains portal crossings along a straight route.
+	// Accept those points while rejecting bends and off-ray projections.
+	deltaX, deltaY := desired.X-source.X, desired.Y-source.Y
+	lengthSquared := deltaX*deltaX + deltaY*deltaY
+	if lengthSquared <= 0.000000000001 {
+		return source, false, nil
+	}
+	const planarEpsilon = 0.001
+	tolerance := float64(planarEpsilon) * math.Sqrt(float64(lengthSquared))
+	previousAlong := float32(0)
+	for _, point := range path.Points {
+		pointX, pointY := point.X-source.X, point.Y-source.Y
+		along := pointX*deltaX + pointY*deltaY
+		cross := pointX*deltaY - pointY*deltaX
+		if float64(along-previousAlong) < -tolerance ||
+			float64(along-lengthSquared) > tolerance ||
+			math.Abs(float64(cross)) > tolerance {
+			return source, false, nil
+		}
+		previousAlong = along
+	}
+	goal := path.Goal.Position
+	return game.Vec3{X: goal.X, Y: goal.Y, Z: goal.Z}, true, nil
 }
 
 func NPCPathClear(

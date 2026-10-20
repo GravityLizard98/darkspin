@@ -499,7 +499,7 @@ func noctHopperJumpProfile(
 		HitDelay:               533333 * time.Microsecond,
 		ReleaseDelay:           1900 * time.Millisecond,
 		Cooldown:               1125 * time.Millisecond,
-		Range:                  15,
+		Range:                  50,
 		MinimumRange:           6,
 		Radius:                 4,
 		MovementSpeed:          movementSpeed,
