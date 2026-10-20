@@ -26,6 +26,8 @@ var (
 	ErrUpgradeInvalid = errors.New("upgrade invalid")
 	// ErrUpgradeFunds indicates that the account cannot afford an upgrade.
 	ErrUpgradeFunds = errors.New("upgrade funds")
+	// ErrEditorFunds protects a creature edit that exceeds the account's DNA.
+	ErrEditorFunds = errors.New("editor funds")
 	// ErrPartExists indicates a duplicate stable inventory item identity.
 	ErrPartExists = errors.New("part already exists")
 	// ErrPartEquipped protects an item still owned by a creature loadout.
@@ -192,6 +194,7 @@ type DeckUpdate struct {
 // CreatureUpdate is the application command decoded from api.creature.updateCreature.
 type CreatureUpdate struct {
 	CreatureID      uint32
+	Cost            uint32
 	PreviousVersion uint32
 	SavedVersion    uint32
 	GearScore       float32
@@ -214,6 +217,7 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 	partScorer := m.partScorer
 	m.mu.RUnlock()
 	user.mu.Lock()
+	previousAccount := user.Account
 	previousCreature := cloneCreatures(user.Creatures)
 	previousPart := append([]Part(nil), user.Parts...)
 	var creature *Creature
@@ -231,6 +235,10 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 		command.SavedVersion <= creature.Version || command.SavedVersion > 0x7fffffff) {
 		user.mu.Unlock()
 		return nil, errors.New("creature revision changed or invalid")
+	}
+	if user.Account.DNA < command.Cost {
+		user.mu.Unlock()
+		return nil, ErrEditorFunds
 	}
 	partsByID := make(map[uint64]Part, len(user.Parts))
 	for index := range user.Parts {
@@ -304,6 +312,7 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 		gearScore, itemPoints = partScorer.EquipmentScore(equippedParts)
 	}
 	creature.Update(gearScore, itemPoints, command.Stats, command.AbilityStats)
+	user.Account.DNA -= command.Cost
 	creature.Version++
 	if command.SavedVersion != 0 {
 		creature.Version = command.SavedVersion
@@ -319,6 +328,7 @@ func (m *UserManager) UpdateCreature(ctx context.Context, user *User, command Cr
 	err := m.repository.Save(ctx, user.Record())
 	if err != nil {
 		user.mu.Lock()
+		user.Account = previousAccount
 		user.Creatures = previousCreature
 		user.Parts = previousPart
 		user.mu.Unlock()

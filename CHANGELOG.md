@@ -2,6 +2,12 @@
 
 ### 2026-10-20
 
+- #93 Use the client clock for Tork's lobbed basic-attack projectiles so their flight starts at the correct client time.
+- #93 Restore Vex's client-authored basic-attack hit effect when imported Lua omits its preloaded asset reference.
+- #93 Allow Seraph-XS's Trapper Grenade to use a supplied ground target instead of requiring or automatically selecting an enemy.
+- #93 Restore Auto Turret's client-authored placement pursuit, casting animation and muzzle effect.
+- #93 Restore Attractor Bomb's sustained taunt effect and remove it when the bomb detonates or is destroyed.
+- #93 Persist the native editor save's quoted DNA cost with the creature update, rejecting insufficient funds and rolling back the charge if saving fails.
 - #92 Accept straight NPC movement through intermediate navigation portals instead of treating every portal crossing as a blocked route, while retaining checks against bends and off-route projections.
 - #92 Restore Vampiric Leapers' client-authored jump packets, approach and retreat animations, airborne hitbox movement, and landing-only attack damage across all ranks.
 - #92 Replace rank-scaled movement catalyst bonuses with client-authored fixed percentages and preserve the ordinary epic catalyst's authored attack-speed effect.

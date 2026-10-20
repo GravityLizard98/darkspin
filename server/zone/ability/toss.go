@@ -26,15 +26,17 @@ type TossPlan struct {
 }
 
 type TossRequest struct {
-	SourceObjectID     uint32
-	TargetObjectID     uint32
-	SourcePosition     game.Vec3
-	SourceCenter       game.Vec3
-	Creature           game.GameplayCreature
-	Definition         sim.AbilityDefinition
-	SimulationTime     time.Duration
-	SourceFootprint    float32
-	AdmissionAllowance float32
+	SourceObjectID        uint32
+	TargetObjectID        uint32
+	TargetPosition        game.Vec3
+	IsTargetPositionFound bool
+	SourcePosition        game.Vec3
+	SourceCenter          game.Vec3
+	Creature              game.GameplayCreature
+	Definition            sim.AbilityDefinition
+	SimulationTime        time.Duration
+	SourceFootprint       float32
+	AdmissionAllowance    float32
 }
 
 func PlanToss(
@@ -90,23 +92,32 @@ func PlanTossWithAdmission(
 		definition.Range, creature.RangeIncrease, definition.DescriptorMask,
 		definition.IsDescriptorFound,
 	)
-	if targetObjectID == 0 {
+	if targetObjectID == 0 && definition.Toss.Behavior != sim.TossAbilityBehaviorTrapper {
 		targetObjectID = NearestTarget(
 			enemies, sourceObjectID, req.SourcePosition, admissionRange,
 		)
 	}
-	target, isFound := enemies.NPC(targetObjectID)
-	if !isFound || target.IsDefeated || target.HitPoint <= 0 ||
-		target.Faction != zonenpc.FactionNonPlayerAligned {
-		return TossPlan{}, fmt.Errorf("targetUnavailable: %d", targetObjectID)
+	targetPosition := req.TargetPosition
+	targetFootprint := float32(0)
+	if targetObjectID == 0 {
+		if !req.IsTargetPositionFound || !isFinitePosition(targetPosition) {
+			return TossPlan{}, errors.New("target position unavailable")
+		}
+	} else {
+		target, isFound := enemies.NPC(targetObjectID)
+		if !isFound || target.IsDefeated || target.HitPoint <= 0 ||
+			target.Faction != zonenpc.FactionNonPlayerAligned {
+			return TossPlan{}, fmt.Errorf("targetUnavailable: %d", targetObjectID)
+		}
+		targetPosition = target.Plan.Position
+		targetFootprint = target.Plan.ActorFootprintRadius()
 	}
-	admissionDistance := Distance(req.SourcePosition, target.Plan.Position)
-	admissionRange += req.SourceFootprint + target.Plan.ActorFootprintRadius() +
-		req.AdmissionAllowance
+	admissionDistance := Distance(req.SourcePosition, targetPosition)
+	admissionRange += req.SourceFootprint + targetFootprint + req.AdmissionAllowance
 	if admissionDistance > admissionRange {
 		return TossPlan{}, TargetRangeError{Distance: admissionDistance, Maximum: admissionRange}
 	}
-	distance := Distance(sourceCenter, target.Plan.Position)
+	distance := Distance(sourceCenter, targetPosition)
 	projected, err := ProjectTiming(creature, definition)
 	if err != nil {
 		return TossPlan{}, fmt.Errorf("tossTiming: %w", err)
@@ -120,14 +131,14 @@ func PlanTossWithAdmission(
 		return TossPlan{}, fmt.Errorf("tossDamage: %w", err)
 	}
 	launchPosition, err := TossLaunchPosition(
-		sourceCenter, target.Plan.Position, cast.Offset,
+		sourceCenter, targetPosition, cast.Offset,
 	)
 	if err != nil {
 		return TossPlan{}, fmt.Errorf("tossLaunch: %w", err)
 	}
-	// Template 630 reads GetPosition on the target after the windup; the lob
-	// receives a fixed ground-origin destination, not a homing center point.
-	destination := sim.Position(target.Plan.Position)
+	// Template 630 refreshes from GetPosition when the target object is valid.
+	// Ground casts retain GetTargetPosition through the windup.
+	destination := sim.Position(targetPosition)
 	// The projectile thread selects its flight shape from the muzzle-to-goal
 	// distance independently of the casting animation's actor-to-target range.
 	flightCast, err := sim.ResolveTossCast(projected, Distance(

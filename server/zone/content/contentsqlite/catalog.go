@@ -398,7 +398,7 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 		"TurretTrap": {
 			Name: "TurretTrap", Kind: sim.AbilityKindTrap,
 			Cooldown: 12 * time.Second, Range: 4,
-			AnimationName: "cyber_trapper_autoturret",
+			AnimationName: "trapper_active_support",
 			HitDelay:      300 * time.Millisecond,
 			ReleaseDelay:  700 * time.Millisecond,
 			Duration:      10 * time.Second,
@@ -406,10 +406,11 @@ func recoveredHeroAbilityDefinitions() map[string]sim.AbilityDefinition {
 			ManaCost: 18, ManaCoefficient: 0.09,
 			DescriptorMask: 136, DamageType: 0, DamageSource: 1,
 			IsDescriptorFound: true, IsDamageTypeFound: true,
-			IsDamageSourceFound: true,
-			SpawnNoun:           "TurretTrap.Noun",
-			HitEffectName:       "cyber_trapper_trapBroken.ServerEventDef",
-			ImpactEffectName:    "cyber_trapper_autoturret_repack.ServerEventDef",
+			IsDamageSourceFound: true, IsShouldPursue: true,
+			SpawnNoun:        "TurretTrap.Noun",
+			MuzzleEffectName: "Turret_Trap_muzzle.ServerEventDef",
+			HitEffectName:    "cyber_trapper_trapBroken.ServerEventDef",
+			ImpactEffectName: "cyber_trapper_autoturret_repack.ServerEventDef",
 		},
 		"PipeBomb": {
 			Name: "PipeBomb", Kind: sim.AbilityKindTrap,
@@ -1920,6 +1921,11 @@ func loadPlayerBasicAbilities(
 		// basic classified as an unsupported runtime shape.
 		if definition.Name == "TimeRavagerBasic" {
 			definition.Kind = sim.AbilityKindMelee
+			// The authored hitEffect is a PreloadAsset result, which the
+			// materialized Lua table does not retain as a string.
+			if definition.HitEffectName == "" {
+				definition.HitEffectName = "spacetime_slowing_hit_effect.ServerEventDef"
+			}
 		}
 		if definition.Name == lightspeedBasicName {
 			definition.AnimationProjectileOffsets = [][]sim.Position{

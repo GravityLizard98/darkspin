@@ -2699,8 +2699,9 @@ func (e campaignCloudLobSchedule) produceLaunch() ([][]byte, error) {
 	if !isCurrent {
 		return nil, nil
 	}
+	// The client evaluates lob start times against its own frame clock.
 	packets, err := abilityraknet.CloudLobLaunch(
-		e.plan, e.projectileObjectID, e.projectileIndex, e.packet.SourceTime,
+		e.plan, e.projectileObjectID, e.projectileIndex, e.packet.ClientTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("campaignCloudLobLaunch: %w", err)
@@ -3637,12 +3638,20 @@ func (r campaignAbilityCommandRuntime) handleTossBasic(
 		// Match basic admission when a target moves during the arrival retry.
 		admissionAllowance = campaignPlayerPursuitRedirectDistance
 	}
+	requestedPosition := command.Ability.TargetPosition
+	if !isReportedZonePosition(requestedPosition) {
+		requestedPosition = command.Ability.CursorPosition
+	}
+	isTargetPositionFound := isReportedZonePosition(requestedPosition) &&
+		isFiniteZonePosition(requestedPosition)
 	tossPlan, planErr := zoneability.PlanTossWithAdmission(
 		peerSession.zone.NPCs(), zoneability.TossRequest{
 			SourceObjectID: command.Common.ObjectID, TargetObjectID: targetObjectID,
-			SourcePosition: game.Vec3(peerSession.playerPosition),
-			SourceCenter:   game.Vec3(sourceCenter),
-			Creature:       creature, Definition: definition,
+			TargetPosition:        game.Vec3(requestedPosition),
+			IsTargetPositionFound: isTargetPositionFound,
+			SourcePosition:        game.Vec3(peerSession.playerPosition),
+			SourceCenter:          game.Vec3(sourceCenter),
+			Creature:              creature, Definition: definition,
 			SourceFootprint:    peerSession.deployedCampaignActorFootprintRadius(),
 			AdmissionAllowance: admissionAllowance,
 		},
@@ -3998,6 +4007,7 @@ func (r campaignAbilityCommandRuntime) handleCloudLobBasic(
 	repeatPacket := packet
 	repeatPacket.Payload = append([]byte(nil), packet.Payload...)
 	repeatPacket.SourceTime += uint64(repeatDelay / time.Millisecond)
+	repeatPacket.ClientTime += uint64(repeatDelay / time.Millisecond)
 	if isBasicHeldInput {
 		repeatStep := campaignHeldRepeatStep{
 			runtime: r, sessionKey: sessionKey, generation: generation,

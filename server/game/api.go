@@ -691,8 +691,21 @@ func (a *API) updateCreature(writer http.ResponseWriter, request *http.Request, 
 		writeXML(writer, http.StatusOK, xmlResponse(false))
 		return
 	}
+	if !values.Has("cost") {
+		writeXML(writer, http.StatusOK, xmlResponse(false))
+		return
+	}
+	editCost, err := strconv.ParseUint(values.Get("cost"), 10, 32)
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Printf("creature_update invalid cost account=%q cost=%q error=%q", userLoginName(user), values.Get("cost"), err)
+		}
+		writeXML(writer, http.StatusOK, xmlResponse(false))
+		return
+	}
 	creature, err := a.userManager.UpdateCreature(request.Context(), user, sporenet.CreatureUpdate{
 		CreatureID: creatureID, GearScore: float32(gearScore), ItemPoints: float32(itemPoints),
+		Cost:            uint32(editCost),
 		PreviousVersion: savedCreature.Version, SavedVersion: version,
 		Stats: values.Get("stats"), AbilityStats: values.Get("stats_ability_keyvalues"), EquippedPartID: partIDs,
 		LargeImageURL: largeURL, ThumbImageURL: thumbURL,
