@@ -8131,6 +8131,21 @@ func (r campaignNPCActionRuntime) applyEnemyProjectileTeleport(
 		}
 		return nil, fmt.Errorf("targetSync: %w", err)
 	}
+	// RandomTeleport's authored Tick resets react_teleported after 200ms.
+	// Own that continuation independently of the projectile and its shooter.
+	now := r.now()
+	targetSession.campaignPlayerPursuitSession().Cancel()
+	targetSession.resetAbilityRelease()
+	reservation, isReserved := targetSession.abilityReleaseSession().Reserve(
+		now, profile.ModifierDuration,
+	)
+	if !isReserved {
+		return nil, fmt.Errorf("teleportReserve: release unavailable")
+	}
+	targetSession.randomTeleport = randomTeleport{
+		objectID: target.ObjectID, destination: destination, isMoved: true,
+		resetAt: now.Add(profile.ModifierDuration), reservation: reservation,
+	}
 	if targetSession != peerSession {
 		r.registry.sessions[targetSessionKey] = *targetSession
 	}

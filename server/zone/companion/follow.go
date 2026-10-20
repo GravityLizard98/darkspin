@@ -1,11 +1,33 @@
 package companion
 
 import (
+	"errors"
 	"sort"
 	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
 )
+
+// HoldFollow stops the current owner-follow reservation at its sampled pose.
+// The revision also invalidates the old arrival job while an ability owns
+// locomotion, so owner movement cannot overwrite the ability's stationary pose.
+func (e *Session) HoldFollow(objectID uint32, at time.Time, until time.Time) (Actor, error) {
+	if e == nil || objectID == 0 || at.IsZero() || !until.After(at) {
+		return Actor{}, errors.New("companion follow hold invalid")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	actor, isFound := e.actors[objectID]
+	if !isFound || actor.HitPoint <= 0 {
+		return Actor{}, errors.New("companion follow hold unavailable")
+	}
+	actor.Position = actor.followPosition(at)
+	actor.clearFollow()
+	actor.FollowRevision = e.nextFollowRevision()
+	actor.followHoldUntil = until
+	e.actors[objectID] = actor
+	return actor, nil
+}
 
 // MotionSnapshot samples an existing owner-follow reservation without changing
 // its revision, destination or original arrival deadline.

@@ -239,7 +239,7 @@ type zonePresentationRuntime struct {
 	warpTotems             map[uint32]*warpTotemCycle
 	warpTotemWarnings      map[uint32]uint64
 	warpTotemDischarges    map[uint32]uint64
-	warpTotemTeleport      warpTotemTeleport
+	randomTeleport         randomTeleport
 	cryosPoisonReadyAt     time.Time
 	cryosPoisonExpiresAt   time.Time
 	cryosPoisonSourceID    uint32
@@ -1171,7 +1171,7 @@ func (s *gameplayPeerSession) stopCampaignNPCProjectiles() {
 	clear(s.warpTotems)
 	clear(s.warpTotemWarnings)
 	clear(s.warpTotemDischarges)
-	s.warpTotemTeleport = warpTotemTeleport{}
+	s.randomTeleport = randomTeleport{}
 	clear(s.campaignTwinLaserEndpointIDs)
 	clear(s.campaignArcturusStates)
 	s.pickupPursuit = nil
@@ -1904,6 +1904,12 @@ func (e *gameplayPeerSession) resetFailedActionAdmission(
 			}
 		}
 		e.heroModifierRun.Remove(e)
+		// Recovery retires the expiry callback, so publish its client cleanup now.
+		modifierPackets, modifierErr := e.heroModifierRun.stopPresentation(effectPool)
+		if modifierErr != nil {
+			log.Printf("RakNet hero modifier action reset cleanup failed user=%d: %v", e.binding.UserID, modifierErr)
+		}
+		e.queueCampaignPackets(modifierPackets)
 		if modifierInstancePool != nil {
 			_ = modifierInstancePool.Release(e.heroModifierRun.instanceID)
 		}

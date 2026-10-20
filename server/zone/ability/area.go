@@ -256,6 +256,25 @@ func PlanCursorArea(
 	sourcePosition game.Vec3, center game.Vec3, creature game.GameplayCreature,
 	definition sim.AbilityDefinition,
 ) (AreaPlan, error) {
+	admissionRange := game.AbilityAdmissionRange(
+		definition.Range, creature.RangeIncrease, definition.DescriptorMask,
+		definition.IsDescriptorFound,
+	)
+	plan, err := PlanCursorAreaWithAdmission(
+		enemies, sourceObjectID, targetObjectID, sourcePosition, center,
+		creature, definition, admissionRange,
+	)
+	if err != nil {
+		return AreaPlan{}, fmt.Errorf("cursorAdmission: %w", err)
+	}
+	return plan, nil
+}
+
+func PlanCursorAreaWithAdmission(
+	enemies *zonenpc.Session, sourceObjectID uint32, targetObjectID uint32,
+	sourcePosition game.Vec3, center game.Vec3, creature game.GameplayCreature,
+	definition sim.AbilityDefinition, admissionRange float32,
+) (AreaPlan, error) {
 	if enemies == nil || sourceObjectID == 0 || creature.Noun == 0 {
 		return AreaPlan{}, errors.New("invalid cursor area identity")
 	}
@@ -270,12 +289,12 @@ func PlanCursorArea(
 	if !isFinitePosition(sourcePosition) || !isFinitePosition(center) {
 		return AreaPlan{}, errors.New("invalid cursor area position")
 	}
-	admissionRange := game.AbilityAdmissionRange(
-		definition.Range, creature.RangeIncrease, definition.DescriptorMask,
-		definition.IsDescriptorFound,
-	)
-	if positionDistance(sourcePosition, center) > admissionRange {
-		return AreaPlan{}, errors.New("cursor area center out of range")
+	if invalidNumber(admissionRange) || admissionRange <= 0 {
+		return AreaPlan{}, errors.New("invalid cursor area admission range")
+	}
+	admissionDistance := positionDistance(sourcePosition, center)
+	if admissionDistance > admissionRange {
+		return AreaPlan{}, TargetRangeError{Distance: admissionDistance, Maximum: admissionRange}
 	}
 	projected, err := ProjectTiming(creature, definition)
 	if err != nil {

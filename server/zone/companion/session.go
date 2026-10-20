@@ -49,6 +49,7 @@ type Actor struct {
 	followPlan        Follow
 	followStartedAt   time.Time
 	followDeadline    time.Time
+	followHoldUntil   time.Time
 }
 
 type Buff struct {
@@ -363,6 +364,9 @@ func (e *Session) followActors(
 			actor.PeerGeneration != peerGeneration ||
 			actor.OwnerObjectID != ownerObjectID ||
 			actor.HitPoint <= 0 {
+			continue
+		}
+		if at.Before(actor.followHoldUntil) {
 			continue
 		}
 		actor.Position = actor.followPosition(at)

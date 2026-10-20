@@ -2,6 +2,11 @@
 
 ### 2026-10-20
 
+- [#94](https://github.com/darkspinnet/darkspin/issues/94) Clear Arboreal Might's attached effect, modifier and body scale when action recovery cancels its expiry.
+- [#94](https://github.com/darkspinnet/darkspin/issues/94) Restore the client-authored reaction reset after enemy teleport hits so heroes do not remain stuck in the teleported animation.
+- [#94](https://github.com/darkspinnet/darkspin/issues/94) Restore Char's client-authored pursuit for out-of-range basic attacks and include actor footprints in targeted range admission.
+- [#94](https://github.com/darkspinnet/darkspin/issues/94) Allow Jinx's client-authored ground-targeted basic attacks without automatically selecting a nearby enemy.
+- [#94](https://github.com/darkspinnet/darkspin/issues/94) Keep Healing Sprite stationary through its authored sting, release the animation after one second and resume following its owner.
 - [#93](https://github.com/darkspinnet/darkspin/issues/93) Use the client clock for Tork's lobbed basic-attack projectiles so their flight starts at the correct client time.
 - [#93](https://github.com/darkspinnet/darkspin/issues/93) Restore Vex's client-authored basic-attack hit effect when imported Lua omits its preloaded asset reference.
 - [#93](https://github.com/darkspinnet/darkspin/issues/93) Allow Seraph-XS's Trapper Grenade to use a supplied ground target instead of requiring or automatically selecting an enemy.

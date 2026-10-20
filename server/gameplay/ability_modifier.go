@@ -233,6 +233,44 @@ func (e *heroModifierRun) Remove(peerSession *gameplayPeerSession) {
 	e.autoCrit = 0
 }
 
+// stopPresentation mirrors expiry when action recovery cancels the expiry timer.
+func (e *heroModifierRun) stopPresentation(
+	effectPool *attachedEffectPool,
+) ([][]byte, error) {
+	if e == nil {
+		return nil, nil
+	}
+	packets := make([][]byte, 0, 3)
+	cleanupErrs := make([]error, 0)
+	modifierPacket, err := effectraknet.ModifierDelete(e.objectID, e.instanceID)
+	if err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("modifierDelete: %w", err))
+	} else {
+		packets = append(packets, modifierPacket)
+	}
+	effectPacket, err := e.stopEffect(effectPool)
+	if err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("modifierEffect: %w", err))
+	}
+	if effectPacket != nil {
+		packets = append(packets, effectPacket)
+	}
+	if e.isArborealMight {
+		scalePacket, err := raknet.MarshalApplication(raknet.AttributeDataUpdateMessage{
+			ObjectID: e.objectID, Value: map[uint8]float32{113: 0},
+		})
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("modifierScale: %w", err))
+		} else {
+			packets = append(packets, scalePacket)
+		}
+	}
+	if len(cleanupErrs) > 0 {
+		return packets, fmt.Errorf("modifierStop: %w", errors.Join(cleanupErrs...))
+	}
+	return packets, nil
+}
+
 type heroModifierReleaseStep struct {
 	runtime    campaignAbilityCommandRuntime
 	sessionKey string

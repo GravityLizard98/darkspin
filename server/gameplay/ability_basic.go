@@ -1231,6 +1231,7 @@ type campaignAreaHitStep struct {
 	cooldownReservation zoneability.CooldownReservation
 	isRetained          bool
 	isEffectPresented   bool
+	admissionRange      float32
 }
 
 func (e campaignAreaHitStep) produce() ([][]byte, error) {
@@ -1259,9 +1260,9 @@ func (e campaignAreaHitStep) produce() ([][]byte, error) {
 		)
 	} else if e.definition.Kind == sim.AbilityKindCursorArea ||
 		e.definition.Kind == sim.AbilityKindTeleportArea {
-		plan, err = zoneability.PlanCursorArea(
+		plan, err = zoneability.PlanCursorAreaWithAdmission(
 			current.zone.NPCs(), e.command.Common.ObjectID, e.targetObjectID,
-			e.sourcePosition, e.center, e.creature, e.definition,
+			e.sourcePosition, e.center, e.creature, e.definition, e.admissionRange,
 		)
 	} else if e.definition.Kind == sim.AbilityKindPointBlank {
 		if e.definition.BonusDamageMultiplier > 0 {
@@ -1597,6 +1598,11 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 	}
 	isActiveRequest := activeAbilityID != 0
 	center := command.Ability.CursorPosition
+	admissionRange := heroAbilityAdmissionRange(creature, definition)
+	isPursuitRetry := peerSession.campaignPlayerPursuitSession().IsRetry(
+		command.Common.ObjectID, targetObjectID, command.Ability.Index,
+		command.Common.Unknown[0],
+	)
 	sourcePosition := game.Vec3{
 		X: peerSession.playerPosition.X, Y: peerSession.playerPosition.Y,
 		Z: peerSession.playerPosition.Z,
@@ -1621,6 +1627,13 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 			target, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
 			if isTargetFound && !target.IsDefeated && target.HitPoint > 0 {
 				center = raknet.Vector3(target.Plan.Position)
+				// Native 103 sub_9DE710 admits object targets using both
+				// actor footprints, including cursor-area basic attacks.
+				admissionRange += peerSession.deployedCampaignActorFootprintRadius() +
+					target.Plan.ActorFootprintRadius()
+				if isPursuitRetry {
+					admissionRange += campaignPlayerPursuitRedirectDistance
+				}
 			}
 		}
 		if !isReportedZonePosition(center) {
@@ -1648,10 +1661,10 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 			}
 			center = raknet.Vector3{X: projected.X, Y: projected.Y, Z: projected.Z}
 		}
-		areaPlan, planErr = zoneability.PlanCursorArea(
+		areaPlan, planErr = zoneability.PlanCursorAreaWithAdmission(
 			peerSession.zone.NPCs(), command.Common.ObjectID, targetObjectID,
 			sourcePosition, game.Vec3{X: center.X, Y: center.Y, Z: center.Z},
-			creature, definition,
+			creature, definition, admissionRange,
 		)
 	} else {
 		center = raknet.Vector3{X: sourcePosition.X, Y: sourcePosition.Y, Z: sourcePosition.Z}
@@ -1668,8 +1681,30 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 		}
 	}
 	if planErr != nil {
+		var rangeErr zoneability.TargetRangeError
+		if definition.Name == "FireTempestBasic" && definition.IsShouldPursue &&
+			targetObjectID != 0 && errors.As(planErr, &rangeErr) {
+			target, isTargetFound := peerSession.zone.NPCs().NPC(targetObjectID)
+			if isTargetFound && !target.IsDefeated && target.HitPoint > 0 {
+				request.startTime = abilityStartTime
+				packets, isPursuitStarted, pursuitErr := r.transferPlayerAbilityPursuit(
+					request, peerSession, target,
+					heroAbilityAdmissionRange(creature, definition), isPursuitRetry,
+				)
+				if pursuitErr != nil {
+					return nil, fmt.Errorf("areaPursuit: %w", pursuitErr)
+				}
+				if isPursuitStarted {
+					r.logger.Printf("RakNet campaign cursor area pursuit started source=%d target=%d ability=%s", command.Common.ObjectID, targetObjectID, definition.Name)
+				}
+				return packets, nil
+			}
+		}
 		r.registry.mutex.Unlock()
 		return request.reject(planErr.Error())
+	}
+	if isPursuitRetry {
+		peerSession.campaignPlayerPursuitSession().Cancel()
 	}
 	previousBasicSequence := peerSession.basicSequenceSession().Snapshot()
 	previousAreaGeneration := peerSession.areaBasicGeneration
@@ -1783,6 +1818,7 @@ func (r campaignAbilityCommandRuntime) handleAreaBasic(
 		generation: generation, areaGeneration: areaGeneration,
 		targetObjectID: targetObjectID,
 		hitTimestamp:   packet.SourceTime + uint64(selection.HitDelay/time.Millisecond),
+		admissionRange: admissionRange,
 		sourcePosition: sourcePosition, center: livePlanCenter,
 		creature: creature, definition: definition, binding: binding,
 		activeAbilityID: activeAbilityID, abilityRank: abilityRank,

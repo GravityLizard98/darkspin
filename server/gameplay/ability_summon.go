@@ -391,6 +391,11 @@ func (r campaignAbilityCommandRuntime) handleHeroSummon(
 				Delay: delay + spriteHealingHitDelay, Produce: run.tick,
 			})
 		}
+		if delay+time.Second < definition.Duration {
+			producers = append(producers, raknet.ScheduledPacketProducer{
+				Delay: delay + time.Second, Produce: run.resumeFollow,
+			})
+		}
 	}
 	producers = append(producers, raknet.ScheduledPacketProducer{
 		Delay: definition.Duration, Produce: run.expire,

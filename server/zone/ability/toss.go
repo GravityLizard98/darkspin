@@ -92,11 +92,8 @@ func PlanTossWithAdmission(
 		definition.Range, creature.RangeIncrease, definition.DescriptorMask,
 		definition.IsDescriptorFound,
 	)
-	if targetObjectID == 0 && definition.Toss.Behavior != sim.TossAbilityBehaviorTrapper {
-		targetObjectID = NearestTarget(
-			enemies, sourceObjectID, req.SourcePosition, admissionRange,
-		)
-	}
+	// Template 630 keeps GetTargetPosition when no valid target object exists.
+	// A ground toss must not acquire an unrelated nearby enemy.
 	targetPosition := req.TargetPosition
 	targetFootprint := float32(0)
 	if targetObjectID == 0 {
