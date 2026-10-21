@@ -2614,7 +2614,7 @@ func (s *gameplayPeerSession) applyCampaignDamageTransitionWithKill(
 		scalePacket, marshalErr := raknet.MarshalApplication(
 			raknet.AttributeDataUpdateMessage{
 				ObjectID: enrage.Target.Plan.ObjectID,
-				Value:    map[uint8]float32{113: enrage.Target.Plan.PreviewBodyScale(enrage.BodyScale)},
+				Value:    map[uint8]float32{113: enrage.BodyScale},
 			},
 		)
 		if marshalErr != nil {

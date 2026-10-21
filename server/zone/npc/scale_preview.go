@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 	"strings"
-	"time"
 
 	"github.com/darkspinnet/darkspin/server/game"
 	zonegeometry "github.com/darkspinnet/darkspin/server/zone/geometry"
@@ -19,27 +18,21 @@ type ScalePreviewRequest struct {
 }
 
 type ScalePreview struct {
-	Plan      SpawnPlan
-	BodyScale float32
+	Plan        SpawnPlan
+	ObjectScale float32
 }
 
-// PreviewBodyScale keeps the chosen visual size fixed while previewing.
-// It does not change placement scale, navigation, damage or actor footprints.
-func (e SpawnPlan) PreviewBodyScale(bodyScale float32) float32 {
+// PreviewObjectScale multiplies the original placement scale, not the previous
+// preview. The noun's graphics scale remains client-owned.
+func (e SpawnPlan) PreviewObjectScale() float32 {
+	objectScale := e.PlacementScale
+	if objectScale == 0 {
+		objectScale = 1
+	}
 	if e.ScalePreviewMultiplier > 0 {
-		return e.ScalePreviewBodyScale
+		objectScale *= e.ScalePreviewMultiplier
 	}
-	return bodyScale
-}
-
-func (e *Session) PreviewBodyScale(objectID uint32, bodyScale float32) float32 {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	npc, isFound := e.npcs[objectID]
-	if !isFound {
-		return bodyScale
-	}
-	return npc.Plan.PreviewBodyScale(bodyScale)
+	return objectScale
 }
 
 func (e *Session) PreviewScales(req ScalePreviewRequest) ([]ScalePreview, error) {
@@ -52,7 +45,6 @@ func (e *Session) PreviewScales(req ScalePreviewRequest) ([]ScalePreview, error)
 	defer e.mu.Unlock()
 	previews := make([]ScalePreview, 0)
 	nounFilter := strings.ToLower(req.NounFilter)
-	now := time.Now()
 	for _, objectID := range e.objectIDs {
 		npc := e.npcs[objectID]
 		if !npc.IsPublished || npc.IsDefeated || npc.HitPoint <= 0 || npc.Plan.IsFixture ||
@@ -61,22 +53,12 @@ func (e *Session) PreviewScales(req ScalePreviewRequest) ([]ScalePreview, error)
 			npc.Plan.Position.Sub(req.Position).Length() > req.Radius {
 			continue
 		}
-		bodyScale := float32(npc.status.passiveEnrageStack)*0.08 + float32(npc.status.oozeGrowthStack)*0.1
-		if now.Before(npc.status.munchExpiresAt) {
-			bodyScale += float32(npc.status.munchStack) * 0.06
-		}
-		if npc.Plan.IsCaptain || npc.Plan.IsElite || npc.Plan.IsBoss || npc.Plan.BossIdentity.HasModifier(EliteModifierName) {
-			bodyScale += EliteBonusForType(npc.Plan.NPCProfile.NPCType).BodyScale
-		}
 		npc.Plan.ScalePreviewMultiplier = 0
-		npc.Plan.ScalePreviewBodyScale = 0
 		if !req.IsReset {
 			npc.Plan.ScalePreviewMultiplier = req.Multiplier
-			npc.Plan.ScalePreviewBodyScale = (1+bodyScale)*req.Multiplier - 1
-			bodyScale = npc.Plan.ScalePreviewBodyScale
 		}
 		e.npcs[objectID] = npc
-		previews = append(previews, ScalePreview{Plan: npc.Plan, BodyScale: bodyScale})
+		previews = append(previews, ScalePreview{Plan: npc.Plan, ObjectScale: npc.Plan.PreviewObjectScale()})
 	}
 	return previews, nil
 }

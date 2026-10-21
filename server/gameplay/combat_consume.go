@@ -264,8 +264,7 @@ func (e campaignConsumeSchedule) hit() ([][]byte, error) {
 		raknet.AttributeDataUpdateMessage{
 			ObjectID: e.sourceObjectID,
 			Value: map[uint8]float32{
-				campaignMunchBodyScaleAttribute: peerSession.zone.NPCs().PreviewBodyScale(e.sourceObjectID,
-					campaignMunchBodyScalePerStack*float32(result.ModifierStack)),
+				campaignMunchBodyScaleAttribute: campaignMunchBodyScalePerStack * float32(result.ModifierStack),
 			},
 		},
 	)
@@ -363,7 +362,7 @@ func (r campaignNPCActionRuntime) stopCarrionMunch(
 	bodyScalePacket, bodyScaleErr := raknet.MarshalApplication(
 		raknet.AttributeDataUpdateMessage{
 			ObjectID: objectID,
-			Value:    map[uint8]float32{campaignMunchBodyScaleAttribute: peerSession.zone.NPCs().PreviewBodyScale(objectID, 0)},
+			Value:    map[uint8]float32{campaignMunchBodyScaleAttribute: 0},
 		},
 	)
 	if bodyScaleErr != nil {
@@ -433,7 +432,7 @@ func (e campaignMunchExpiryStep) produce() ([][]byte, error) {
 	bodyScalePacket, bodyScaleErr := raknet.MarshalApplication(
 		raknet.AttributeDataUpdateMessage{
 			ObjectID: e.objectID,
-			Value:    map[uint8]float32{campaignMunchBodyScaleAttribute: peerSession.zone.NPCs().PreviewBodyScale(e.objectID, 0)},
+			Value:    map[uint8]float32{campaignMunchBodyScaleAttribute: 0},
 		},
 	)
 	if bodyScaleErr != nil {

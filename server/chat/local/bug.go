@@ -198,7 +198,7 @@ func addBugText(archive *zip.Writer, req chat.BugCommand) error {
 		return fmt.Errorf("spawnContextWrite: %w", err)
 	}
 	for _, preview := range gameplay.NPCScalePreviews {
-		_, err = fmt.Fprintf(w, "NPC scale preview: %s object=%d multiplier=%g body_scale=%g\n", preview.NounName, preview.ObjectID, preview.Multiplier, preview.BodyScale)
+		_, err = fmt.Fprintf(w, "NPC scale preview: %s object=%d multiplier=%g object_scale=%g\n", preview.NounName, preview.ObjectID, preview.Multiplier, preview.ObjectScale)
 		if err != nil {
 			return fmt.Errorf("scaleContextWrite: %w", err)
 		}

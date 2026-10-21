@@ -2,6 +2,7 @@
 
 ### 2026-10-21
 
+- #97 Fix /scale previews from combat-attribute-only updates to native object-scale updates, preserving baseline-based sizing, reset and rejoin behavior without overriding combat growth attributes.
 - Add /god to toggle testing invulnerability across hero switches, including enemy and lava damage, and record its state in bug reports.
 - Apply the client-authored elite HP bonus to /spawn captains, matching normal captain encounters.
 - Add /scale visual previews for nearby enemy NPCs with radius and noun filters, reset support, party-wide presentation and exact preview values in bug reports.

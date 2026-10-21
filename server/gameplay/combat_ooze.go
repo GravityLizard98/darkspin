@@ -104,7 +104,7 @@ func (e campaignNPCOozeGrowthSchedule) hit() ([][]byte, error) {
 		raknet.AttributeDataUpdateMessage{
 			ObjectID: e.targetObjectID,
 			Value: map[uint8]float32{
-				uint8(game.AttributeBodyScale): targetPlan.PreviewBodyScale(bodyScaleBonus),
+				uint8(game.AttributeBodyScale): bodyScaleBonus,
 			},
 		},
 	)

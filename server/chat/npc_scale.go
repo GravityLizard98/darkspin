@@ -18,10 +18,10 @@ type NPCScaleRequest struct {
 }
 
 type NPCScalePreview struct {
-	ObjectID   uint32  `json:"object_id"`
-	NounName   string  `json:"noun_name"`
-	Multiplier float32 `json:"multiplier"`
-	BodyScale  float32 `json:"body_scale"`
+	ObjectID    uint32  `json:"object_id"`
+	NounName    string  `json:"noun_name"`
+	Multiplier  float32 `json:"multiplier"`
+	ObjectScale float32 `json:"object_scale"`
 }
 
 type NPCScalePreviewer interface {

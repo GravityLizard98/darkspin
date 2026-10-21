@@ -43,15 +43,18 @@ func (e *gameplaySessionRegistry) PreviewNPCScale(ctx context.Context, req chat.
 		packets := make([][]byte, 0, len(previews))
 		results := make([]chat.NPCScalePreview, 0, len(previews))
 		for _, preview := range previews {
-			packet, err := raknet.MarshalApplication(raknet.AttributeDataUpdateMessage{
-				ObjectID: preview.Plan.ObjectID, Value: map[uint8]float32{uint8(game.AttributeBodyScale): preview.BodyScale},
+			// cObject field 8 owns the rendered runtime scale (GetScale reads
+			// object+16 in build 103). BodyScale's attribute cache is separate.
+			packet, err := raknet.MarshalApplication(raknet.ObjectUpdateContractMessage{
+				ObjectID: preview.Plan.ObjectID,
+				Object:   raknet.ObjectReflection{Scale: &preview.ObjectScale},
 			})
 			if err != nil {
 				return nil, fmt.Errorf("scaleMarshal: %w", err)
 			}
 			packets = append(packets, packet)
 			results = append(results, chat.NPCScalePreview{ObjectID: preview.Plan.ObjectID,
-				NounName: preview.Plan.NounName, Multiplier: req.Multiplier, BodyScale: preview.BodyScale})
+				NounName: preview.Plan.NounName, Multiplier: preview.Plan.ScalePreviewMultiplier, ObjectScale: preview.ObjectScale})
 		}
 		for key, peer := range e.sessions {
 			if peer.zone == member.zone && peer.stage.IsDungeon() {
