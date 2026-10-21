@@ -29,7 +29,7 @@ var (
 	ErrLevelUnavailable = errors.New("level unavailable")
 	// ErrWarpUnavailable means a one-shot campaign destination cannot be queued.
 	ErrWarpUnavailable = errors.New("warp unavailable")
-	// ErrNPCSpawnUnavailable means an NPC cannot be queued in the active warped zone.
+	// ErrNPCSpawnUnavailable means an NPC cannot be queued in the active mission.
 	ErrNPCSpawnUnavailable = errors.New("npc spawn unavailable")
 	// ErrDNAUnavailable means a DNA grant cannot be applied.
 	ErrDNAUnavailable = errors.New("DNA unavailable")
@@ -354,6 +354,7 @@ type Service struct {
 	leveler                LevelSetter
 	warpRequester          WarpRequester
 	npcSpawner             NPCSpawner
+	npcScalePreviewer      NPCScalePreviewer
 	dnaGranter             DNAGranter
 	bugReporter            BugReporter
 	bugContext             BugContextProvider
@@ -409,7 +410,7 @@ func (s *Service) UseWarpRequester(warpRequester WarpRequester) {
 	s.warpRequester = warpRequester
 }
 
-// UseNPCSpawner installs the gameplay-owned warped-zone NPC adapter.
+// UseNPCSpawner installs the gameplay-owned mission NPC adapter.
 func (s *Service) UseNPCSpawner(npcSpawner NPCSpawner) {
 	s.npcSpawner = npcSpawner
 }

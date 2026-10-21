@@ -911,7 +911,7 @@ func (g *Instance) RequestPlayerEventCommand(id int64, command PlayerEventComman
 	if _, isFound := g.players[id]; !isFound {
 		return false
 	}
-	if isSpawn && !g.Info.IsWarped {
+	if isSpawn && !g.Info.IsWarped && g.Info.Mode != ModeChain && g.Info.Mode != ModeTutorial {
 		return false
 	}
 	if isDropCreate && g.Info.Mode != ModeChain {

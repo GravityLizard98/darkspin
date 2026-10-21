@@ -2,6 +2,9 @@
 
 ### 2026-10-21
 
+- Apply the client-authored elite HP bonus to /spawn captains, matching normal captain encounters.
+- Add /scale visual previews for nearby enemy NPCs with radius and noun filters, reset support, party-wide presentation and exact preview values in bug reports.
+- Allow /spawn in normal campaign and tutorial missions, and flag command-spawned NPCs in bug reports for all party members, including after checkpoint restoration.
 - [#95](https://github.com/darkspinnet/darkspin/issues/95) Recognize recently acquired mission items when dropping them, restoring ground drops instead of only removing their inventory cards.
 - [#95](https://github.com/darkspinnet/darkspin/issues/95) Accept Charging Brute and Grappling Pulsar secondary-attack pursuits so server movement continues alongside client movement.
 - [#95](https://github.com/darkspinnet/darkspin/issues/95) Apply Charging Brute's client-authored charge speed multiplier through both approaches and restore normal speed on completion, cancellation and blockage.

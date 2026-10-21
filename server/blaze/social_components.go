@@ -597,10 +597,16 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 					if spawnErr == nil {
 						responseBody = fmt.Sprintf("Spawn queued: %s", nounName)
 					} else if errors.Is(spawnErr, chat.ErrNPCSpawnUnavailable) {
-						responseBody = "Spawn only works inside a campaign mission entered with /warp"
+						responseBody = "Spawn requires an active campaign or tutorial mission and a supported NPC noun"
 					} else {
 						return nil, fmt.Errorf("commandNPCSpawn: %w", spawnErr)
 					}
+				}
+			}
+			if commandName == "/scale" {
+				responseBody, err = previewNPCScaleCommand(ctx, messenger, user, body)
+				if err != nil {
+					return nil, fmt.Errorf("commandScale: %w", err)
 				}
 			}
 			if commandName == "/drop" {
@@ -1030,7 +1036,7 @@ const victorySyntax = "Syntax: /victory"
 const defeatSyntax = "Syntax: /defeat"
 
 const darkspinChatHelp = "Darkspin: /help | /taunt (availability info) | " + snapshotSyntax + " | /bug <what happened> | /b <what happened> | /ping | /hint | /loc | /stat | /follow [ally name] | /ai | /effect <exact-authored-name> [world] | " +
-	"/summon <rigid> <primary> <secondary> <suffix> | /level <1-100> | /warp [area] | /spawn <noun> | /drop create [weapon|hand|foot|offense|defense|utility] | /dna <amount> | " +
+	"/summon <rigid> <primary> <secondary> <suffix> | /level <1-100> | /warp [area] | /spawn <noun> | /scale <multiplier|reset> [radius] [noun filter] | /drop create [weapon|hand|foot|offense|defense|utility] | /dna <amount> | " +
 	"/damage <amount> | /heal | /power [negative amount] | /mana [negative amount] | /event [1|security-next|2|boss-start|3|boss-complete] | /goto <x> <y> <z> | /kill | /reset | /recap | /victory | /defeat | /exit | " +
 	"Built-in: /tell <player> <message> | /party <message> | /game <message> | /lobby <message> | " +
 	"/invite <player> | /leave | /friend <player> | /unfriend <player> | /block <player> | " +

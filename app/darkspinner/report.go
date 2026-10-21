@@ -167,7 +167,7 @@ func (a *App) createReportArchive(
 
 	archive := zip.NewWriter(w)
 	records := make([]reportFileRecord, 0, 5)
-	err = addReportText(archive, title)
+	err = addReportText(archive, title, manifest.Gameplay)
 	if err != nil {
 		_ = archive.Close()
 		_ = w.Close()
@@ -258,7 +258,7 @@ func (a *App) reportManifest(
 	}
 }
 
-func addReportText(archive *zip.Writer, title string) error {
+func addReportText(archive *zip.Writer, title string, gameplay chat.BugContext) error {
 	w, err := archive.Create("report.txt")
 	if err != nil {
 		return fmt.Errorf("textCreate: %w", err)
@@ -266,6 +266,10 @@ func addReportText(archive *zip.Writer, title string) error {
 	_, err = fmt.Fprintln(w, title)
 	if err != nil {
 		return fmt.Errorf("textWrite: %w", err)
+	}
+	_, err = fmt.Fprintf(w, "Command-spawned NPCs: %t\n", gameplay.IsNPCSpawnCommandUsed)
+	if err != nil {
+		return fmt.Errorf("spawnContextWrite: %w", err)
 	}
 	return nil
 }

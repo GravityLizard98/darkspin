@@ -142,6 +142,8 @@ type Snapshot struct {
 	IsPopulationPrimed   bool
 	IsRestored           bool
 	IsObjectiveComplete  bool
+
+	IsNPCSpawnCommandUsed bool
 }
 
 type HeroDamage struct {
@@ -206,6 +208,8 @@ type Zone struct {
 	isPickupSweepStarted bool
 	isRestored           bool
 	isObjectiveComplete  bool
+
+	isNPCSpawnCommandUsed bool
 }
 
 const npcReturnIdleDelay = 10 * time.Second
@@ -1957,7 +1961,8 @@ func (e *Zone) Snapshot() Snapshot {
 		ChainLevelIndex: e.info.ChainLevelIndex, MemberLimit: e.info.MemberLimit,
 		Members: member, ClearedSpawnGroupIDs: clearedSpawnGroupIDs,
 		IsPopulationPrimed: e.isPopulationPrimed, IsRestored: e.isRestored,
-		IsObjectiveComplete: e.isObjectiveComplete,
+		IsObjectiveComplete:   e.isObjectiveComplete,
+		IsNPCSpawnCommandUsed: e.isNPCSpawnCommandUsed,
 	}
 }
 
@@ -1965,6 +1970,7 @@ func (e *Zone) restoreCheckpoint(snapshot zonecheckpoint.Snapshot) error {
 	if e == nil {
 		return errors.New("nil zone")
 	}
+	e.isNPCSpawnCommandUsed = snapshot.IsNPCSpawnCommandUsed
 	if e.info.MemberLimit != 0 &&
 		len(snapshot.Members) > int(e.info.MemberLimit) {
 		return errors.New("checkpoint member capacity exceeded")
@@ -2337,6 +2343,7 @@ func (e *Zone) SaveCheckpoint(reason zonecheckpoint.Reason) {
 	e.mu.Lock()
 	if e.state == StateActive && e.generation == generation &&
 		e.isCheckpointEncounterSafe() {
+		snapshot.IsNPCSpawnCommandUsed = e.isNPCSpawnCommandUsed
 		recorder.Record(snapshot)
 	}
 	e.mu.Unlock()

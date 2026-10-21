@@ -98,6 +98,8 @@ type Snapshot struct {
 	IsDropRandomSet      bool
 	CapsuleRandom        sim.CapsuleRandomSnapshot
 	IsCapsuleRandomSet   bool
+
+	IsNPCSpawnCommandUsed bool
 }
 
 type Store interface {

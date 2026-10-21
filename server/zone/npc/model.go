@@ -33,21 +33,23 @@ const (
 )
 
 type SpawnPlan struct {
-	ObjectID         uint32
-	OwnerObjectID    uint32
-	NounName         string
-	AuthoredNounName string
-	Position         game.Vec3
-	Rotation         game.Vec3
-	PlacementScale   float32 // Authored marker multiplier; zero means one.
-	Experience       uint32
-	LocusID          uint32
-	Kind             sim.DirectorLocusKind
-	IsCaptain        bool
-	IsElite          bool
-	IsBoss           bool
-	IsArena          bool
-	IsFixture        bool
+	ObjectID               uint32
+	OwnerObjectID          uint32
+	NounName               string
+	AuthoredNounName       string
+	Position               game.Vec3
+	Rotation               game.Vec3
+	PlacementScale         float32 // Authored marker multiplier; zero means one.
+	ScalePreviewMultiplier float32
+	ScalePreviewBodyScale  float32
+	Experience             uint32
+	LocusID                uint32
+	Kind                   sim.DirectorLocusKind
+	IsCaptain              bool
+	IsElite                bool
+	IsBoss                 bool
+	IsArena                bool
+	IsFixture              bool
 	// Current presentation state, retained across rejoin until the entrance reveals it.
 	IsIntroductionHidden   bool
 	IsIntroductionComplete bool
@@ -86,6 +88,8 @@ func (e SpawnPlan) IsEqual(other SpawnPlan) bool {
 		e.Position == other.Position &&
 		e.Rotation == other.Rotation &&
 		e.PlacementScale == other.PlacementScale &&
+		e.ScalePreviewMultiplier == other.ScalePreviewMultiplier &&
+		e.ScalePreviewBodyScale == other.ScalePreviewBodyScale &&
 		e.Experience == other.Experience &&
 		e.LocusID == other.LocusID &&
 		e.Kind == other.Kind &&
@@ -293,6 +297,11 @@ type DeathEvent struct {
 
 func ValidateSpawnPlan(plan SpawnPlan, objectIDLimit uint32) error {
 	profile := plan.NPCProfile
+	if math.IsNaN(float64(plan.ScalePreviewMultiplier)) || math.IsInf(float64(plan.ScalePreviewMultiplier), 0) ||
+		math.IsNaN(float64(plan.ScalePreviewBodyScale)) || math.IsInf(float64(plan.ScalePreviewBodyScale), 0) ||
+		(plan.ScalePreviewMultiplier != 0 && (plan.ScalePreviewMultiplier < 0.25 || plan.ScalePreviewMultiplier > 4)) {
+		return errors.New("invalid scale preview")
+	}
 	if plan.PlacementScale < 0 || math.IsNaN(float64(plan.PlacementScale)) ||
 		math.IsInf(float64(plan.PlacementScale), 0) {
 		return errors.New("invalid placement scale")

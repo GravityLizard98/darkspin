@@ -814,6 +814,7 @@ type gameplayHandlerDependencies struct {
 	registerHint           func(chat.HintProvider)
 	registerLocation       func(chat.LocationProvider)
 	registerResourceStatus func(chat.ResourceStatusProvider)
+	registerNPCScale       func(chat.NPCScalePreviewer)
 	registerSyncSnapshot   func(snapshot.StateProvider)
 	zoneTimer              zone.Timer
 	checkpoint             zonecheckpoint.Repository
@@ -831,6 +832,7 @@ type Lifecycle struct {
 	hintProvider           chat.HintProvider
 	locationProvider       chat.LocationProvider
 	resourceStatusProvider chat.ResourceStatusProvider
+	npcScalePreviewer      chat.NPCScalePreviewer
 	syncSnapshot           snapshot.StateProvider
 }
 
@@ -1185,6 +1187,9 @@ func NewHandler(
 	dependency.registerBugContext = func(registered chat.BugContextProvider) {
 		lifecycle.bugContext = registered
 	}
+	dependency.registerNPCScale = func(registered chat.NPCScalePreviewer) {
+		lifecycle.npcScalePreviewer = registered
+	}
 	dependency.registerHint = func(registered chat.HintProvider) {
 		lifecycle.hintProvider = registered
 	}
@@ -1240,6 +1245,9 @@ func newGameplayHandlerWithDependencies(
 	}
 	if dependency.registerResourceStatus != nil {
 		dependency.registerResourceStatus(sessionRegistry)
+	}
+	if dependency.registerNPCScale != nil {
+		dependency.registerNPCScale(sessionRegistry)
 	}
 	if dependency.registerSyncSnapshot != nil {
 		dependency.registerSyncSnapshot(sessionRegistry)
@@ -3280,7 +3288,7 @@ func (r gameplayPendingRuntime) spawnDeveloperNPC(
 	r.registry.mutex.Lock()
 	currentSession, isFound := r.registry.sessions[sessionKey]
 	isCurrent := isFound && currentSession.generation == queuedSession.generation &&
-		currentSession.binding.IsWarped && currentSession.zone != nil &&
+		currentSession.stage.IsDungeon() && currentSession.zone != nil &&
 		currentSession.zone.NPCs() != nil && currentSession.deployedObjectID != 0 &&
 		!currentSession.isZoneTerminal()
 	if !isCurrent {
@@ -3294,11 +3302,15 @@ func (r gameplayPendingRuntime) spawnDeveloperNPC(
 		return nil, false, fmt.Errorf("npcSpawnProfile: unavailable %q", command.NounName)
 	}
 	profile = zoneboss.NormalizeFinalBossProfile(command.NounName, profile)
+	isCaptain := strings.Contains(strings.ToLower(command.NounName), "_captain")
+	if isCaptain {
+		profile = zonenpc.ApplyEliteProfile(profile)
+	}
 	position := game.Vec3(currentSession.playerPosition)
 	position.X += 5
 	plan := zonenpc.SpawnPlan{
 		NounName: command.NounName, Position: position,
-		IsCaptain:            strings.Contains(strings.ToLower(command.NounName), "_captain"),
+		IsCaptain:            isCaptain,
 		IsArena:              currentSession.binding.Mode == game.ModeArena,
 		IsEncounterAuxiliary: true, IsLootSuppressed: true, IsExperienceSuppressed: true, NPCProfile: profile,
 	}
@@ -3340,6 +3352,7 @@ func (r gameplayPendingRuntime) spawnDeveloperNPC(
 			"npcSpawnPublish: %w", errors.Join(err, rollbackErr),
 		)
 	}
+	currentSession.zone.MarkNPCSpawnCommandUsed()
 	generation := currentSession.generation
 	r.registry.sessions[sessionKey] = currentSession
 	r.registry.mutex.Unlock()

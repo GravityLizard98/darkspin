@@ -42,6 +42,9 @@ type BugContext struct {
 	Hero                BugHero        `json:"active_hero"`
 	Location            BugLocation    `json:"location"`
 	SquadHeroes         []BugSquadHero `json:"squad_heroes,omitempty"`
+
+	IsNPCSpawnCommandUsed bool              `json:"is_npc_spawn_command_used"`
+	NPCScalePreviews      []NPCScalePreview `json:"npc_scale_previews,omitempty"`
 }
 
 type BugMission struct {

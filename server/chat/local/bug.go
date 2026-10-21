@@ -193,6 +193,16 @@ func addBugText(archive *zip.Writer, req chat.BugCommand) error {
 	if err != nil {
 		return fmt.Errorf("contextWrite: %w", err)
 	}
+	_, err = fmt.Fprintf(w, "Command-spawned NPCs: %t\n", gameplay.IsNPCSpawnCommandUsed)
+	if err != nil {
+		return fmt.Errorf("spawnContextWrite: %w", err)
+	}
+	for _, preview := range gameplay.NPCScalePreviews {
+		_, err = fmt.Fprintf(w, "NPC scale preview: %s object=%d multiplier=%g body_scale=%g\n", preview.NounName, preview.ObjectID, preview.Multiplier, preview.BodyScale)
+		if err != nil {
+			return fmt.Errorf("scaleContextWrite: %w", err)
+		}
+	}
 	return nil
 }
 

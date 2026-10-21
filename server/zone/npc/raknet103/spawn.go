@@ -71,6 +71,9 @@ func spawn(plan zonenpc.SpawnPlan, isRemnant bool) ([][]byte, error) {
 	if isElite {
 		attribute[uint8(game.AttributeBodyScale)] = zonenpc.EliteBonusForType(profile.NPCType).BodyScale
 	}
+	if plan.ScalePreviewMultiplier > 0 {
+		attribute[uint8(game.AttributeBodyScale)] = plan.PreviewBodyScale(0)
+	}
 	// The noun already owns its authored graphics scale. The create field is a
 	// runtime multiplier, so replaying the noun scale here enlarges major actors
 	// twice (for example, TutorialSpecialOne became 2.3 * 2.3).

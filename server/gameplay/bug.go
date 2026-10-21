@@ -131,6 +131,15 @@ func bugContextForSession(
 		zoneSnapshot := peerSession.zone.Snapshot()
 		result.ZoneGeneration = zoneSnapshot.Generation
 		result.ZoneState = uint32(zoneSnapshot.State)
+		result.IsNPCSpawnCommandUsed = zoneSnapshot.IsNPCSpawnCommandUsed
+		for _, npc := range peerSession.zone.NPCs().LiveSnapshots() {
+			if npc.Plan.ScalePreviewMultiplier > 0 {
+				result.NPCScalePreviews = append(result.NPCScalePreviews, chat.NPCScalePreview{
+					ObjectID: npc.Plan.ObjectID, NounName: npc.Plan.NounName, Multiplier: npc.Plan.ScalePreviewMultiplier,
+					BodyScale: npc.Plan.ScalePreviewBodyScale,
+				})
+			}
+		}
 		abilityCount, isFound := peerSession.zone.AbilityCount(
 			zoneResultMember(peerSession),
 		)
