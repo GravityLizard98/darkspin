@@ -44,6 +44,7 @@ type BugContext struct {
 	SquadHeroes         []BugSquadHero `json:"squad_heroes,omitempty"`
 
 	IsNPCSpawnCommandUsed bool              `json:"is_npc_spawn_command_used"`
+	IsGodModeEnabled      bool              `json:"is_god_mode_enabled"`
 	NPCScalePreviews      []NPCScalePreview `json:"npc_scale_previews,omitempty"`
 }
 

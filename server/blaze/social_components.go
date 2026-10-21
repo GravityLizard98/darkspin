@@ -609,6 +609,25 @@ func messagingSendHandler(messenger *chat.Service, partyService *party.Service) 
 					return nil, fmt.Errorf("commandScale: %w", err)
 				}
 			}
+			if commandName == "/god" {
+				responseBody = "Syntax: /god (toggle invulnerability)"
+				if len(strings.Fields(body)) == 1 {
+					isEnabled, godErr := messenger.ToggleGodMode(ctx, chat.GodModeRequest{
+						Sender: chat.Participant{ID: user.Account.ID, Name: user.DisplayName},
+						GameID: user.CurrentGameID(),
+					})
+					if godErr == nil {
+						responseBody = "God mode disabled"
+						if isEnabled {
+							responseBody = "God mode enabled"
+						}
+					} else if errors.Is(godErr, chat.ErrGodModeUnavailable) {
+						responseBody = "God mode requires a living hero in an active mission"
+					} else {
+						return nil, fmt.Errorf("commandGod: %w", godErr)
+					}
+				}
+			}
 			if commandName == "/drop" {
 				responseBody = dropCommandHelp
 				field := strings.Fields(body)
@@ -1036,7 +1055,7 @@ const victorySyntax = "Syntax: /victory"
 const defeatSyntax = "Syntax: /defeat"
 
 const darkspinChatHelp = "Darkspin: /help | /taunt (availability info) | " + snapshotSyntax + " | /bug <what happened> | /b <what happened> | /ping | /hint | /loc | /stat | /follow [ally name] | /ai | /effect <exact-authored-name> [world] | " +
-	"/summon <rigid> <primary> <secondary> <suffix> | /level <1-100> | /warp [area] | /spawn <noun> | /scale <multiplier|reset> [radius] [noun filter] | /drop create [weapon|hand|foot|offense|defense|utility] | /dna <amount> | " +
+	"/summon <rigid> <primary> <secondary> <suffix> | /level <1-100> | /warp [area] | /spawn <noun> | /scale <multiplier|reset> [radius] [noun filter] | /god (toggle invulnerability) | /drop create [weapon|hand|foot|offense|defense|utility] | /dna <amount> | " +
 	"/damage <amount> | /heal | /power [negative amount] | /mana [negative amount] | /event [1|security-next|2|boss-start|3|boss-complete] | /goto <x> <y> <z> | /kill | /reset | /recap | /victory | /defeat | /exit | " +
 	"Built-in: /tell <player> <message> | /party <message> | /game <message> | /lobby <message> | " +
 	"/invite <player> | /leave | /friend <player> | /unfriend <player> | /block <player> | " +

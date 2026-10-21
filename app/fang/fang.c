@@ -4240,6 +4240,10 @@ static char* find_darkspin_chat_command(const char* text, int* command) {
                 *command = 30;
                 return (char*)cursor;
             }
+            if (is_darkspin_chat_command(cursor, "/god")) {
+                *command = 31;
+                return (char*)cursor;
+            }
             if (is_darkspin_chat_command(cursor, "/drop")) {
                 *command = 28;
                 return (char*)cursor;

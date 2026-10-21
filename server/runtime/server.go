@@ -863,6 +863,7 @@ func New(options Options) (*Server, error) {
 	chatService.UseLocationProvider(gameplayLifecycle)
 	chatService.UseResourceStatusProvider(gameplayLifecycle)
 	chatService.UseNPCScalePreviewer(gameplayLifecycle)
+	chatService.UseGodModeToggler(gameplayLifecycle)
 	snapshotService.UseStateProvider(gameplayLifecycle)
 	snapshotService.UseNotifier(snapshotNotifier{servers: allBlazeServers})
 	gameManager.UseRemovalObserver(gameplayLifecycle.DiscardGame)

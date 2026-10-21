@@ -203,6 +203,10 @@ func addBugText(archive *zip.Writer, req chat.BugCommand) error {
 			return fmt.Errorf("scaleContextWrite: %w", err)
 		}
 	}
+	_, err = fmt.Fprintf(w, "God mode: %t\n", gameplay.IsGodModeEnabled)
+	if err != nil {
+		return fmt.Errorf("godContextWrite: %w", err)
+	}
 	return nil
 }
 

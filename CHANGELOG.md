@@ -2,6 +2,7 @@
 
 ### 2026-10-21
 
+- Add /god to toggle testing invulnerability across hero switches, including enemy and lava damage, and record its state in bug reports.
 - Apply the client-authored elite HP bonus to /spawn captains, matching normal captain encounters.
 - Add /scale visual previews for nearby enemy NPCs with radius and noun filters, reset support, party-wide presentation and exact preview values in bug reports.
 - Allow /spawn in normal campaign and tutorial missions, and flag command-spawned NPCs in bug reports for all party members, including after checkpoint restoration.

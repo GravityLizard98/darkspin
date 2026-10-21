@@ -1320,6 +1320,9 @@ func (s *gameplayPeerSession) applyDeveloperResourceCommand(
 	if err != nil {
 		return nil, sporenet.PlayerStatDelta{}, fmt.Errorf("resourcePlan: %w", err)
 	}
+	if s.isGodModeEnabled && mutation.Damage > 0 {
+		return nil, sporenet.PlayerStatDelta{}, nil
+	}
 	if mutation.IsHitPointChanged && mutation.Damage == 0 {
 		_, err = s.setDeployedHitPoints(mutation.HitPoint)
 		if err != nil {

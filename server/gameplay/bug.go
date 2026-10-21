@@ -56,6 +56,7 @@ func bugContextForSession(
 	result.IsReplay = binding.IsReplay
 	result.IsCheckpointRestore = binding.IsCheckpointRestore
 	result.IsOverdriveUnlocked = binding.IsOverdriveUnlocked
+	result.IsGodModeEnabled = peerSession.isGodModeEnabled
 	result.IsDungeonSetupReady = peerSession.dungeonSetup.CanReserve()
 	result.IsDungeonSetupFinal = peerSession.dungeonSetup.IsCommitted()
 	result.Mission = chat.BugMission{

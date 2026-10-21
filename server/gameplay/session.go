@@ -573,6 +573,7 @@ type gameplayPeerSession struct {
 	lastPlayerStatus                     raknet.PlayerStatus
 	isPlayerStatusKnown                  bool
 	isCampaignPlayerInitialized          bool
+	isGodModeEnabled                     bool
 	dungeonSetup                         zonemember.Setup
 	transportGeneration                  uint64
 	schedulePackets                      func(time.Duration, [][]byte) error

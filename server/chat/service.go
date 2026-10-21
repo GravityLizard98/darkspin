@@ -355,6 +355,7 @@ type Service struct {
 	warpRequester          WarpRequester
 	npcSpawner             NPCSpawner
 	npcScalePreviewer      NPCScalePreviewer
+	godModeToggler         GodModeToggler
 	dnaGranter             DNAGranter
 	bugReporter            BugReporter
 	bugContext             BugContextProvider

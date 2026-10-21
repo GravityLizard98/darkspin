@@ -815,6 +815,7 @@ type gameplayHandlerDependencies struct {
 	registerLocation       func(chat.LocationProvider)
 	registerResourceStatus func(chat.ResourceStatusProvider)
 	registerNPCScale       func(chat.NPCScalePreviewer)
+	registerGodMode        func(chat.GodModeToggler)
 	registerSyncSnapshot   func(snapshot.StateProvider)
 	zoneTimer              zone.Timer
 	checkpoint             zonecheckpoint.Repository
@@ -833,6 +834,7 @@ type Lifecycle struct {
 	locationProvider       chat.LocationProvider
 	resourceStatusProvider chat.ResourceStatusProvider
 	npcScalePreviewer      chat.NPCScalePreviewer
+	godModeToggler         chat.GodModeToggler
 	syncSnapshot           snapshot.StateProvider
 }
 
@@ -1190,6 +1192,9 @@ func NewHandler(
 	dependency.registerNPCScale = func(registered chat.NPCScalePreviewer) {
 		lifecycle.npcScalePreviewer = registered
 	}
+	dependency.registerGodMode = func(registered chat.GodModeToggler) {
+		lifecycle.godModeToggler = registered
+	}
 	dependency.registerHint = func(registered chat.HintProvider) {
 		lifecycle.hintProvider = registered
 	}
@@ -1248,6 +1253,9 @@ func newGameplayHandlerWithDependencies(
 	}
 	if dependency.registerNPCScale != nil {
 		dependency.registerNPCScale(sessionRegistry)
+	}
+	if dependency.registerGodMode != nil {
+		dependency.registerGodMode(sessionRegistry)
 	}
 	if dependency.registerSyncSnapshot != nil {
 		dependency.registerSyncSnapshot(sessionRegistry)
