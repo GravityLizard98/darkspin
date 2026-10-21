@@ -2735,9 +2735,10 @@ func (e campaignCloudLobSchedule) produceLaunch() ([][]byte, error) {
 	if !isCurrent {
 		return nil, nil
 	}
-	// The client evaluates lob start times against its own frame clock.
+	// lobStartTime's reflected setter maps the server clock into simulation
+	// time. ClientTime is a wall-clock observation, not a server timestamp.
 	packets, err := abilityraknet.CloudLobLaunch(
-		e.plan, e.projectileObjectID, e.projectileIndex, e.packet.ClientTime,
+		e.plan, e.projectileObjectID, e.projectileIndex, e.packet.SourceTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("campaignCloudLobLaunch: %w", err)
@@ -4043,7 +4044,6 @@ func (r campaignAbilityCommandRuntime) handleCloudLobBasic(
 	repeatPacket := packet
 	repeatPacket.Payload = append([]byte(nil), packet.Payload...)
 	repeatPacket.SourceTime += uint64(repeatDelay / time.Millisecond)
-	repeatPacket.ClientTime += uint64(repeatDelay / time.Millisecond)
 	if isBasicHeldInput {
 		repeatStep := campaignHeldRepeatStep{
 			runtime: r, sessionKey: sessionKey, generation: generation,

@@ -1,5 +1,13 @@
 # Changelog
 
+### 2026-10-21
+
+- #95 Recognize recently acquired mission items when dropping them, restoring ground drops instead of only removing their inventory cards.
+- #95 Accept Charging Brute and Grappling Pulsar secondary-attack pursuits so server movement continues alongside client movement.
+- #95 Apply Charging Brute's client-authored charge speed multiplier through both approaches and restore normal speed on completion, cancellation and blockage.
+- #95 Keep Charging Brute and Pouncing Stalker server movement on the prepared footprint-aware stopping profile instead of advancing toward the target's center.
+- #95 Correct lobbed cloud projectiles from client wall-clock timestamps to server timestamps, matching the native client's existing simulation-time conversion.
+
 ### 2026-10-20
 
 - #94 Clear Arboreal Might's attached effect, modifier and body scale when action recovery cancels its expiry.

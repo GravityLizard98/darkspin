@@ -403,13 +403,14 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		}
 	}
 	if !isTargetFound {
-		restorePackets, restoreErr := nomadChargeCancelSpeed(objectID, enemy, profile)
+		restorePackets, restoreErr := chargeCancelSpeed(objectID, enemy, profile)
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
 		r.registry.mutex.Unlock()
 		if restoreErr != nil {
 			return nil, fmt.Errorf("enemyPursuitCancelSpeed: %w", restoreErr)
 		}
-		if profile.AbilityName == "NomadSpecialOneCharge" {
+		if profile.AbilityName == "NomadSpecialOneCharge" ||
+			profile.AbilityName == "VerdanthBasicPicky" {
 			stopPackets, stopErr := npcraknet.StopAtPose(
 				objectID, enemy.Plan.Position, enemy.Facing,
 			)
@@ -484,7 +485,7 @@ func (r campaignNPCPursuitRuntime) produceStep(
 		return nil, fmt.Errorf("enemyPursuitAdvance: %w", err)
 	}
 	if step.IsBlocked {
-		restorePackets, restoreErr := nomadChargeCancelSpeed(objectID, enemy, profile)
+		restorePackets, restoreErr := chargeCancelSpeed(objectID, enemy, profile)
 		npcSession.ReleaseActionGeneration(objectID, owner, actionGeneration)
 		r.registry.sessions[sessionKey] = peerSession
 		r.registry.mutex.Unlock()

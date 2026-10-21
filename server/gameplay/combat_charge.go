@@ -54,6 +54,7 @@ func (e campaignChargeSchedule) fail(
 func (e campaignChargeSchedule) restoreMovementState() ([][]byte, error) {
 	if e.plan.Profile.AbilityName != "BoomerCharge" &&
 		e.plan.Profile.AbilityName != "NocturnaSpecialDriftCharge" &&
+		e.plan.Profile.AbilityName != "VerdanthBasicPicky" &&
 		e.plan.Profile.AbilityName != "NomadSpecialOneCharge" {
 		return nil, nil
 	}
@@ -68,7 +69,8 @@ func (e campaignChargeSchedule) restoreMovementState() ([][]byte, error) {
 	if !isEnemyFound || (e.plan.ActionGeneration != 0 && enemy.ActionGeneration != e.plan.ActionGeneration) {
 		return nil, nil
 	}
-	if e.plan.Profile.AbilityName == "NomadSpecialOneCharge" {
+	if e.plan.Profile.AbilityName == "NomadSpecialOneCharge" ||
+		e.plan.Profile.AbilityName == "VerdanthBasicPicky" {
 		packets, err := npcraknet.ChargeMovementSpeed(
 			e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan),
 		)
@@ -152,6 +154,7 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 	movementProfile.MovementSpeed += movementProfile.ForcedMovementSpeed
 	if movementProfile.AbilityName == "BoomerCharge" ||
 		movementProfile.AbilityName == "NomadSpecialOneCharge" ||
+		movementProfile.AbilityName == "VerdanthBasicPicky" ||
 		movementProfile.AbilityName == "NocturnaSpecialDriftCharge" {
 		// These charge scripts add speedIncrease to attribute 48, which native
 		// locomotion applies as a multiplier, not as flat world units/second.
@@ -160,6 +163,8 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 			baseSpeed = 3
 			if movementProfile.AbilityName == "NomadSpecialOneCharge" {
 				baseSpeed = 4
+			} else if movementProfile.AbilityName == "VerdanthBasicPicky" {
+				baseSpeed = 4.5
 			} else if movementProfile.AbilityName == "NocturnaSpecialDriftCharge" {
 				baseSpeed = 5
 			}
@@ -282,9 +287,10 @@ func (e campaignChargeSchedule) move() ([][]byte, error) {
 		}
 		return e.fail("enemyChargeMoveMarshal", err)
 	}
-	if movementProfile.AbilityName == "NomadSpecialOneCharge" {
-		// Abilities/0x5FEB4BF9.lua adds MovementSpeedBuff=3 for the
-		// charge, then removes it before the follow-up melee attack.
+	if movementProfile.AbilityName == "NomadSpecialOneCharge" ||
+		movementProfile.AbilityName == "VerdanthBasicPicky" {
+		// Abilities/0x5FEB4BF9.lua and 0x14E8B3F5.lua add
+		// MovementSpeedBuff=3 until the charge's final approach completes.
 		statePackets, stateErr := npcraknet.ChargeMovementSpeed(
 			e.objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan)+
 				movementProfile.ForcedMovementSpeed,
@@ -362,10 +368,11 @@ func (e campaignChargeSchedule) land(timestamp uint64) ([][]byte, error) {
 	return append([][]byte{animationPacket}, landingPackets...), nil
 }
 
-func nomadChargeCancelSpeed(
+func chargeCancelSpeed(
 	objectID uint32, enemy zonenpc.Snapshot, profile zonenpc.ActionProfile,
 ) ([][]byte, error) {
-	if profile.AbilityName != "NomadSpecialOneCharge" {
+	if profile.AbilityName != "NomadSpecialOneCharge" &&
+		profile.AbilityName != "VerdanthBasicPicky" {
 		return nil, nil
 	}
 	packets, err := npcraknet.ChargeMovementSpeed(
@@ -1070,7 +1077,7 @@ func (r campaignNPCActionRuntime) produceEnemyCharge(
 		}
 		scheduleErr := r.pursuit.schedule(
 			packet, sessionKey, generation, objectID, timestamp,
-			chargePursuit.TargetPosition, profile, step.resume,
+			chargePursuit.TargetPosition, chargePursuit.Profile, step.resume,
 		)
 		if scheduleErr != nil {
 			return nil, fmt.Errorf("enemyChargePursuitSchedule: %w", scheduleErr)
@@ -1223,28 +1230,41 @@ type campaignPickyLandingStep struct {
 	sessionKey string
 	generation uint64
 	objectID   uint32
+	charge     campaignChargeSchedule
 }
 
 func (e campaignPickyLandingStep) attack(timestamp uint64) ([][]byte, error) {
-	return e.runtime.produceVerdanthBasicPickyAttack(
+	restorePackets, restoreErr := e.charge.restoreMovementState()
+	if restoreErr != nil {
+		return e.charge.fail("pickySpeedRestore", restoreErr)
+	}
+	attackPackets, attackErr := e.runtime.produceVerdanthBasicPickyAttack(
 		e.packet, e.sessionKey, e.generation, e.objectID, timestamp, true,
 	)
+	if attackErr != nil {
+		return e.charge.fail("pickyLandingAttack", attackErr)
+	}
+	return append(restorePackets, attackPackets...), nil
 }
 
 func (r campaignNPCActionRuntime) produceVerdanthBasicPickyLanding(
 	packet raknet.Packet, sessionKey string, generation uint64,
 	objectID uint32, timestamp uint64, chargePlan zonenpc.AttackPlan,
 ) ([][]byte, error) {
+	charge := campaignChargeSchedule{
+		runtime: r, packet: packet, sessionKey: sessionKey,
+		generation: generation, objectID: objectID, plan: chargePlan,
+	}
 	landPacket, err := npcraknet.AnimationState(
 		objectID, chargePlan.Profile.EndAnimationName, timestamp,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("enemyPickyLand: %w", err)
+		return charge.fail("enemyPickyLand", err)
 	}
 	r.registry.mutex.RLock()
 	peerSession, isFound := r.registry.sessions[sessionKey]
-	isCurrent := isFound && peerSession.isCampaignNPCSourceActive(
-		generation, objectID,
+	isCurrent := isFound && peerSession.isCampaignNPCSourceGenerationActive(
+		generation, objectID, chargePlan.ActionGeneration,
 	)
 	if !isCurrent {
 		r.registry.mutex.RUnlock()
@@ -1256,42 +1276,54 @@ func (r campaignNPCActionRuntime) produceVerdanthBasicPickyLanding(
 	)
 	r.registry.mutex.RUnlock()
 	if !isEnemyFound || !isTargetFound {
-		r.releaseAction(sessionKey, generation, objectID)
-		return nil, nil
+		return charge.fail("pickyLandingTarget", errors.New("target unavailable"))
 	}
 	movementProfile := chargePlan.Profile
 	movementProfile.Range = 0.75
-	movementProfile.MovementSpeed += movementProfile.ForcedMovementSpeed
+	baseSpeed := enemy.Plan.NPCProfile.BaseCombatSpeed
+	if baseSpeed <= 0 {
+		baseSpeed = movementProfile.MovementSpeed
+	}
+	movementProfile.MovementSpeed = baseSpeed *
+		(1 + zonenpc.EffectiveMovementSpeedBuff(enemy.Plan) + movementProfile.ForcedMovementSpeed)
 	action, err := campaignNPCActionWithProfile(
 		enemy.Plan, target.ObjectID, target.Position, movementProfile,
 		target.ActorFootprintRadius,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("enemyPickyFinalApproachPlan: %w", err)
+		return charge.fail("pickyApproachPlan", err)
 	}
 	step := campaignPickyLandingStep{
 		runtime: r, packet: packet, sessionKey: sessionKey,
 		generation: generation, objectID: objectID,
+		charge: charge,
 	}
 	if !action.IsPursuitNeeded {
 		attackPackets, attackErr := step.attack(timestamp)
 		if attackErr != nil {
-			return nil, attackErr
+			return nil, fmt.Errorf("pickyCloseAttack: %w", attackErr)
 		}
 		return append([][]byte{landPacket}, attackPackets...), nil
 	}
 	pursuitPackets, err := npcraknet.Pursuit(action)
 	if err != nil {
-		return nil, fmt.Errorf("enemyPickyFinalApproachMarshal: %w", err)
+		return charge.fail("pickyApproachMarshal", err)
+	}
+	speedPackets, speedErr := npcraknet.ChargeMovementSpeed(
+		objectID, zonenpc.EffectiveMovementSpeedBuff(enemy.Plan)+movementProfile.ForcedMovementSpeed,
+	)
+	if speedErr != nil {
+		return charge.fail("pickyApproachSpeed", speedErr)
 	}
 	err = r.pursuit.schedule(
 		packet, sessionKey, generation, objectID, timestamp,
-		action.TargetPosition, movementProfile, step.attack,
+		action.TargetPosition, action.Profile, step.attack,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("enemyPickyFinalApproachSchedule: %w", err)
+		return charge.fail("pickyApproachSchedule", err)
 	}
-	return append([][]byte{landPacket}, pursuitPackets...), nil
+	packets := append([][]byte{landPacket}, speedPackets...)
+	return append(packets, pursuitPackets...), nil
 }
 
 func (r campaignNPCActionRuntime) produceVerdanthBasicPickyAttack(
@@ -1353,7 +1385,7 @@ func (r campaignNPCActionRuntime) produceVerdanthBasicPickyAttack(
 		}
 		scheduleErr := r.pursuit.schedule(
 			packet, sessionKey, generation, objectID, timestamp,
-			action.TargetPosition, profile, request.resume,
+			action.TargetPosition, action.Profile, request.resume,
 		)
 		if scheduleErr != nil {
 			return nil, fmt.Errorf("enemyPickyAttackPursuitSchedule: %w", scheduleErr)

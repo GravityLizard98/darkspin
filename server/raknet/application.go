@@ -440,6 +440,8 @@ type LobParameter struct {
 // dirtied by build-103's generic lob initializer. This type deliberately does
 // not choose its ordering relative to object creation or another component;
 // the original authoritative sender is absent from the client-shaped executable.
+// StartTimeMilliseconds uses the server clock: the lobStartTime reflection
+// setter converts it to the receiving client's simulation clock.
 type LobLocomotionMessage struct {
 	ObjectID              uint32
 	StartTimeMilliseconds uint64

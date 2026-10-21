@@ -7496,7 +7496,8 @@ func isCampaignNPCSecondaryPursuit(abilityName string) bool {
 	switch abilityName {
 	case "CryosBasicChargeHeadbutt", "GhostlyBoltFlee",
 		"NomadBioSpecialTwoJumpAttack", "CitadelSpecialTwo_Melee",
-		"Smash", "StealthAttack", "RezMelee":
+		"Smash", "StealthAttack", "RezMelee", "FastSwipe",
+		"VerdanthBasicPickyMelee", "VerdanthBasicPickyChargingAttack":
 		return true
 	default:
 		return false

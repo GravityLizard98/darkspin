@@ -139,7 +139,7 @@ func (e campaignLeapSchedule) launch() ([][]byte, error) {
 	arrivalTimestamp := e.timestamp + uint64(e.plan.Profile.HitDelay/time.Millisecond)
 	err = e.runtime.pursuit.schedule(
 		e.packet, e.sessionKey, e.generation, e.objectID,
-		arrivalTimestamp, action.TargetPosition, movementProfile, e.landWithDamage,
+		arrivalTimestamp, action.TargetPosition, action.Profile, e.landWithDamage,
 	)
 	if err != nil {
 		return e.fail("enemyLeapMoveSchedule", err)
@@ -420,7 +420,7 @@ func (r campaignNPCActionRuntime) produceEnemyLeap(
 		}
 		scheduleErr := r.pursuit.schedule(
 			packet, sessionKey, generation, objectID, timestamp,
-			action.TargetPosition, profile, resume.resume,
+			action.TargetPosition, action.Profile, resume.resume,
 		)
 		if scheduleErr != nil {
 			r.releaseAction(sessionKey, generation, objectID)
